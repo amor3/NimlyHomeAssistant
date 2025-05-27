@@ -11,4 +11,4 @@ jobs:
       - name: Run Home Assistant Integration Validation
         uses: home-assistant/actions/hassfest@master
         with:
-          directory: ./custom_components/nimly_digital_lock
+          directory: ['./custom_components/nimly_digital_lock']
