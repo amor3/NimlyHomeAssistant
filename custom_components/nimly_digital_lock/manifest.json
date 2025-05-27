@@ -1,6 +1,6 @@
 {
   "domain": "nimly_digital_lock",
-  "name": "Nimly Digital Lock",
+  "name": "Nimly Lock",
   "config_flow": true,
   "codeowners": ["@amor3"],
   "dependencies": ["zha"],
