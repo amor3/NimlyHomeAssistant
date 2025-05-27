@@ -1,0 +1,7 @@
+{
+  "name": "Zigbee Digital Lock",
+  "render_readme": true,
+  "domains": ["zigbee_digital_lock"],
+  "country": "SE",
+  "homeassistant": "2023.5.0"
+}

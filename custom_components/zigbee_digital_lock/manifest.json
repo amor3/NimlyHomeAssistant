@@ -1,0 +1,14 @@
+{
+  "domain": "zigbee_digital_lock",
+  "name": "Zigbee Digital Lock",
+  "version": "1.0.0",
+  "documentation": "https://github.com/yourusername/zigbee_digital_lock",
+  "requirements": [],
+  "dependencies": [
+    "zha"
+  ],
+  "codeowners": [
+    "@yourusername"
+  ],
+  "config_flow": true
+}

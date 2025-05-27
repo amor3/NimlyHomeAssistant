@@ -1,0 +1,10 @@
+{
+  "title": "Zigbee Digital Lock",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure your Zigbee Lock"
+      }
+    }
+  }
+}

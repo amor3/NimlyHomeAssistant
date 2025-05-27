@@ -1,0 +1,12 @@
+name: Validate Home Assistant Integration
+
+on: [push, pull_request]
+
+jobs:
+  hassfest:
+    name: Run hassfest validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Home Assistant Integration Validation
+        uses: home-assistant/actions/hassfest@master

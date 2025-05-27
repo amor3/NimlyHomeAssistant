@@ -1,0 +1,1 @@
+"""Zigbee Digital Lock integration."""
