@@ -1,14 +1,12 @@
-name: Validate Home Assistant Integration
+name: Validate with hassfest
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 
 jobs:
-  hassfest:
-    name: Run hassfest validation
-    runs-on: ubuntu-latest
+  validate:
+    runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v3
-      - name: Run Home Assistant Integration Validation
-        uses: home-assistant/actions/hassfest@master
-        with:
-          directory: ['./custom_components/nimly_digital_lock']
+      - uses: "actions/checkout@v2"
+      - uses: home-assistant/actions/hassfest@master
