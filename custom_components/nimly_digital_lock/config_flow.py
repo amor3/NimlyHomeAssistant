@@ -17,6 +17,6 @@ class ZigbeeDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_IEEE): str,
-                vol.Optional(CONF_NAME, default="Safe4 Front Door"): str
+                vol.Optional(CONF_NAME, default="Nimly - Front Door"): str
             })
         )

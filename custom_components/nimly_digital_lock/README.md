@@ -1,6 +1,6 @@
-# Zigbee Digital Lock (Safe4)
+# Nimly Digital Lock
 
-A custom Home Assistant integration for Safe4-compatible Zigbee digital locks, using the ZHA integration.
+A Home Assistant integration for Nimly Zigbee digital locks, using the ZHA integration.
 
 ## Features
 
@@ -17,13 +17,13 @@ A custom Home Assistant integration for Safe4-compatible Zigbee digital locks, u
 
 1. Copy this repository to your Home Assistant `custom_components/` folder:
    ```
-   custom_components/zigbee_digital_lock/
+   custom_components/nimly_digital_lock/
    ```
 
 2. Restart Home Assistant.
 
 3. In the UI, go to:
-   **Settings → Devices & Services → Add Integration → Zigbee Digital Lock**
+   **Settings → Devices & Services → Add Integration → Nimly Digital Lock**
 
 ## Configuration
 

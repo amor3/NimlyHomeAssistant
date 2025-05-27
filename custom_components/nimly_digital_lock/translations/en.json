@@ -1,0 +1,10 @@
+{
+  "title": "Nimly Digital Lock",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure your Nimly Lock"
+      }
+    }
+  }
+}
