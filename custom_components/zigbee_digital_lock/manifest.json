@@ -1,15 +1,11 @@
 {
-  "domain": "zigbee_digital_lock",
-  "name": "Zigbee Digital Lock",
-  "version": "1.0.0",
-  "documentation": "https://github.com/yourusername/zigbee_digital_lock",
-  "requirements": [],
-  "dependencies": [
-    "zha"
-  ],
-  "codeowners": [
-    "@yourusername"
-  ],
+  "domain": "nimly_digital_lock",
+  "name": "Nimly Digital Lock",
   "config_flow": true,
-  "iot_class": "local_push"
+  "codeowners": ["@amor3"],
+  "dependencies": ["zha"],
+  "documentation": "https://github.com/yourusername/zigbee_digital_lock",
+  "iot_class": "local_push",
+  "requirements": [],
+  "version": "1.0.0"
 }
