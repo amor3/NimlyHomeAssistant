@@ -11,6 +11,6 @@ blueprint:
     - platform: event
       event_type: zha_event
   action:
-    - service: notify.persistent_notification
+    - service: persistent_notification.create
       data:
         message: "Lock event: {{trigger.event.data.command}}"

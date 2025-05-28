@@ -3,7 +3,7 @@ blueprint:
   domain: automation
   input:
     lock_entity:
-      name: Lock Entity
+      name: Lock
       selector:
         entity:
           domain: lock
@@ -24,13 +24,13 @@ blueprint:
       entity_id: !input lock_entity
       to: "locked"
   action:
-    - service: zigbee_digital_lock.set_pin_code
+    - service: nimly_digital_lock.set_pin_code
       data:
-        ieee: "{{ state_attr(input.lock_entity, 'identifiers')[1] }}"
+        ieee: "{{ state_attr(input.lock_entity, 'identifiers')[0] }}"
         slot: !input slot
         code: !input code
     - delay: "00:00:{{ input.window }}"
-    - service: zigbee_digital_lock.clear_pin_code
+    - service: nimly_digital_lock.clear_pin_code
       data:
-        ieee: "{{ state_attr(input.lock_entity, 'identifiers')[1] }}"
+        ieee: "{{ state_attr(input.lock_entity, 'identifiers')[0] }}"
         slot: !input slot

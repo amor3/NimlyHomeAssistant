@@ -1,6 +1,6 @@
 {
   "title": {
-    "en": "Nimly Digital Lock"
+    "en": "Nimly Zigbee Digital Lock"
   },
   "config": {
     "step": {
@@ -12,7 +12,7 @@
         }
       },
       "options": {
-        "title": "Lock Options",
+        "title": "Options",
         "data": {
           "auto_relock_time": "Auto Relock (s)",
           "sound_volume": "Sound Volume"

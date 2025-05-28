@@ -1,6 +1,9 @@
+title: Nimly Lock Control
 views:
-  - title: Door Lock
-    path: doorlock
+  - title: Front Door
     cards:
       - type: lock
-        entity: lock.zigbee_lock_<your_ieee>
+        entity: lock.nimly_<your_ieee>
+      - type: entities
+        entities:
+          - sensor.nimly_<your_ieee>_battery

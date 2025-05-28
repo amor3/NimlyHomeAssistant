@@ -3,7 +3,7 @@ blueprint:
   domain: automation
   input:
     lock_entity:
-      name: Lock Entity
+      name: Lock
       selector:
         entity:
           domain: lock
