@@ -2,7 +2,7 @@ from homeassistant import config_entries
 import voluptuous as vol
 from homeassistant.const import CONF_NAME
 
-from . import DOMAIN
+from const import DOMAIN
 
 CONF_IEEE = "Lock address"
 CONF_NAME = "Name"
