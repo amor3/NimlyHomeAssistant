@@ -1,10 +1,3 @@
-try:
-    from homeassistant.components.sensor import DEVICE_CLASS_BATTERY, DEVICE_CLASS_SIGNAL_STRENGTH, SensorStateClass, SIGNAL_STRENGTH_DECIBELS
-except ImportError:
-    from homeassistant.const import DEVICE_CLASS_BATTERY, DEVICE_CLASS_SIGNAL_STRENGTH, PERCENTAGE
-    from homeassistant.components.sensor import SensorStateClass
-
-from homeassistant.const import PERCENTAGE
 DOMAIN = "zigbee_digital_lock"
 
 import logging
@@ -12,7 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.typing import HomeAssistantType
 from homeassistant.components.lock import LockEntity
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.helpers.device_registry import DeviceEntryType
 
 _LOGGER = logging.getLogger(__name__)
@@ -212,14 +205,14 @@ class ZigbeeLockSensor(SensorEntity):
     @property
     def device_class(self):
         if self._attribute == "battery":
-            return DEVICE_CLASS_BATTERY
+            return "battery"
         if self._attribute in ["rssi", "rssi_dbm"]:
-            return DEVICE_CLASS_SIGNAL_STRENGTH
+            return "signal_strength"
 
     @property
     def unit_of_measurement(self):
         if self._attribute == "battery":
-            return PERCENTAGE
+            return "%"
         if self._attribute == "battery_voltage":
             return "V"
         if self._attribute == "rssi_dbm":
