@@ -1,0 +1,24 @@
+blueprint:
+  name: Auto Lock After Unlock
+  domain: automation
+  input:
+    lock_entity:
+      name: Lock Entity
+      selector:
+        entity:
+          domain: lock
+    delay:
+      name: Delay (s)
+      default: 30
+      selector:
+        number:
+          min: 1
+  trigger:
+    - platform: state
+      entity_id: !input lock_entity
+      to: "unlocked"
+  action:
+    - delay: "00:00:{{ input.delay }}"
+    - service: lock.lock
+      target:
+        entity_id: !input lock_entity

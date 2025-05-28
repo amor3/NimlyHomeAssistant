@@ -1,0 +1,16 @@
+blueprint:
+  name: Notify on Lock/Unlock
+  domain: automation
+  input:
+    lock_entity:
+      name: Lock Entity
+      selector:
+        entity:
+          domain: lock
+  trigger:
+    - platform: event
+      event_type: zha_event
+  action:
+    - service: notify.persistent_notification
+      data:
+        message: "Lock event: {{trigger.event.data.command}}"

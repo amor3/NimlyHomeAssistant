@@ -1,9 +1,22 @@
 {
-  "title": "Nimly Digital Lock",
+  "title": {
+    "en": "Nimly Digital Lock"
+  },
   "config": {
     "step": {
       "user": {
-        "title": "Add your Nimly Lock"
+        "title": "Configure Nimly Lock",
+        "data": {
+          "ieee": "IEEE Address",
+          "name": "Lock Name"
+        }
+      },
+      "options": {
+        "title": "Lock Options",
+        "data": {
+          "auto_relock_time": "Auto Relock (s)",
+          "sound_volume": "Sound Volume"
+        }
       }
     }
   }

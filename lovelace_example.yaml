@@ -1,0 +1,6 @@
+views:
+  - title: Door Lock
+    path: doorlock
+    cards:
+      - type: lock
+        entity: lock.zigbee_lock_<your_ieee>

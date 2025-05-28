@@ -1,0 +1,36 @@
+blueprint:
+  name: One-Time Guest Code
+  domain: automation
+  input:
+    lock_entity:
+      name: Lock Entity
+      selector:
+        entity:
+          domain: lock
+    slot:
+      name: Slot Number
+      default: 5
+    code:
+      name: PIN Code
+      default: "123456"
+    window:
+      name: Validity Window (s)
+      default: 3600
+      selector:
+        number:
+          min: 60
+  trigger:
+    - platform: state
+      entity_id: !input lock_entity
+      to: "locked"
+  action:
+    - service: zigbee_digital_lock.set_pin_code
+      data:
+        ieee: "{{ state_attr(input.lock_entity, 'identifiers')[1] }}"
+        slot: !input slot
+        code: !input code
+    - delay: "00:00:{{ input.window }}"
+    - service: zigbee_digital_lock.clear_pin_code
+      data:
+        ieee: "{{ state_attr(input.lock_entity, 'identifiers')[1] }}"
+        slot: !input slot
