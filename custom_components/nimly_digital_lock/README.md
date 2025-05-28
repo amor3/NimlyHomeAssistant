@@ -28,8 +28,8 @@ A Home Assistant integration for Nimly Zigbee digital locks, using the ZHA integ
 ## Configuration
 
 When adding the integration, supply:
-- IEEE address of your lock (as shown by ZHA)
-- A friendly name
+Address(IEEE) of your lock (as shown by ZHA)
+- A friendly name, such as "Front door"
 
 No YAML needed.
 
@@ -37,6 +37,11 @@ No YAML needed.
 
 - Home Assistant 2023.5 or newer
 - ZHA integration (using a Zigbee coordinator)
+
+## Tested Zigbee controllers
+- Home Assistant SkyConnect / Connect ZBT-1
+- 
+
 
 ## License
 

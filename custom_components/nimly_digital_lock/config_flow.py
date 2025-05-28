@@ -1,10 +1,10 @@
 from homeassistant import config_entries
 import voluptuous as vol
 from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_IEEE
 
 from . import DOMAIN
 
-CONF_IEEE = "ieee"
 
 class ZigbeeDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
