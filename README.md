@@ -1,2 +1,2 @@
-# Nimly Zigbee Digital Lock Integration
+# Nimly Digital Lock Integration
 ...
