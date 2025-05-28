@@ -6,7 +6,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.typing import HomeAssistantType
 from homeassistant.components.lock import LockEntity
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.const import DEVICE_CLASS_BATTERY, DEVICE_CLASS_SIGNAL_STRENGTH, PERCENTAGE
+from homeassistant.components.sensor import DEVICE_CLASS_BATTERY, DEVICE_CLASS_SIGNAL_STRENGTH
+from homeassistant.const import PERCENTAGE
 from homeassistant.helpers.device_registry import DeviceEntryType
 
 _LOGGER = logging.getLogger(__name__)
