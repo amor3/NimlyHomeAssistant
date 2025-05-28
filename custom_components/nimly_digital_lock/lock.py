@@ -45,7 +45,7 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
     ieee = config_entry.data.get("ieee")
-    name = config_entry.data.get("name", "Safe4 Front Door")
+    name = config_entry.data.get("name", "Nimly Front Door")
     lock = ZigbeeDigitalLock(hass, ieee, name)
     sensors = [ZigbeeLockSensor(hass, ieee, attr, f"{name} {attr.replace('_', ' ').title()}") for attr in SENSOR_ATTRIBUTES]
     binary = ZigbeeLockBinarySensor(hass, ieee, f"{name} Battery Low")
@@ -81,8 +81,8 @@ class ZigbeeDigitalLock(LockEntity):
         return {
             "identifiers": {(DOMAIN, self._ieee)},
             "name": self._name,
-            "manufacturer": "Safe4",
-            "model": "Zigbee Door Lock Module",
+            "manufacturer": "Nimly",
+            "model": "Nimly Zigbee Door Lock",
             "sw_version": "1.0",
             "entry_type": DeviceEntryType.SERVICE,
         }
