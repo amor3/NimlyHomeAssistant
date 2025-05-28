@@ -1,12 +1,12 @@
-"""Nimly Digital Lock integration."""
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from .lock import async_setup_entry as lock_async_setup_entry
 
-from .const import DOMAIN
-
-async def async_setup(hass, config):
-    """Set up the integration via YAML (if supported)."""
+async def async_setup(hass: HomeAssistant, config: dict):
+    """Set up the integration."""
     return True
 
-async def async_setup_entry(hass, entry):
-    """Set up integration from config flow entry."""
-    # Set up platforms here if you have any (lock, sensor)
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Set up from config flow entry."""
+    await lock_async_setup_entry(hass, entry, hass.helpers.entity_platform.async_add_entities)
     return True
