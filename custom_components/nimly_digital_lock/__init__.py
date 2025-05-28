@@ -10,3 +10,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up from config flow entry."""
     await lock_async_setup_entry(hass, entry, hass.helpers.entity_platform.async_add_entities)
     return True
+
+from homeassistant.helpers import config_validation as cv
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema

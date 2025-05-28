@@ -11,10 +11,5 @@
   "documentation": "https://github.com/amor3/NimlyHomeAssistant/tree/main/custom_components/nimly_digital_lock",
   "iot_class": "local_push",
   "requirements": [],
-  "version": "1.0.0",
-  "platforms": [
-    "lock",
-    "sensor",
-    "binary_sensor"
-  ]
+  "version": "1.0.0"
 }
