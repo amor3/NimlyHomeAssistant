@@ -99,43 +99,7 @@ LOCK_COMMANDS = {
     "clear_year_day_schedule": 0x10
 }
 
-# Zigbee Door Lock Cluster Attributes (from ZCL spec)
-LOCK_ATTRIBUTES = {
-    "lock_state": 0x0000,
-    "lock_type": 0x0001,
-    "actuator_enabled": 0x0002,
-    "door_state": 0x0003,
-    "door_open_events": 0x0004,
-    "door_closed_events": 0x0005,
-    "open_period": 0x0006,
-    "num_lock_records_supported": 0x0010,
-    "num_total_users_supported": 0x0011,
-    "num_pin_users_supported": 0x0012,
-    "num_rfid_users_supported": 0x0013,
-    "num_weekday_schedules_supported_per_user": 0x0014,
-    "num_yearday_schedules_supported_per_user": 0x0015,
-    "num_holiday_schedules_supported": 0x0016,
-    "max_pin_len": 0x0017,
-    "min_pin_len": 0x0018,
-    "max_rfid_len": 0x0019,
-    "min_rfid_len": 0x001A,
-    "enable_logging": 0x0020,
-    "language": 0x0021,
-    "led_settings": 0x0022,
-    "auto_relock_time": 0x0023,
-    "sound_volume": 0x0024,
-    "operating_mode": 0x0025,
-    "default_configuration_register": 0x0026,
-    "enable_local_programming": 0x0027,
-    "enable_one_touch_locking": 0x0028,
-    "enable_inside_status_led": 0x0029,
-    "enable_privacy_mode_button": 0x002A,
-    "wrong_code_entry_limit": 0x0030,
-    "user_code_temporary_disable_time": 0x0031,
-    "send_pin_over_the_air": 0x0032,
-    "require_pin_for_rf_operation": 0x0033,
-    "zigbee_security_level": 0x0034
-}
+# Door Lock Cluster Attributes reference
 
 # Zigbee Power Configuration Cluster Attributes
 POWER_ATTRIBUTES = {
@@ -194,10 +158,10 @@ def normalize_ieee(ieee):
 
     # Clean up to only contain hex characters
     ieee_clean = ''.join(c for c in ieee_no_colons if c.lower() in '0123456789abcdef')
-    ieee_no_colons = ieee_clean
+    ieee_no_colons = ieee_clean.lower()
 
     # Add colons if not present
-    ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+    ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)]).lower()
 
     return {
         "original": ieee,
@@ -256,35 +220,7 @@ def get_zha_address_for_command(hass, ieee=None, nwk=None):
         addresses["nwk"] = format_nwk_address(nwk)
 """ZHA mapping for lock commands and attributes."""
 
-# Lock commands mapping
-LOCK_COMMANDS = {
-    "lock": 0x00,      # Lock Door
-    "unlock": 0x01,    # Unlock Door
-    "toggle": 0x02,    # Toggle
-    "unlock_with_timeout": 0x03,  # Unlock with timeout
-    "get_log_record": 0x04,  # Get log record
-    "set_pin_code": 0x05,  # Set PIN code
-    "get_pin_code": 0x06,  # Get PIN code
-    "clear_pin_code": 0x07,  # Clear PIN code
-    "clear_all_pin_codes": 0x08,  # Clear all PIN codes
-    "set_user_status": 0x09,  # Set user status
-    "get_user_status": 0x0A,  # Get user status
-    "set_week_day_schedule": 0x0B,  # Set week day schedule
-    "get_week_day_schedule": 0x0C,  # Get week day schedule
-    "clear_week_day_schedule": 0x0D,  # Clear week day schedule
-    "set_year_day_schedule": 0x0E,  # Set year day schedule
-    "get_year_day_schedule": 0x0F,  # Get year day schedule
-    "clear_year_day_schedule": 0x10,  # Clear year day schedule
-    "set_holiday_schedule": 0x11,  # Set holiday schedule
-    "get_holiday_schedule": 0x12,  # Get holiday schedule
-    "clear_holiday_schedule": 0x13,  # Clear holiday schedule
-    "set_user_type": 0x14,  # Set user type
-    "get_user_type": 0x15,  # Get user type
-    "set_rfid_code": 0x16,  # Set RFID code
-    "get_rfid_code": 0x17,  # Get RFID code
-    "clear_rfid_code": 0x18,  # Clear RFID code
-    "clear_all_rfid_codes": 0x19,  # Clear all RFID codes
-}
+# We already have LOCK_COMMANDS defined above - not redefining
 
 # ZBT-1 specific lock commands
 ZBT1_LOCK_COMMANDS = {
@@ -292,14 +228,19 @@ ZBT1_LOCK_COMMANDS = {
     "unlock": 0x01,    # Unlock Door
 }
 
-# Lock attributes
-LOCK_ATTRIBUTES = {
-    "lock_state": 0x0000,  # Lock State
-    "lock_type": 0x0001,  # Lock Type
-    "actuator_enabled": 0x0002,  # Actuator Enabled
-    "door_state": 0x0003,  # Door State
-    "door_open_events": 0x0004,  # Door Open Events
-    "door_closed_events": 0x0005,  # Door Closed Events
+# Export individual command constants for direct use
+ZBT1_LOCK_COMMAND = 0x00    # Lock command
+ZBT1_UNLOCK_COMMAND = 0x01  # Unlock command
+
+# Lock attributes - Defined at module level to avoid duplicate declarations
+if 'LOCK_ATTRIBUTES' not in globals():
+    LOCK_ATTRIBUTES = {
+        "lock_state": 0x0000,  # Lock State
+        "lock_type": 0x0001,  # Lock Type
+        "actuator_enabled": 0x0002,  # Actuator Enabled
+        "door_state": 0x0003,  # Door State
+        "door_open_events": 0x0004,  # Door Open Events
+        "door_closed_events": 0x0005,  # Door Closed Events
     "open_period": 0x0006,  # Open Period
     "num_lock_records_supported": 0x0010,  # Number of Log Records Supported
     "num_total_users_supported": 0x0011,  # Number of Total Users Supported
@@ -370,30 +311,35 @@ POWER_ATTRIBUTES = {
     "battery_low": 0x9000,  # Custom attribute for battery low
 }
 
-def normalize_ieee(ieee):
-    """Normalize IEEE address to lowercase without colons."""
-    return ieee.replace(':', '').lower()
+def get_ieee_no_colons(ieee):
+    """Get IEEE address in lowercase without colons.
+
+    Args:
+        ieee: IEEE address in any format
+
+    Returns:
+        Lowercase IEEE address without colons
+    """
+    return normalize_ieee(ieee)["no_colons"]
 
 def format_ieee(ieee):
-    """Format IEEE address with lowercase and normalized format."""
-    # First normalize to ensure we have a clean string
-    ieee_clean = ieee.replace(':', '').lower()
+    """Format IEEE address with lowercase and normalized format with colons.
 
-    # Then format with colons
-    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+    Args:
+        ieee: IEEE address in any format
+
+    Returns:
+        Lowercase IEEE address with colons
+    """
+    return normalize_ieee(ieee)["with_colons"]
 
 def format_ieee_with_colons(ieee):
-    """Format IEEE address with colons regardless of input format."""
-    # First normalize to ensure we have a clean string
-    ieee_clean = ieee.replace(':', '').lower()
-
-    # Then format with colons
-    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
-    # Add the known working ZHA device addresses as fallbacks
-    addresses["zha_ieee"] = "f4:ce:36:0a:04:4d:31:f5"
-    addresses["zha_nwk"] = "0x7fdb"
-
-    return addresses
+    """Format IEEE address with colons regardless of input format.
+    This is an alias for format_ieee for backward compatibility.
+    """
+    # Format the IEEE to include colons
+    ieee_no_colons = ieee.replace(':', '').lower()
+    return ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
 
 # Add mapping for different ZHA gateway implementations
 def get_cluster_handler_name(gateway_type="zha"):

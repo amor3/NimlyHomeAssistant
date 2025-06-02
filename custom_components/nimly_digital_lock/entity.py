@@ -9,7 +9,7 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import callback
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
 # Import commands mapping for ZBT-1 devices and Safe4 ZigBee Door Lock specific constants
-from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS, format_ieee_with_colons, format_ieee, normalize_ieee, POWER_ATTRIBUTES, LOCK_ATTRIBUTES
+from .zha_mapping import LOCK_COMMANDS, format_ieee_with_colons, format_ieee, normalize_ieee, POWER_ATTRIBUTES, LOCK_ATTRIBUTES
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
 from .safe4_lock import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND, SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER

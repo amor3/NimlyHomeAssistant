@@ -42,19 +42,17 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ieee = user_input["ieee"]
 
             # Validate IEEE address length
-            # Remove any non-hex characters (like colons)
-            ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
+            # Use the normalized IEEE functions from zha_mapping
+            from .zha_mapping import normalize_ieee
+            ieee_formats = normalize_ieee(ieee)
+            ieee_clean = ieee_formats["no_colons"]
 
             # IEEE addresses should be exactly 16 hex characters (64 bits)
             if len(ieee_clean) != 16:
                 errors["device_selection" if "device_selection" in user_input else "ieee"] = "invalid_ieee_length"
             else:
-                # Format with colons for consistency
-                ieee_formatted = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
-
-                # Ensure all key formats are stored
-                from .zha_mapping import normalize_ieee
-                ieee_formats = normalize_ieee(ieee_formatted)
+                # Get formatted IEEE with colons for consistency
+                ieee_formatted = ieee_formats["with_colons"]
 
                 self._user_data = {
                     "ieee": ieee_formatted,  # Store the formatted version
@@ -164,11 +162,13 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_options(self, user_input=None):
         errors = {}
         if user_input is not None:
-            return self.async_create_entry(title=self.config_entry.title, data=self._user_data, options=user_input)
+            # We don't have access to config_entry here, just use the entry title from _user_data
+            return self.async_create_entry(title=self._user_data.get("name", "Nimly Front Door"), data=self._user_data, options=user_input)
 
+        # Use default values since we don't have access to existing options here
         data_schema = vol.Schema({
-            vol.Optional("auto_relock_time", default=self.config_entry.options.get("auto_relock_time", 1)): vol.All(int, vol.Range(min=0)),
-            vol.Optional("sound_volume", default=self.config_entry.options.get("sound_volume", 2)): vol.All(int, vol.Range(min=0, max=2)),
+            vol.Optional("auto_relock_time", default=1): vol.All(int, vol.Range(min=0)),
+            vol.Optional("sound_volume", default=2): vol.All(int, vol.Range(min=0, max=2)),
         })
         return self.async_show_form(
             step_id="options",

@@ -139,6 +139,8 @@ async def send_nordic_command(hass, ieee_address, command_id, payload=None, retr
 async def lock_door(hass, ieee_address):
     """Lock the door using Nordic ZBT-1 format."""
     _LOGGER.info(f"Locking door with Nordic ZBT-1 format: {ieee_address}")
+    # ZBT-1 lock command is 0x00
+    ZBT1_LOCK_COMMAND = 0x00
     return await send_nordic_command(hass, ieee_address, ZBT1_LOCK_COMMAND)
 
 async def unlock_door(hass, ieee_address):

@@ -18,7 +18,8 @@ class NimlySensor(SensorEntity):
 
         # Create truly unique ID by incorporating more components
         # Using a consistent format that's guaranteed to be unique across different installations
-        ieee_clean = ieee.replace(':', '').lower()
+        from .zha_mapping import normalize_ieee
+        ieee_clean = normalize_ieee(ieee)["no_colons"]
         self._unique_id = f"{DOMAIN}_{attribute}_{ieee_clean}_{entry_id}"
         self._attr_has_entity_name = True
 
