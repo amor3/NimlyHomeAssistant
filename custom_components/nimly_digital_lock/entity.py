@@ -55,8 +55,8 @@ class NimlyDigitalLock(LockEntity):
         else:
             service_method = "issue_zigbee_cluster_command"
 
-        # Try with different IEEE formats
-        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
+        # Try with different IEEE formats, including the specific ZHA IEEE address
+        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons, self._zha_ieee, self._zha_ieee_no_colons]
 
         for ieee_format in formats_to_try:
             try:
@@ -154,12 +154,16 @@ class NimlyDigitalLock(LockEntity):
         else:
             service_method = "read_zigbee_cluster_attribute"
 
-        # Try with different IEEE formats
-        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
+        # Try with different IEEE formats, including the specific ZHA IEEE address
+        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons, self._zha_ieee, self._zha_ieee_no_colons]
 
         # Log the available endpoints for ZBT-1
         zbt1_endpoints = get_zbt1_endpoints(self._hass, self._ieee)
         _LOGGER.debug(f"Available ZBT-1 endpoints for {self._ieee}: {zbt1_endpoints}")
+
+        # Also try to get endpoints for the specific ZHA device
+        zha_zbt1_endpoints = get_zbt1_endpoints(self._hass, self._zha_ieee)
+        _LOGGER.debug(f"Available ZBT-1 endpoints for ZHA device {self._zha_ieee}: {zha_zbt1_endpoints}")
 
         for ieee_format in formats_to_try:
             try:
@@ -203,6 +207,13 @@ class NimlyDigitalLock(LockEntity):
         # Normalize IEEE formats
         self._ieee_no_colons = ieee.replace(':', '').lower()
         self._ieee_with_colons = ':'.join([self._ieee_no_colons[i:i+2] for i in range(0, len(self._ieee_no_colons), 2)]) if ':' not in ieee else ieee
+
+        # Add the known ZHA device IEEE address as a fallback
+        self._zha_ieee = "f4:ce:36:0a:04:4d:31:f5"
+        self._zha_ieee_no_colons = self._zha_ieee.replace(':', '').lower()
+
+        # Log all available IEEE formats for debugging
+        _LOGGER.info(f"Available IEEE formats for device: Original: {ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}, ZHA IEEE: {self._zha_ieee}")
 
         # Use domain as prefix to ensure uniqueness across integrations
         self._unique_id = f"{DOMAIN}_lock_{self._ieee_no_colons}"
@@ -288,6 +299,29 @@ class NimlyDigitalLock(LockEntity):
                 _LOGGER.info("Standard lock attempts failed, trying ZBT-1 specific method according to Safe4 spec")
                 # Nordic Semiconductor format requires endpoint 11 and specific command format
                 endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
+
+                # First try using the known ZHA device directly
+                _LOGGER.info(f"Attempting to send lock command to ZHA device with IEEE {self._zha_ieee}")
+                try:
+                    # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
+                    # Command format exactly as specified: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00
+                    success = await async_send_command_zbt1(
+                        self._hass,
+                        self._zha_ieee,  # Use the ZHA device's IEEE address
+                        SAFE4_LOCK_COMMAND,  # Command ID must be exactly 0x00 for lock per spec
+                        0x0101,  # Door Lock cluster 0x0101
+                        endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
+                        params=None  # NO parameters allowed per specification
+                    )
+
+                    if success:
+                        _LOGGER.info(f"Successfully sent lock command to ZHA device {self._zha_ieee}")
+                        self._is_locked = True
+                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+                        self.async_write_ha_state()
+                        return True
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to send lock command to ZHA device: {e}")
 
                 for endpoint in endpoints:
                     _LOGGER.info(f"Trying lock with ZBT-1 method on endpoint {endpoint} per Safe4 specification")
@@ -381,6 +415,29 @@ class NimlyDigitalLock(LockEntity):
                 # Nordic Semiconductor format requires endpoint 11 and specific command format
                 endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
 
+                # First try using the known ZHA device directly
+                _LOGGER.info(f"Attempting to send unlock command to ZHA device with IEEE {self._zha_ieee}")
+                try:
+                    # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
+                    # Command format exactly as specified: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
+                    success = await async_send_command_zbt1(
+                        self._hass,
+                        self._zha_ieee,  # Use the ZHA device's IEEE address
+                        SAFE4_UNLOCK_COMMAND,  # Command ID must be exactly 0x01 for unlock per spec
+                        0x0101,  # Door Lock cluster 0x0101
+                        endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
+                        params=None  # NO parameters allowed per specification
+                    )
+
+                    if success:
+                        _LOGGER.info(f"Successfully sent unlock command to ZHA device {self._zha_ieee}")
+                        self._is_locked = False
+                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+                        self.async_write_ha_state()
+                        return True
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to send unlock command to ZHA device: {e}")
+
                 for endpoint in endpoints:
                     _LOGGER.info(f"Trying unlock with ZBT-1 method on endpoint {endpoint} per Safe4 specification")
 
@@ -435,6 +492,34 @@ class NimlyDigitalLock(LockEntity):
 
         # Try to read the current lock state from the physical device
         try:
+            # First, try to read attributes from the known ZHA device
+            _LOGGER.debug(f"Trying to read attributes from ZHA device with IEEE {self._zha_ieee}")
+            try:
+                # Read lock state using Safe4 module first (most reliable)
+                result = await read_safe4_attribute(
+                    self._hass,
+                    self._zha_ieee,  # Use the ZHA device IEEE
+                    SAFE4_DOOR_LOCK_CLUSTER,
+                    0x0000  # Lock state attribute
+                )
+
+                if result:
+                    _LOGGER.info(f"Successfully read lock state from ZHA device {self._zha_ieee}")
+
+                # Read the battery level using Safe4 module
+                battery_result = await read_safe4_attribute(
+                    self._hass,
+                    self._zha_ieee,  # Use the ZHA device IEEE
+                    SAFE4_POWER_CLUSTER,
+                    0x0021  # Battery percentage remaining
+                )
+
+                if battery_result:
+                    _LOGGER.info(f"Successfully read battery level from ZHA device {self._zha_ieee}")
+            except Exception as e:
+                _LOGGER.warning(f"Failed to read attributes from ZHA device: {e}")
+
+            # Fall back to original approach if ZHA device reading failed
             # Try reading from multiple endpoints to find the one that works
             # Use endpoint 11 first for ZBT-1 per Nordic Semiconductor docs
             endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3, 242]
