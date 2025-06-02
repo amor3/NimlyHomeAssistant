@@ -1,7 +1,6 @@
-"""Support for ZBT-1 Zigbee devices from Nabu Casa.
+"""Support for ZBT-1 Zigbee devices with Nordic Semiconductor format.
 
-This module provides specific support functions for the Nabu Casa ZBT-1 device
-using the Nordic Semiconductor Zigbee format.
+This module adds specific support functions for the Nabu Casa ZBT-1 device.
 """
 
 import logging
@@ -36,7 +35,8 @@ async def async_send_command_zbt1(hass, ieee, command, cluster_id, endpoint_id=1
             "cluster_id": cluster_id,
             "endpoint_id": endpoint_id,  # Default to endpoint 11 for ZBT-1
             "command_type": "server",
-            "profile_id": 0x0104  # Home Automation profile (0x0104)
+            "profile_id": 0x0104,  # Home Automation profile (0x0104)
+            "manufacturer_code": 0  # Nordic Semiconductor uses standard manufacturer code
         }
 
         if params:
@@ -63,7 +63,7 @@ async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoi
         endpoint_id: Endpoint ID (default: 11)
 
     Returns:
-        Attribute value or None if not found
+        True if the read request was sent successfully, None if failed
     """
     # Check if we have the zigbee service
     if not hass.services.has_service("zigbee", "read_zigbee_cluster_attribute"):
@@ -78,7 +78,8 @@ async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoi
             "attribute": attribute_id,
             "endpoint_id": endpoint_id,
             "cluster_type": "in",
-            "profile_id": 0x0104  # Home Automation profile (0x0104)
+            "profile_id": 0x0104,  # Home Automation profile (0x0104)
+            "manufacturer_code": 0  # Nordic Semiconductor uses standard manufacturer code
         }
 
         _LOGGER.debug(f"Reading ZBT-1 attribute using Nordic format: {service_data}")
@@ -88,6 +89,8 @@ async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoi
         return True
     except Exception as e:
         _LOGGER.warning(f"Failed to read ZBT-1 attribute: {e}")
+        # For ZBT-1 devices, not finding a service is a normal condition when using ZHA
+        # Return None to indicate the operation didn't succeed
         return None
 
 
@@ -101,12 +104,19 @@ def get_zbt1_endpoints(hass, device_ieee):
     Returns:
         List of endpoint IDs or None if not found
     """
-    # Check if we have zigbee service
-    if not hass.services.has_service("zigbee", "get_devices"):
-        _LOGGER.debug("Zigbee get_devices service not available")
-        return None
+    try:
+        # For Nabu Casa ZBT-1 devices, we know that endpoint 11 is the primary endpoint
+        # This is based on Nordic Semiconductor Zigbee CLI documentation
+        # Even if get_devices service is not available, we can still return known endpoints
+        _LOGGER.debug(f"Using ZBT-1 endpoints for device {device_ieee}")
 
-    # Based on Nordic Semiconductor Zigbee CLI documentation, endpoint 11 is used for the lock cluster
-    # We'll still include other common endpoints as fallbacks
-    _LOGGER.debug(f"Using ZBT-1 endpoints for device {device_ieee}")
-    return [11, 1, 2, 3, 242]
+        # Return endpoints in priority order: 
+        # 11: Nordic Semiconductor primary endpoint
+        # 1: Standard Home Automation profile endpoint
+        # 242: Sometimes used for UART operations
+        # 2,3: Other common endpoints
+        return [11, 1, 242, 2, 3]
+    except Exception as e:
+        _LOGGER.warning(f"Error determining ZBT-1 endpoints: {e}")
+        # Return the most common endpoint (11) as fallback
+        return [11]

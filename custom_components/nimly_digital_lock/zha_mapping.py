@@ -1,8 +1,57 @@
-"""ZHA mapping utilities for Nimly lock integration.
+"""ZHA mapping constants for Nimly Digital Lock.
 
-This helper module provides mappings between ZHA command names and IDs
-for compatibility across different ZHA gateway implementations.
+This module provides mapping between string command names and their numeric IDs.
 """
+
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+
+# Door Lock cluster command IDs
+LOCK_COMMANDS = {
+    "lock_door": 0x00,
+    "unlock_door": 0x01,
+    "toggle": 0x02,
+    "unlock_with_timeout": 0x03,
+    "get_log_record": 0x04,
+    "set_pin_code": 0x05,
+    "get_pin_code": 0x06,
+    "clear_pin_code": 0x07,
+    "clear_all_pin_codes": 0x08,
+    "set_user_status": 0x09,
+    "get_user_status": 0x0A,
+    "set_week_day_schedule": 0x0B,
+    "get_week_day_schedule": 0x0C,
+    "clear_week_day_schedule": 0x0D,
+    "set_year_day_schedule": 0x0E,
+    "get_year_day_schedule": 0x0F,
+    "clear_year_day_schedule": 0x10,
+    "set_holiday_schedule": 0x11,
+    "get_holiday_schedule": 0x12,
+    "clear_holiday_schedule": 0x13,
+    "set_user_type": 0x14,
+    "get_user_type": 0x15,
+    "set_rfid_code": 0x16,
+    "get_rfid_code": 0x17,
+    "clear_rfid_code": 0x18,
+    "clear_all_rfid_codes": 0x19
+}
+
+
+def normalize_ieee(ieee):
+    """Normalize IEEE address to lowercase with colons.
+
+    Args:
+        ieee: IEEE address in any format
+
+    Returns:
+        Normalized IEEE address with colons
+    """
+    # Remove any non-hex characters
+    ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
+    # Format with colons for consistency
+    ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+    return ieee_with_colons.lower()
 
 # Standard Zigbee Cluster IDs
 LOCK_CLUSTER_ID = 0x0101  # Door Lock cluster

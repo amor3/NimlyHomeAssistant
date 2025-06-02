@@ -256,8 +256,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             "zha_ieee": zha_ieee_found
         }
 
-        # Always use zigbee service for ZBT-1 devices
+        # Always use zigbee service for Nabu Casa ZBT-1 devices
         hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
+        _LOGGER.info("Using 'zigbee' service for Nabu Casa ZBT-1 device")
 
         # Check if the direct ZHA service is available, or if Nabu Casa zigbee is present
         has_zha = hass.services.has_service("zha", "issue_zigbee_cluster_command")

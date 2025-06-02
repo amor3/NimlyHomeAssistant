@@ -268,7 +268,8 @@ class NimlyDigitalLock(LockEntity):
                         self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
                         LOCK_COMMANDS["lock_door"],  # Command ID 0x00 for lock
                         LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
-                        endpoint_id=endpoint  # Try endpoint 11 first (Nordic default)
+                        endpoint_id=endpoint,  # Try endpoint 11 first (Nordic default)
+                        params={}  # Ensure empty params are passed
                     )
 
                     if success:
@@ -331,7 +332,8 @@ class NimlyDigitalLock(LockEntity):
                         self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
                         LOCK_COMMANDS["unlock_door"],  # Command ID 0x01 for unlock
                         LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
-                        endpoint_id=endpoint  # Try endpoint 11 first (Nordic default)
+                        endpoint_id=endpoint,  # Try endpoint 11 first (Nordic default)
+                        params={}  # Ensure empty params are passed
                     )
 
                     if success:
@@ -365,14 +367,37 @@ class NimlyDigitalLock(LockEntity):
         try:
             # Try reading from multiple endpoints to find the one that works
             # Use endpoint 11 first for ZBT-1 per Nordic Semiconductor docs
-            endpoints = [11, 1, 2, 3, 242]  # ZBT-1 uses endpoint 11
+            endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3, 242]
+
             for endpoint in endpoints:
                 try:
                     _LOGGER.debug(f"Reading lock state from endpoint {endpoint}")
-                    await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0, endpoint)
+                    # Try ZBT-1 specific method first
+                    result = await async_read_attribute_zbt1(
+                        self._hass, 
+                        self._ieee_with_colons, 
+                        LOCK_CLUSTER_ID, 
+                        0,  # Lock state attribute
+                        endpoint_id=endpoint
+                    )
+
+                    if not result:
+                        # Fall back to standard method
+                        await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0, endpoint)
 
                     # Also try to read the battery level
-                    await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021, endpoint)
+                    battery_result = await async_read_attribute_zbt1(
+                        self._hass, 
+                        self._ieee_with_colons, 
+                        POWER_CLUSTER_ID, 
+                        0x0021,  # Battery percentage remaining
+                        endpoint_id=endpoint
+                    )
+
+                    if not battery_result:
+                        # Fall back to standard method
+                        await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021, endpoint)
+
                 except Exception as e:
                     _LOGGER.debug(f"Failed to read from endpoint {endpoint}: {e}")
         except Exception as e:
