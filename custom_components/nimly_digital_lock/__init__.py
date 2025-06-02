@@ -10,11 +10,6 @@ async def async_setup(hass: HomeAssistant, config: dict):
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    # Check if ZHA is available
-    if "zha" not in hass.data:
-        _LOGGER.error("ZHA integration is required but not found")
-        return False
-
     # Initialize the data dictionary for this entry
     ieee = entry.data["ieee"]
     _LOGGER.debug(f"Setting up Nimly Digital Lock with IEEE: {ieee}")
@@ -28,12 +23,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[f"{DOMAIN}:{ieee}:{attr}"] = None
         _LOGGER.debug(f"Initialized attribute {attr} for {ieee}")
 
-    # Verify device exists in ZHA
-    zha_gateway = hass.data.get("zha", {}).get("gateway", None)
-    if zha_gateway:
-        zha_device = zha_gateway.get_device(ieee)
-        if not zha_device:
-            _LOGGER.error(f"ZHA device not found for {ieee}. Please make sure it's paired to ZHA first.")
+    # Check if ZHA is available but don't fail if it's not
+    # This allows the integration to load even without ZHA
+    if "zha" not in hass.data:
+        _LOGGER.warning("ZHA integration not found. Some features may not work.")
+    else:
+        # Try to access ZHA gateway - the structure may vary by HA version
+        try:
+            # Different ways to access ZHA gateway depending on HA version
+            zha_data = hass.data["zha"]
+            if hasattr(zha_data, "gateway"):
+                zha_gateway = zha_data.gateway
+                if zha_gateway and hasattr(zha_gateway, "get_device"):
+                    zha_device = zha_gateway.get_device(ieee)
+                    if not zha_device:
+                        _LOGGER.warning(f"ZHA device {ieee} not found. Please make sure it's paired to ZHA first.")
+                    else:
+                        _LOGGER.debug(f"Found ZHA device: {ieee}")
+        except Exception as e:
+            _LOGGER.warning(f"Error accessing ZHA: {e}")
 
     await hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"])
     return True
