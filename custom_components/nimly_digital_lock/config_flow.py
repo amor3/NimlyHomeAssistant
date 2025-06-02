@@ -158,17 +158,36 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_options(self, user_input=None):
-        errors = {}
-        if user_input is not None:
-            return self.async_create_entry(title=self.config_entry.title, data=self._user_data, options=user_input)
+    @config_entries.HANDLERS.register(DOMAIN)
+    class OptionsFlowHandler(config_entries.OptionsFlow):
+        def __init__(self, config_entry):
+            """Initialize options flow."""
+            self.config_entry = config_entry
 
-        data_schema = vol.Schema({
-            vol.Optional("auto_relock_time", default=self.config_entry.options.get("auto_relock_time", 1)): vol.All(int, vol.Range(min=0)),
-            vol.Optional("sound_volume", default=self.config_entry.options.get("sound_volume", 2)): vol.All(int, vol.Range(min=0, max=2)),
-        })
-        return self.async_show_form(
-            step_id="options",
-            data_schema=data_schema,
-            errors=errors,
-        )
+        async def async_step_init(self, user_input=None):
+            """Manage options."""
+            errors = {}
+            if user_input is not None:
+                return self.async_create_entry(title="", data=user_input)
+
+            data_schema = vol.Schema({
+                vol.Optional(
+                    "auto_relock_time",
+                    default=self.config_entry.options.get("auto_relock_time", 1)
+                ): vol.All(int, vol.Range(min=0)),
+                vol.Optional(
+                    "sound_volume",
+                    default=self.config_entry.options.get("sound_volume", 2)
+                ): vol.All(int, vol.Range(min=0, max=2)),
+            })
+            return self.async_show_form(
+                step_id="init",
+                data_schema=data_schema,
+                errors=errors,
+            )
+
+    # Properly implement options flow as a class method
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return NimlyDigitalLockConfigFlow.OptionsFlowHandler(config_entry)
