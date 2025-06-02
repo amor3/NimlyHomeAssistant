@@ -7,8 +7,8 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
-# Import commands mapping for ZBT-1 devices
-from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS
+# Import commands mapping for ZBT-1 devices and Safe4 ZigBee Door Lock specific constants
+from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS, SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -262,23 +262,33 @@ class NimlyDigitalLock(LockEntity):
 
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
-                _LOGGER.info("Standard lock attempts failed, trying ZBT-1 specific method")
-                # Try with Nordic Semiconductor format, primarily on endpoint 11
-                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3]
+                _LOGGER.info("Standard lock attempts failed, trying ZBT-1 specific method according to Safe4 spec")
+                # Nordic Semiconductor format requires endpoint 11 and specific command format
+                endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
 
                 for endpoint in endpoints:
-                    _LOGGER.debug(f"Trying lock with ZBT-1 method on endpoint {endpoint}")
+                    _LOGGER.info(f"Trying lock with ZBT-1 method on endpoint {endpoint} per Safe4 specification")
 
-                    # For ZBT-1 with Nordic Semiconductor format
-                    # Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+                    # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
+                    # Command format exactly as specified: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00
+                    # Command ID must be 0x00 with NO parameters
                     success = await async_send_command_zbt1(
                         self._hass,
-                        self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
-                        ZBT1_LOCK_COMMANDS["lock_door"],  # Command ID 0x00 for lock - use ZBT1 specific commands
-                        LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
-                        endpoint_id=endpoint,  # Try endpoint 11 first (Nordic default)
-                        params={}  # Ensure empty params are passed
+                        self._ieee_with_colons,  # IEEE address with colons
+                        SAFE4_LOCK_COMMAND,  # Command ID must be exactly 0x00 for lock per spec
+                        0x0101,  # Door Lock cluster 0x0101
+                        endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
+                        params=None  # NO parameters allowed per specification
                     )
+
+                    if success:
+                        _LOGGER.info("Successfully sent Safe4 lock command")
+                        # Update internal state
+                        self._is_locked = True
+                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+                        return
+                    else:
+                        _LOGGER.error("Failed to send Safe4 lock command")
 
                     if success:
                         _LOGGER.info(f"ZBT-1 lock successful on endpoint {endpoint}")
@@ -330,23 +340,33 @@ class NimlyDigitalLock(LockEntity):
 
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
-                _LOGGER.info("Standard unlock attempts failed, trying ZBT-1 specific method")
-                # Try with Nordic Semiconductor format, primarily on endpoint 11
-                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3]
+                _LOGGER.info("Standard unlock attempts failed, trying ZBT-1 specific method according to Safe4 spec")
+                # Nordic Semiconductor format requires endpoint 11 and specific command format
+                endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
 
                 for endpoint in endpoints:
-                    _LOGGER.debug(f"Trying unlock with ZBT-1 method on endpoint {endpoint}")
+                    _LOGGER.info(f"Trying unlock with ZBT-1 method on endpoint {endpoint} per Safe4 specification")
 
-                    # For ZBT-1 with Nordic Semiconductor format
-                    # Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+                    # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
+                    # Command format exactly as specified: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
+                    # Command ID must be 0x01 with NO parameters
                     success = await async_send_command_zbt1(
                         self._hass,
-                        self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
-                        ZBT1_LOCK_COMMANDS["unlock_door"],  # Command ID 0x01 for unlock - use ZBT1 specific commands
-                        LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
-                        endpoint_id=endpoint,  # Try endpoint 11 first (Nordic default)
-                        params={}  # Ensure empty params are passed
+                        self._ieee_with_colons,  # IEEE address with colons
+                        SAFE4_UNLOCK_COMMAND,  # Command ID must be exactly 0x01 for unlock per spec
+                        0x0101,  # Door Lock cluster 0x0101
+                        endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
+                        params=None  # NO parameters allowed per specification
                     )
+
+                    if success:
+                        _LOGGER.info("Successfully sent Safe4 unlock command")
+                        # Update internal state
+                        self._is_locked = False
+                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+                        return
+                    else:
+                        _LOGGER.error("Failed to send Safe4 unlock command")
 
                     if success:
                         _LOGGER.info(f"ZBT-1 unlock successful on endpoint {endpoint}")

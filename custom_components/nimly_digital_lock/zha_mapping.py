@@ -195,5 +195,9 @@ def get_cluster_handler_name(gateway_type="zha"):
 # Zigbee profile ID used by ZBT-1 devices
 COMMAND_PROFILE = 0x0104  # Home Automation profile
 
-# ZBT-1 specific constants
-ZBT1_ENDPOINTS = [11, 1, 242, 2, 3]  # Common endpoints for ZBT-1, prioritizing Nordic endpoint 11
+# Safe4 ZigBee Door Lock specific constants
+ZBT1_ENDPOINTS = [11]  # Safe4 spec requires endpoint 11 only
+
+# Safe4 ZigBee Door Lock command constants per specification
+SAFE4_LOCK_COMMAND = 0x00
+SAFE4_UNLOCK_COMMAND = 0x01

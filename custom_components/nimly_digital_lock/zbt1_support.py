@@ -27,30 +27,45 @@ async def async_send_command_zbt1(hass, ieee, command, cluster_id, endpoint_id=1
         _LOGGER.debug("Zigbee command service not available")
         return False
 
-    # Attempt to send command with specific ZBT-1 format based on Nordic Semiconductor CLI
+    # Attempt to send command with specific ZBT-1 format based on Safe4 Specification
     try:
-        # For ZBT-1, we need to use endpoint 11 and specify the Home Automation profile
-        # For ZBT-1, we need to ensure proper format with Nordic Semiconductor
+        # According to Safe4 ZigBee Door Lock specification:
+        # - Must use endpoint 11
+        # - Must use profile 0x0104 (Home Automation)
+        # - Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+        # - NO parameters for lock/unlock commands
+
         service_data = {
-            "ieee": ieee,
-            "command": command,
-            "cluster_id": cluster_id,
-            "endpoint_id": endpoint_id,  # Default to endpoint 11 for ZBT-1
+            "ieee": ieee,            # IEEE address with colons
+            "command": command,      # Numeric command ID (0x00=lock, 0x01=unlock)
+            "cluster_id": cluster_id, # Must be 0x0101 for Door Lock cluster
+            "endpoint_id": 11,       # Must be exactly 11 per Safe4 spec
             "command_type": "server",
-            "profile_id": COMMAND_PROFILE,  # Home Automation profile from constants
-            "manufacturer_code": 0  # Nordic Semiconductor uses standard manufacturer code
+            "profile_id": 0x0104,    # Must be exactly 0x0104 (HA profile) per spec
+            "manufacturer_code": 0    # Must be standard manufacturer code
         }
 
-        if params:
+        # Only add params if they're explicitly provided and command requires them
+        # For lock/unlock (0x00/0x01), NO parameters should be passed
+        if params and command not in [0x00, 0x01]:
             service_data["params"] = params
 
-        _LOGGER.debug(f"Sending ZBT-1 command using Nordic format: {service_data}")
+        # Log the exact command for debugging in CLI format
+        command_str = f"zcl cmd {ieee} 11 0x{cluster_id:04x} -p 0x0104 0x{command:02x}"
+        _LOGGER.info(f"Sending Safe4 ZigBee Door Lock command: {command_str}")
+        _LOGGER.debug(f"Service data: {service_data}")
+
+        # Send the command with proper logging
         await hass.services.async_call(
             "zigbee", "issue_zigbee_cluster_command", service_data
         )
+        _LOGGER.info(f"Command sent successfully")
         return True
     except Exception as e:
-        _LOGGER.warning(f"Failed to send ZBT-1 command: {e}")
+        import traceback
+        _LOGGER.error(f"Failed to send Safe4 ZigBee command: {e}")
+        _LOGGER.error(f"Traceback: {traceback.format_exc()}")
+        _LOGGER.error(f"Service data attempted: {service_data if 'service_data' in locals() else 'Not created'}")
         return False
 
 
@@ -112,8 +127,8 @@ def get_zbt1_endpoints(hass, device_ieee):
         # Even if get_devices service is not available, we can still return known endpoints
         _LOGGER.debug(f"Using ZBT-1 endpoints for device {device_ieee}")
 
-        # Return endpoints in priority order from zha_mapping
-        return ZBT1_ENDPOINTS
+        # According to Safe4 ZigBee spec, only endpoint 11 should be used
+        return [11]
     except Exception as e:
         _LOGGER.warning(f"Error determining ZBT-1 endpoints: {e}")
         # Return the most common endpoint (11) as fallback
