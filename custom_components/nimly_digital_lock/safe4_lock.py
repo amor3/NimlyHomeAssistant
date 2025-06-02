@@ -1,163 +1,115 @@
-"""Safe4 ZigBee Door Lock implementation.
-
-This module implements the exact command format required by Safe4 ZigBee Door Lock
-according to the provided specification document.
-"""
+"""Safe4 lock implementation for Nimly digital locks."""
 
 import logging
+import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
-# Safe4 command constants
-SAFE4_LOCK_COMMAND = 0x00
-SAFE4_UNLOCK_COMMAND = 0x01
-SAFE4_DOOR_LOCK_CLUSTER = 0x0101
-SAFE4_POWER_CLUSTER = 0x0001
-SAFE4_ENDPOINT = 11
-SAFE4_PROFILE = 0x0104  # Home Automation profile
+# Safe4 Door Lock Constants
+SAFE4_DOOR_LOCK_CLUSTER = 0x0101  # Door Lock cluster
+SAFE4_POWER_CLUSTER = 0x0001  # Power Configuration cluster
+SAFE4_LOCK_COMMAND = 0x00  # Lock Door Command
+SAFE4_UNLOCK_COMMAND = 0x01  # Unlock Door Command
 
-async def send_safe4_lock_command(hass, ieee):
-    """Send lock command using exact Safe4 format.
+# Common endpoint IDs for locks
+COMMON_ENDPOINTS = [1, 11, 242, 2, 3]
 
-    Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00
+async def send_safe4_lock_command(hass, ieee_address):
+    """Send lock command to a Safe4 ZigBee door lock."""
+    return await _send_lock_command(hass, ieee_address, SAFE4_LOCK_COMMAND)
 
-    Args:
-        hass: Home Assistant instance
-        ieee: IEEE address (with or without colons)
+async def send_safe4_unlock_command(hass, ieee_address):
+    """Send unlock command to a Safe4 ZigBee door lock."""
+    return await _send_lock_command(hass, ieee_address, SAFE4_UNLOCK_COMMAND)
 
-    Returns:
-        True if command sent successfully, False otherwise
-    """
-    return await send_safe4_command(hass, ieee, SAFE4_LOCK_COMMAND)
+async def _send_lock_command(hass, ieee_address, command):
+    """Send a lock or unlock command to the Safe4 lock device."""
+    command_name = "lock" if command == SAFE4_LOCK_COMMAND else "unlock"
+    _LOGGER.info(f"Sending {command_name} command to Safe4 lock {ieee_address}")
 
-async def send_safe4_unlock_command(hass, ieee):
-    """Send unlock command using exact Safe4 format.
+    # Get the service domain to use - prefer zigbee (Nabu Casa) but fall back to ZHA
+    service_domain = "zigbee"
+    service_method = "issue_zigbee_cluster_command"
 
-    Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
+    # Check if the zigbee service is available, fall back to ZHA if not
+    has_zigbee = hass.services.has_service("zigbee", service_method)
+    if not has_zigbee:
+        service_domain = "zha"
+        _LOGGER.debug(f"Zigbee service not available, using ZHA service instead")
 
-    Args:
-        hass: Home Assistant instance
-        ieee: IEEE address (with or without colons)
+    # Try each common endpoint until one works
+    for endpoint_id in COMMON_ENDPOINTS:
+        try:
+            _LOGGER.debug(f"Trying endpoint {endpoint_id} with {command_name} command")
 
-    Returns:
-        True if command sent successfully, False otherwise
-    """
-    return await send_safe4_command(hass, ieee, SAFE4_UNLOCK_COMMAND)
+            # Prepare service data for the direct command
+            service_data = {
+                "ieee": ieee_address,
+                "endpoint_id": endpoint_id,
+                "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+                "command": command,
+                "command_type": "server",
+                "params": {}
+            }
 
-async def send_safe4_command(hass, ieee, command_id):
-    """Send a command to Safe4 ZigBee Door Lock using exact specification format.
+            # Call the service
+            await hass.services.async_call(
+                service_domain,
+                service_method,
+                service_data,
+                blocking=True
+            )
 
-    Args:
-        hass: Home Assistant instance
-        ieee: IEEE address (with or without colons)
-        command_id: Command ID (0x00 for lock, 0x01 for unlock)
+            _LOGGER.info(f"Successfully sent {command_name} command to endpoint {endpoint_id}")
+            return True
+        except Exception as e:
+            _LOGGER.warning(f"Failed to send {command_name} command to endpoint {endpoint_id}: {e}")
 
-    Returns:
-        True if command sent successfully, False otherwise
-    """
-    # Check if the zigbee service is available
-    if not hass.services.has_service("zigbee", "issue_zigbee_cluster_command"):
-        _LOGGER.error("Nabu Casa zigbee service not available - cannot control Safe4 lock")
-        return False
+    # If we get here, none of the endpoints worked
+    _LOGGER.error(f"All endpoints failed for {command_name} command")
+    return False
 
-    # Format IEEE address if needed
-    if ':' not in ieee:
-        formatted_ieee = ':'.join([ieee[i:i+2] for i in range(0, len(ieee), 2)])
-    else:
-        formatted_ieee = ieee
+async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
+    """Read an attribute from the Safe4 lock device."""
 
-    # Get command name for logging
-    command_name = "lock" if command_id == SAFE4_LOCK_COMMAND else "unlock"
+    # Get the service domain to use - prefer zigbee (Nabu Casa) but fall back to ZHA
+    service_domain = "zigbee"
+    service_method = "get_zigbee_cluster_attribute"
 
-    # Prepare service data exactly as required by the spec
-    service_data = {
-        "ieee": formatted_ieee,
-        "endpoint_id": SAFE4_ENDPOINT,       # Must be exactly 11
-        "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,  # 0x0101
-        "profile_id": SAFE4_PROFILE,        # 0x0104
-        "command": command_id,              # 0x00 or 0x01
-        "command_type": "server",
-        "manufacturer_code": 0              # Standard manufacturer code
-    }
+    # Check if the zigbee service is available, fall back to ZHA if not
+    has_zigbee = hass.services.has_service("zigbee", service_method)
+    if not has_zigbee:
+        service_domain = "zha"
+        _LOGGER.debug(f"Zigbee service not available, using ZHA service instead")
 
-    # Log exact command in CLI format from the spec
-    command_str = f"zcl cmd {formatted_ieee} 11 0x0101 -p 0x0104 0x{command_id:02x}"
-    _LOGGER.info(f"Sending Safe4 {command_name} command: {command_str}")
+    # Try each common endpoint until one works
+    for endpoint_id in COMMON_ENDPOINTS:
+        try:
+            _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id} at endpoint {endpoint_id}")
 
-    try:
-        await hass.services.async_call(
-            "zigbee", "issue_zigbee_cluster_command", service_data, blocking=True
-        )
-        _LOGGER.info(f"Safe4 {command_name} command sent successfully")
-        return True
-    except Exception as e:
-        import traceback
-        _LOGGER.error(f"Failed to send Safe4 {command_name} command: {e}")
-        _LOGGER.error(f"Traceback: {traceback.format_exc()}")
-        _LOGGER.error(f"Service data attempted: {service_data}")
-        return False
+            # Prepare service data for the attribute read
+            service_data = {
+                "ieee": ieee_address,
+                "endpoint_id": endpoint_id,
+                "cluster_id": cluster_id,
+                "attribute": attribute_id,
+                "manufacturer": None
+            }
 
-async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id):
-    """Read an attribute from Safe4 ZigBee Door Lock using exact specification format.
+            # Call the service
+            result = await hass.services.async_call(
+                service_domain,
+                service_method,
+                service_data,
+                blocking=True,
+                return_response=True
+            )
 
-    Args:
-        hass: Home Assistant instance
-        ieee: IEEE address (with or without colons)
-        cluster_id: Cluster ID (0x0101 for Door Lock, 0x0001 for Power)
-        attribute_id: Attribute ID to read
+            _LOGGER.info(f"Successfully read attribute {attribute_id}: {result}")
+            return result
+        except Exception as e:
+            _LOGGER.warning(f"Failed to read attribute {attribute_id} from endpoint {endpoint_id}: {e}")
 
-    Returns:
-        True if read request sent successfully, False otherwise
-    """
-    # Check if the zigbee service is available
-    if not hass.services.has_service("zigbee", "read_zigbee_cluster_attribute"):
-        _LOGGER.error("Nabu Casa zigbee service not available - cannot read Safe4 attributes")
-        return False
-
-    # Format IEEE address if needed
-    if ':' not in ieee:
-        formatted_ieee = ':'.join([ieee[i:i+2] for i in range(0, len(ieee), 2)])
-    else:
-        formatted_ieee = ieee
-
-    # Get attribute name for logging
-    attr_name = attribute_id
-    if cluster_id == SAFE4_DOOR_LOCK_CLUSTER:
-        from .zha_mapping import LOCK_ATTRIBUTES
-        for name, attr_id in LOCK_ATTRIBUTES.items():
-            if attr_id == attribute_id:
-                attr_name = name
-                break
-    elif cluster_id == SAFE4_POWER_CLUSTER:
-        from .zha_mapping import POWER_ATTRIBUTES
-        for name, attr_id in POWER_ATTRIBUTES.items():
-            if attr_id == attribute_id:
-                attr_name = name
-                break
-
-    # Prepare service data exactly as required by the spec
-    service_data = {
-        "ieee": formatted_ieee,
-        "endpoint_id": SAFE4_ENDPOINT,       # Must be exactly 11
-        "cluster_id": cluster_id,
-        "attribute": attribute_id,
-        "cluster_type": "in",
-        "profile_id": SAFE4_PROFILE,        # 0x0104
-        "manufacturer_code": 0              # Standard manufacturer code
-    }
-
-    # Log read operation
-    _LOGGER.info(f"Reading Safe4 attribute {attr_name} (0x{attribute_id:04x}) from cluster 0x{cluster_id:04x}")
-
-    try:
-        await hass.services.async_call(
-            "zigbee", "read_zigbee_cluster_attribute", service_data, blocking=True
-        )
-        _LOGGER.info(f"Safe4 attribute read request sent successfully")
-        return True
-    except Exception as e:
-        import traceback
-        _LOGGER.error(f"Failed to read Safe4 attribute: {e}")
-        _LOGGER.error(f"Traceback: {traceback.format_exc()}")
-        _LOGGER.error(f"Service data attempted: {service_data}")
-        return False
+    # If we get here, none of the endpoints worked
+    _LOGGER.error(f"All endpoints failed for reading attribute {attribute_id}")
+    return None

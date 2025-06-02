@@ -254,7 +254,141 @@ def get_zha_address_for_command(hass, ieee=None, nwk=None):
     # Process network address if provided
     if nwk:
         addresses["nwk"] = format_nwk_address(nwk)
+"""ZHA mapping for lock commands and attributes."""
 
+# Lock commands mapping
+LOCK_COMMANDS = {
+    "lock": 0x00,      # Lock Door
+    "unlock": 0x01,    # Unlock Door
+    "toggle": 0x02,    # Toggle
+    "unlock_with_timeout": 0x03,  # Unlock with timeout
+    "get_log_record": 0x04,  # Get log record
+    "set_pin_code": 0x05,  # Set PIN code
+    "get_pin_code": 0x06,  # Get PIN code
+    "clear_pin_code": 0x07,  # Clear PIN code
+    "clear_all_pin_codes": 0x08,  # Clear all PIN codes
+    "set_user_status": 0x09,  # Set user status
+    "get_user_status": 0x0A,  # Get user status
+    "set_week_day_schedule": 0x0B,  # Set week day schedule
+    "get_week_day_schedule": 0x0C,  # Get week day schedule
+    "clear_week_day_schedule": 0x0D,  # Clear week day schedule
+    "set_year_day_schedule": 0x0E,  # Set year day schedule
+    "get_year_day_schedule": 0x0F,  # Get year day schedule
+    "clear_year_day_schedule": 0x10,  # Clear year day schedule
+    "set_holiday_schedule": 0x11,  # Set holiday schedule
+    "get_holiday_schedule": 0x12,  # Get holiday schedule
+    "clear_holiday_schedule": 0x13,  # Clear holiday schedule
+    "set_user_type": 0x14,  # Set user type
+    "get_user_type": 0x15,  # Get user type
+    "set_rfid_code": 0x16,  # Set RFID code
+    "get_rfid_code": 0x17,  # Get RFID code
+    "clear_rfid_code": 0x18,  # Clear RFID code
+    "clear_all_rfid_codes": 0x19,  # Clear all RFID codes
+}
+
+# ZBT-1 specific lock commands
+ZBT1_LOCK_COMMANDS = {
+    "lock": 0x00,      # Lock Door
+    "unlock": 0x01,    # Unlock Door
+}
+
+# Lock attributes
+LOCK_ATTRIBUTES = {
+    "lock_state": 0x0000,  # Lock State
+    "lock_type": 0x0001,  # Lock Type
+    "actuator_enabled": 0x0002,  # Actuator Enabled
+    "door_state": 0x0003,  # Door State
+    "door_open_events": 0x0004,  # Door Open Events
+    "door_closed_events": 0x0005,  # Door Closed Events
+    "open_period": 0x0006,  # Open Period
+    "num_lock_records_supported": 0x0010,  # Number of Log Records Supported
+    "num_total_users_supported": 0x0011,  # Number of Total Users Supported
+    "num_pin_users_supported": 0x0012,  # Number of PIN Users Supported
+    "num_rfid_users_supported": 0x0013,  # Number of RFID Users Supported
+    "num_week_day_schedules_supported_per_user": 0x0014,  # Number of Week Day Schedules Supported Per User
+    "num_year_day_schedules_supported_per_user": 0x0015,  # Number of Year Day Schedules Supported Per User
+    "num_holiday_schedules_supported": 0x0016,  # Number of Holiday Schedules Supported
+    "max_pin_len": 0x0017,  # Max PIN Code Length
+    "min_pin_len": 0x0018,  # Min PIN Code Length
+    "max_rfid_len": 0x0019,  # Max RFID Code Length
+    "min_rfid_len": 0x001A,  # Min RFID Code Length
+    "enable_logging": 0x0020,  # Enable Logging
+    "language": 0x0021,  # Language
+    "led": 0x0022,  # LED
+    "auto_relock_time": 0x0023,  # Auto Relock Time
+    "sound_volume": 0x0024,  # Sound Volume
+    "operating_mode": 0x0025,  # Operating Mode
+    "supported_operating_modes": 0x0026,  # Supported Operating Modes
+    "default_configuration_register": 0x0027,  # Default Configuration Register
+    "enable_local_programming": 0x0028,  # Enable Local Programming
+    "enable_one_touch_locking": 0x0029,  # Enable One Touch Locking
+    "enable_inside_status_led": 0x002A,  # Enable Inside Status LED
+    "enable_privacy_mode_button": 0x002B,  # Enable Privacy Mode Button
+    "wrong_code_entry_limit": 0x0030,  # Wrong Code Entry Limit
+    "user_code_temporary_disable_time": 0x0031,  # User Code Temporary Disable Time
+    "send_pin_ota": 0x0032,  # Send PIN Over the Air
+    "require_pin_for_rf_operation": 0x0033,  # Require PIN for RF Operation
+    "zigbee_security_level": 0x0034,  # Security Level
+    "alarm_mask": 0x0040,  # Alarm Mask
+    "keypad_operation_event_mask": 0x0041,  # Keypad Operation Event Mask
+    "rf_operation_event_mask": 0x0042,  # RF Operation Event Mask
+    "manual_operation_event_mask": 0x0043,  # Manual Operation Event Mask
+    "rfid_operation_event_mask": 0x0044,  # RFID Operation Event Mask
+    "keypad_programming_event_mask": 0x0045,  # Keypad Programming Event Mask
+    "rf_programming_event_mask": 0x0046,  # RF Programming Event Mask
+    "rfid_programming_event_mask": 0x0047,  # RFID Programming Event Mask
+    "pin_used": 0x0101,  # PIN used for specific code
+    "rfid_used": 0x0102,  # RFID used for specific code
+    "diagnostics": 0x0103,  # Diagnostic information
+}
+
+# Power Configuration attributes
+POWER_ATTRIBUTES = {
+    "mains_voltage": 0x0000,  # MainsVoltage
+    "mains_frequency": 0x0001,  # MainsFrequency
+    "mains_alarm_mask": 0x0010,  # MainsAlarmMask
+    "mains_voltage_min_threshold": 0x0011,  # MainsVoltageMinThreshold
+    "mains_voltage_max_threshold": 0x0012,  # MainsVoltageMaxThreshold
+    "mains_voltage_dwell_trip_point": 0x0013,  # MainsVoltageDwellTripPoint
+    "battery_voltage": 0x0020,  # BatteryVoltage
+    "battery_percentage_remaining": 0x0021,  # BatteryPercentageRemaining
+    "battery_manufacturer": 0x0030,  # BatteryManufacturer
+    "battery_size": 0x0031,  # BatterySize
+    "battery_a_h_rating": 0x0032,  # BatteryAHrRating
+    "battery_quantity": 0x0033,  # BatteryQuantity
+    "battery_rated_voltage": 0x0034,  # BatteryRatedVoltage
+    "battery_alarm_mask": 0x0035,  # BatteryAlarmMask
+    "battery_voltage_min_threshold": 0x0036,  # BatteryVoltageMinThreshold
+    "battery_voltage_threshold_1": 0x0037,  # BatteryVoltageThreshold1
+    "battery_voltage_threshold_2": 0x0038,  # BatteryVoltageThreshold2
+    "battery_voltage_threshold_3": 0x0039,  # BatteryVoltageThreshold3
+    "battery_percentage_min_threshold": 0x003A,  # BatteryPercentageMinThreshold
+    "battery_percentage_threshold_1": 0x003B,  # BatteryPercentageThreshold1
+    "battery_percentage_threshold_2": 0x003C,  # BatteryPercentageThreshold2
+    "battery_percentage_threshold_3": 0x003D,  # BatteryPercentageThreshold3
+    "battery_alarm_state": 0x003E,  # BatteryAlarmState
+    "battery_low": 0x9000,  # Custom attribute for battery low
+}
+
+def normalize_ieee(ieee):
+    """Normalize IEEE address to lowercase without colons."""
+    return ieee.replace(':', '').lower()
+
+def format_ieee(ieee):
+    """Format IEEE address with lowercase and normalized format."""
+    # First normalize to ensure we have a clean string
+    ieee_clean = ieee.replace(':', '').lower()
+
+    # Then format with colons
+    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+
+def format_ieee_with_colons(ieee):
+    """Format IEEE address with colons regardless of input format."""
+    # First normalize to ensure we have a clean string
+    ieee_clean = ieee.replace(':', '').lower()
+
+    # Then format with colons
+    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
     # Add the known working ZHA device addresses as fallbacks
     addresses["zha_ieee"] = "f4:ce:36:0a:04:4d:31:f5"
     addresses["zha_nwk"] = "0x7fdb"

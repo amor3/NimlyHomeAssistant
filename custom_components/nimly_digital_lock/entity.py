@@ -264,6 +264,10 @@ class NimlyDigitalLock(LockEntity):
 
     @property
     def is_locked(self):
+        # Get the current lock state from the data storage
+        lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
+        # Update the internal state to match
+        self._is_locked = bool(lock_state) if lock_state is not None else self._is_locked
         return self._is_locked
 
     @property

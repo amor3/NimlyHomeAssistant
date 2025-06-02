@@ -1,7 +1,7 @@
 {
   "domain": "nimly_digital_lock",
   "name": "Nimly Digital Lock",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "config_flow": true,
   "iot_class": "local_push",
   "dependencies": [],
