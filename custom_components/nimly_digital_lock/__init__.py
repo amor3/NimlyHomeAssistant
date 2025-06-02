@@ -259,6 +259,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Register services for diagnostics and troubleshooting
     from .utils.diagnostic import dump_diagnostics_to_log
     from .direct_command import send_direct_command
+    from .nordic import send_nordic_command, set_pin_code, clear_pin_code
 
     async def handle_run_diagnostics(call):
         """Handle the run_diagnostics service call."""
@@ -308,6 +309,59 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         else:
             _LOGGER.error("Manual command failed")
 
+    async def handle_nordic_command(call):
+        """Handle the send_nordic_command service call."""
+        ieee = call.data.get("ieee")
+        command_id = call.data.get("command_id")
+        retry_count = call.data.get("retry_count", 3)
+
+        if not ieee or command_id is None:
+            _LOGGER.error("IEEE and command_id are required")
+            return
+
+        _LOGGER.info(f"Sending Nordic ZBT-1 command: IEEE={ieee}, cmd=0x{command_id:02x}")
+        result = await send_nordic_command(hass, ieee, command_id, retry_count=retry_count)
+
+        if result:
+            _LOGGER.info("Nordic command succeeded")
+        else:
+            _LOGGER.error("Nordic command failed")
+
+    async def handle_set_pin_code(call):
+        """Handle the set_pin_code service call."""
+        ieee = call.data.get("ieee")
+        user_id = call.data.get("user_id")
+        pin_code = call.data.get("pin_code")
+
+        if not ieee or user_id is None or not pin_code:
+            _LOGGER.error("IEEE, user_id, and pin_code are required")
+            return
+
+        _LOGGER.info(f"Setting PIN code: IEEE={ieee}, user_id={user_id}")
+        result = await set_pin_code(hass, ieee, user_id, pin_code)
+
+        if result:
+            _LOGGER.info(f"Successfully set PIN code for user {user_id}")
+        else:
+            _LOGGER.error(f"Failed to set PIN code for user {user_id}")
+
+    async def handle_clear_pin_code(call):
+        """Handle the clear_pin_code service call."""
+        ieee = call.data.get("ieee")
+        user_id = call.data.get("user_id")
+
+        if not ieee or user_id is None:
+            _LOGGER.error("IEEE and user_id are required")
+            return
+
+        _LOGGER.info(f"Clearing PIN code: IEEE={ieee}, user_id={user_id}")
+        result = await clear_pin_code(hass, ieee, user_id)
+
+        if result:
+            _LOGGER.info(f"Successfully cleared PIN code for user {user_id}")
+        else:
+            _LOGGER.error(f"Failed to clear PIN code for user {user_id}")
+
     # Register the services
     hass.services.async_register(
         DOMAIN, "run_diagnostics", handle_run_diagnostics
@@ -315,6 +369,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     hass.services.async_register(
         DOMAIN, "send_direct_command", handle_direct_command
+    )
+
+    hass.services.async_register(
+        DOMAIN, "send_nordic_command", handle_nordic_command
+    )
+
+    hass.services.async_register(
+        DOMAIN, "set_pin_code", handle_set_pin_code
+    )
+
+    hass.services.async_register(
+        DOMAIN, "clear_pin_code", handle_clear_pin_code
     )
 
     # If device not found in device registry, try entity registry as a fallback

@@ -286,22 +286,27 @@ class NimlyDigitalLock(LockEntity):
         }
 
     async def async_lock(self, **kwargs):
-        """Lock the door using Safe4 ZigBee Door Lock commands."""
-        _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
+        """Lock the door using Nordic Semiconductor ZBT-1 format."""
+        _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Nordic ZBT-1 specification")
 
-        # First try with the direct command module (most reliable method)
-        from .direct_command import lock_door
-        _LOGGER.info(f"Attempting lock with direct command module")
+        # First try with the Nordic ZBT-1 command module (exact format from Nordic docs)
+        from .nordic import lock_door
+        _LOGGER.info(f"Attempting lock with Nordic ZBT-1 command module")
         success = await lock_door(self._hass, self._ieee_with_colons)
 
-        # If direct command succeeds, update state and return
+        # If Nordic command succeeds, update state and return
         if success:
-            _LOGGER.info(f"Successfully locked {self.name} using direct command")
+            _LOGGER.info(f"Successfully locked {self.name} using Nordic ZBT-1 format")
             # Update internal state
             self._is_locked = True
             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
             self.async_write_ha_state()
             return True
+
+        # If Nordic command fails, try with the direct command module as fallback
+        from .direct_command import lock_door as direct_lock_door
+        _LOGGER.info(f"Nordic command failed, trying direct command module")
+        success = await direct_lock_door(self._hass, self._ieee_with_colons)
 
         # If direct command fails, try the Safe4 lock module
         _LOGGER.info(f"Direct command failed, trying Safe4 module")
