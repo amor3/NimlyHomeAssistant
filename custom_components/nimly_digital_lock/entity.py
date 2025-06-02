@@ -245,7 +245,13 @@ class NimlyDigitalLock(LockEntity):
 
         # Add some debugging info to attributes
         self._attrs["simulated"] = "true" if not device_info or device_info["device_id"] == "simulated" else "false"
-        self._attrs["last_updated"] = self._hass.data.get("zha", {}).get("_last_update", "unknown")
+
+        # Check if zha data exists and has the expected structure
+        zha_data = self._hass.data.get("zha")
+        if zha_data and hasattr(zha_data, "get"):
+            self._attrs["last_updated"] = zha_data.get("_last_update", "unknown")
+        else:
+            self._attrs["last_updated"] = "unavailable"
 
         _LOGGER.debug(f"Updated lock state: {self._is_locked}, attributes: {self._attrs}")
 

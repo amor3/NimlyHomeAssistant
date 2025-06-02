@@ -130,9 +130,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
             "device_id": zha_device_id,
             "name": zha_device_entry.name,
-            "manufacturer": zha_device_entry.manufacturer,
-            "model": zha_device_entry.model,
-            "sw_version": zha_device_entry.sw_version,
+            "manufacturer": zha_device_entry.manufacturer or "Unknown",
+            "model": zha_device_entry.model or "Unknown",
+            "sw_version": zha_device_entry.sw_version or "1.0",
             "zha_ieee": zha_ieee_found
         }
 
