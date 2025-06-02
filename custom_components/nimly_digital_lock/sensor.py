@@ -1,10 +1,13 @@
 from homeassistant.core import HomeAssistant
+import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity import EntityCategory
 from .const import DOMAIN, ATTRIBUTE_MAP
+
+_LOGGER = logging.getLogger(__name__)
 
 class NimlySensor(SensorEntity):
     def __init__(self, hass, ieee, attribute, name, entry_id):
@@ -13,6 +16,14 @@ class NimlySensor(SensorEntity):
         self._attribute = attribute
         self._name = name
         self._unique_id = f"nimly_{attribute}_{ieee.replace(':','')}_{entry_id}"
+        self._attr_has_entity_name = True
+
+        # Initialize data for debugging
+        _LOGGER.debug(f"Initializing sensor: {self._name} for attribute {attribute}")
+        key = f"{DOMAIN}:{ieee}:{attribute}"
+        if key not in self._hass.data:
+            _LOGGER.warning(f"Key {key} not found in hass.data, initializing to None")
+            self._hass.data[key] = None
 
     @property
     def name(self):
@@ -24,7 +35,18 @@ class NimlySensor(SensorEntity):
 
     @property
     def native_value(self):
-        return self._hass.data.get(f"{DOMAIN}:{self._ieee}:{self._attribute}")
+        key = f"{DOMAIN}:{self._ieee}:{self._attribute}"
+        value = self._hass.data.get(key)
+        _LOGGER.debug(f"Sensor {self._name} reading {key}: {value}")
+        return value
+
+    async def async_update(self):
+        """Update method to refresh data from the lock entity."""
+        # We're not doing an actual update here since the lock entity handles that
+        # This is just to ensure we're getting the latest data
+        key = f"{DOMAIN}:{self._ieee}:{self._attribute}"
+        value = self._hass.data.get(key)
+        _LOGGER.debug(f"Sensor {self._name} updating, current value for {key}: {value}")
 
     @property
     def device_class(self):

@@ -1,6 +1,9 @@
+import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from .entity import NimlyLockBatteryLowSensor
+
+_LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     ieee = entry.data["ieee"]

@@ -103,6 +103,9 @@ class NimlyDigitalLock(LockEntity):
             return False
 
     async def async_update(self):
+        # Add detailed logging for debugging
+        _LOGGER.debug(f"Starting update for lock {self._name} [{self._ieee}]")
+
         try:
             resp = await self._hass.services.async_call(
                 "zha",
@@ -116,14 +119,18 @@ class NimlyDigitalLock(LockEntity):
                 },
                 return_response=True,
             )
+            _LOGGER.debug(f"Lock state response: {resp}")
             if resp and isinstance(resp, list):
                 state = resp[0]
                 self._is_locked = state == 1
+                _LOGGER.debug(f"Lock state: {state}, is_locked set to {self._is_locked}")
         except Exception as e:
             _LOGGER.error(f"Failed to poll lock state: {e}")
 
+        _LOGGER.debug(f"Reading {len(ATTRIBUTE_MAP)} attributes for {self._ieee}")
         for attr, (cid, aid) in ATTRIBUTE_MAP.items():
             try:
+                _LOGGER.debug(f"Reading attribute {attr} (cluster: 0x{cid:04x}, attr: 0x{aid:04x})")
                 resp = await self._hass.services.async_call(
                     "zha",
                     "read_zigbee_cluster_attributes",
@@ -136,60 +143,15 @@ class NimlyDigitalLock(LockEntity):
                     },
                     return_response=True,
                 )
+                _LOGGER.debug(f"Response for {attr}: {resp}")
                 value = resp[0] if resp else None
                 self._attrs[attr] = value
                 self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
+                _LOGGER.debug(f"Set {attr} = {value}")
             except Exception as e:
-                _LOGGER.debug("Error reading %s: %s", attr, e)
+                _LOGGER.error(f"Error reading {attr}: {e}")
 
 
-class NimlyLockSensor(LockEntity):
-    def __init__(self, hass, ieee, attribute, name):
-        self._hass = hass
-        self._ieee = ieee
-        self._attribute = attribute
-        self._name = name
-        self._unique_id = f"nimly_{attribute}_{ieee.replace(':','')}"
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def unique_id(self):
-        return self._unique_id
-
-    @property
-    def state(self):
-        return self._hass.data.get(f"{DOMAIN}:{self._ieee}:{self._attribute}")
-
-    @property
-    def device_class(self):
-        if self._attribute == "battery":
-            return "battery"
-        if self._attribute in ["rssi", "rssi_dbm"]:
-            return "signal_strength"
-        return None
-
-    @property
-    def unit_of_measurement(self):
-        if self._attribute == "battery":
-            return PERCENTAGE
-        if self._attribute == "battery_voltage":
-            return "V"
-        if self._attribute == "rssi_dbm":
-            return SIGNAL_STRENGTH_DECIBELS
-        if self._attribute == "rssi":
-            return "dB"
-        return None
-
-    @property
-    def entity_category(self):
-        return EntityCategory.DIAGNOSTIC
-
-    @property
-    def state_class(self):
-        return SensorStateClass.MEASUREMENT
 
 
 class NimlyLockBatteryLowSensor(BinarySensorEntity):
