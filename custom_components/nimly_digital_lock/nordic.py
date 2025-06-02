@@ -70,7 +70,6 @@ async def send_nordic_command(hass, ieee_address, command_id, payload=None, retr
                     "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
                     "command": command_id,
                     "command_type": "server",
-                    "profile": ZBT1_HOME_AUTOMATION_PROFILE,  # Add the profile ID as specified
                     "params": {}  # No parameters for lock/unlock per spec
                 }
 
@@ -92,6 +91,32 @@ async def send_nordic_command(hass, ieee_address, command_id, payload=None, retr
                 return True
             except Exception as e:
                 _LOGGER.warning(f"Failed to send Nordic command to {ieee} (attempt {attempt+1}): {e}")
+
+                # Check for specific errors
+                if "extra keys not allowed @ data['profile']" in str(e):
+                    _LOGGER.info("ZHA service doesn't accept 'profile' parameter, trying without it")
+                    try:
+                        # Try again without the profile parameter
+                        service_data = {
+                            "ieee": ieee,
+                            "endpoint_id": ZBT1_ENDPOINT,
+                            "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
+                            "command": command_id,
+                            "command_type": "server",
+                            "params": payload if payload else {}
+                        }
+
+                        await hass.services.async_call(
+                            "zha", 
+                            "issue_zigbee_cluster_command", 
+                            service_data,
+                            blocking=True
+                        )
+
+                        _LOGGER.info(f"Successfully sent Nordic ZBT-1 command 0x{command_id:02x} to {ieee} (without profile)")
+                        return True
+                    except Exception as inner_e:
+                        _LOGGER.warning(f"Failed second attempt without profile parameter: {inner_e}")
 
                 # Check for specific error about device not responding
                 if "device did not respond" in str(e).lower():
