@@ -8,8 +8,10 @@ from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
 # Import commands mapping for ZBT-1 devices and Safe4 ZigBee Door Lock specific constants
-from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS, SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND
+from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS, format_ieee_with_colons
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
+from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
+from .safe4_lock import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND, SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -233,22 +235,36 @@ class NimlyDigitalLock(LockEntity):
         }
 
     async def async_lock(self, **kwargs):
-        """Lock the door."""
-        _LOGGER.info(f"Locking {self._name} [{self._ieee}]")
+        """Lock the door using Safe4 ZigBee Door Lock commands."""
+        _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
 
-        # Get device info
-        device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
+        # IMPORTANT: Safe4 ZigBee Door Lock requires:
+        # - Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00
+        # - Must use endpoint 11 with no parameters
+
+        # Use the dedicated Safe4 lock module that implements the exact specification format
+        success = await send_safe4_lock_command(
+            self._hass,
+            self._ieee_with_colons  # IEEE address with colons
+        )
+
+        if success:
+            _LOGGER.info(f"Successfully locked {self.name} using Safe4 command format")
+            # Update internal state
+            self._is_locked = True
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+            self.async_write_ha_state()
+            return True
+
+        # If the Safe4 method failed, try standard methods as fallback
+        _LOGGER.warning("Safe4 lock command failed, trying standard methods")
 
         # Check if ZHA services are available
-        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zigbee")
         has_command_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
 
-        # If services are available, try to send the command
         if has_command_service:
-            _LOGGER.debug(f"Calling Zigbee service to lock door using IEEE: {self._ieee}")
-
-            # First try with the standard method
-            success = await self._send_zigbee_command("lock_door")
+            _LOGGER.debug(f"Trying standard service to lock door: {service_domain}")
 
             # If that fails, try with numeric command ID directly
             if not success:
@@ -311,22 +327,36 @@ class NimlyDigitalLock(LockEntity):
         return True
 
     async def async_unlock(self, **kwargs):
-        """Unlock the door."""
-        _LOGGER.info(f"Unlocking {self._name} [{self._ieee}]")
+        """Unlock the door using Safe4 ZigBee Door Lock commands."""
+        _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
 
-        # Get device info
-        device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
+        # IMPORTANT: Safe4 ZigBee Door Lock requires:
+        # - Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
+        # - Must use endpoint 11 with no parameters
+
+        # Use the dedicated Safe4 lock module that implements the exact specification format
+        success = await send_safe4_unlock_command(
+            self._hass,
+            self._ieee_with_colons  # IEEE address with colons
+        )
+
+        if success:
+            _LOGGER.info(f"Successfully unlocked {self.name} using Safe4 command format")
+            # Update internal state
+            self._is_locked = False
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+            self.async_write_ha_state()
+            return True
+
+        # If the Safe4 method failed, try standard methods as fallback
+        _LOGGER.warning("Safe4 unlock command failed, trying standard methods")
 
         # Check if ZHA services are available
-        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zigbee")
         has_command_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
 
-        # If services are available, try to send the command
         if has_command_service:
-            _LOGGER.debug(f"Calling Zigbee service to unlock door using IEEE: {self._ieee}")
-
-            # First try with the standard method
-            success = await self._send_zigbee_command("unlock_door")
+            _LOGGER.debug(f"Trying standard service to unlock door: {service_domain}")
 
             # If that fails, try with numeric command ID directly
             if not success:
@@ -404,32 +434,45 @@ class NimlyDigitalLock(LockEntity):
 
             for endpoint in endpoints:
                 try:
-                    _LOGGER.debug(f"Reading lock state from endpoint {endpoint}")
-                    # Try ZBT-1 specific method first
-                    result = await async_read_attribute_zbt1(
-                        self._hass, 
-                        self._ieee_with_colons, 
-                        LOCK_CLUSTER_ID, 
-                        0,  # Lock state attribute
-                        endpoint_id=endpoint
+                    _LOGGER.debug(f"Reading Safe4 lock attributes using endpoint 11 (required by spec)")
+
+                    # Read lock state using Safe4 module first (most reliable)
+                    result = await read_safe4_attribute(
+                        self._hass,
+                        self._ieee_with_colons,
+                        SAFE4_DOOR_LOCK_CLUSTER,
+                        0x0000  # Lock state attribute
                     )
 
                     if not result:
-                        # Fall back to standard method
-                        await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0, endpoint)
+                        # Fall back to ZBT-1 method
+                        _LOGGER.debug("Falling back to ZBT-1 method for lock state")
+                        await async_read_attribute_zbt1(
+                            self._hass, 
+                            self._ieee_with_colons, 
+                            LOCK_CLUSTER_ID, 
+                            0x0000,  # Lock state attribute
+                            endpoint_id=11  # Must be 11 per Safe4 spec
+                        )
 
-                    # Also try to read the battery level
-                    battery_result = await async_read_attribute_zbt1(
-                        self._hass, 
-                        self._ieee_with_colons, 
-                        POWER_CLUSTER_ID, 
-                        0x0021,  # Battery percentage remaining
-                        endpoint_id=endpoint
+                    # Read the battery level using Safe4 module
+                    battery_result = await read_safe4_attribute(
+                        self._hass,
+                        self._ieee_with_colons,
+                        SAFE4_POWER_CLUSTER,
+                        0x0021  # Battery percentage remaining
                     )
 
                     if not battery_result:
-                        # Fall back to standard method
-                        await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021, endpoint)
+                        # Fall back to ZBT-1 method
+                        _LOGGER.debug("Falling back to ZBT-1 method for battery")
+                        await async_read_attribute_zbt1(
+                            self._hass, 
+                            self._ieee_with_colons, 
+                            POWER_CLUSTER_ID, 
+                            0x0021,  # Battery percentage remaining
+                            endpoint_id=11  # Must be 11 per Safe4 spec
+                        )
 
                 except Exception as e:
                     _LOGGER.debug(f"Failed to read from endpoint {endpoint}: {e}")

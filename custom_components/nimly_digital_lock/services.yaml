@@ -1,5 +1,27 @@
 # Services for the Nimly Digital Lock component
+# Services for Nimly Digital Lock Integration
 
+send_safe4_command:
+  name: Send Safe4 Command
+  description: Send a command to a Safe4 ZigBee Door Lock using the exact format required by the specification.
+  fields:
+    ieee:
+      name: IEEE Address
+      description: IEEE address of the lock device (with or without colons)
+      required: true
+      example: "f4:ce:36:cc:35:e7:03:de"
+      selector:
+        text:
+    command:
+      name: Command
+      description: Command to send ("lock" or "unlock")
+      required: true
+      example: "lock"
+      selector:
+        select:
+          options:
+            - "lock"
+            - "unlock"
 send_raw_zigbee_command:
   description: Send a raw Zigbee command to the lock for debugging and troubleshooting
   fields:

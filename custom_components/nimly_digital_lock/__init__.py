@@ -107,58 +107,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Add direct Safe4 lock/unlock service
     async def send_safe4_command(call):
         """Send a direct command to Safe4 ZigBee Door Lock using exact spec format."""
+        from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command
+        from .zha_mapping import format_ieee_with_colons
+
         ieee = call.data["ieee"]
         command = call.data["command"].lower()
 
-        # Format the IEEE address
-        ieee_formats = normalize_ieee(ieee)
-        ieee_with_colons = ieee_formats["with_colons"]
+        # Format the IEEE address with colons
+        ieee_with_colons = format_ieee_with_colons(ieee)
 
-        # Map command to the correct value
+        success = False
+        # Call the appropriate Safe4 command function
         if command == "lock":
-            command_id = 0x00
-            command_name = "lock"
+            _LOGGER.info(f"Sending Safe4 lock command to {ieee_with_colons}")
+            success = await send_safe4_lock_command(hass, ieee_with_colons)
+
+            if success:
+                # Update state
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1
+
+                # Update the entity
+                entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
+                await hass.services.async_call(
+                    "homeassistant", "update_entity", {"entity_id": entity_id}
+                )
+
         elif command == "unlock":
-            command_id = 0x01
-            command_name = "unlock"
+            _LOGGER.info(f"Sending Safe4 unlock command to {ieee_with_colons}")
+            success = await send_safe4_unlock_command(hass, ieee_with_colons)
+
+            if success:
+                # Update state
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 0
+
+                # Update the entity
+                entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
+                await hass.services.async_call(
+                    "homeassistant", "update_entity", {"entity_id": entity_id}
+                )
+
         else:
             _LOGGER.error(f"Invalid Safe4 command: {command}. Use 'lock' or 'unlock'.")
             return False
 
-        # Prepare service data according to Safe4 specification
-        service_data = {
-            "ieee": ieee_with_colons,
-            "command": command_id,
-            "cluster_id": 0x0101,  # Door Lock cluster
-            "endpoint_id": 11,     # Must be exactly 11 per Safe4 spec
-            "command_type": "server",
-            "profile_id": 0x0104   # Must be exactly 0x0104 (HA profile) per spec
-        }
-
-        _LOGGER.info(f"Sending Safe4 {command_name} command to {ieee_with_colons}")
-
-        try:
-            await hass.services.async_call(
-                "zigbee", "issue_zigbee_cluster_command", service_data
-            )
-            _LOGGER.info(f"Safe4 {command_name} command sent successfully")
-
-            # Update state
-            if command == "lock":
-                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1
-            else:  # unlock
-                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 0
-
-            # Update the entity
-            entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
-            await hass.services.async_call(
-                "homeassistant", "update_entity", {"entity_id": entity_id}
-            )
-
-            return True
-        except Exception as e:
-            _LOGGER.error(f"Failed to send Safe4 {command_name} command: {e}")
-            return False
+        return success
 
     # Register the services
     hass.services.async_register(DOMAIN, "send_raw_zigbee_command", send_raw_zigbee_command)

@@ -53,6 +53,27 @@ def format_ieee(ieee):
     ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
     return ieee_with_colons.lower()
 
+def format_ieee_with_colons(ieee):
+    """Ensures IEEE address has colons, preserving original case.
+
+    This function is optimized for Nabu Casa ZBT-1 which may require specific IEEE format.
+
+    Args:
+        ieee: IEEE address with or without colons
+
+    Returns:
+        IEEE address with colons
+    """
+    # If already contains colons, return as is
+    if ':' in ieee:
+        return ieee
+
+    # Remove any non-hex characters
+    ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
+
+    # Format with colons
+    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+
 # Standard Zigbee Cluster IDs
 LOCK_CLUSTER_ID = 0x0101  # Door Lock cluster
 POWER_CLUSTER_ID = 0x0001  # Power Configuration cluster
