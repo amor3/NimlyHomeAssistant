@@ -67,15 +67,15 @@ async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoi
         return None
 
 
-async def async_send_command_zbt1(hass, ieee, command, cluster_id, endpoint_id=1, params=None):
-    """Send a command specifically formatted for ZBT-1.
+    async def async_send_command_zbt1(hass, ieee, command, cluster_id, endpoint_id=11, params=None):
+    """Send a command specifically formatted for ZBT-1 using Nordic Semiconductor format.
 
     Args:
         hass: Home Assistant instance
         ieee: IEEE address of the device
         command: Command to send (ID or name)
         cluster_id: Zigbee cluster ID
-        endpoint_id: Endpoint ID (default: 1)
+        endpoint_id: Endpoint ID (default: 11 for ZBT-1)
         params: Optional parameters
 
     Returns:
@@ -86,20 +86,22 @@ async def async_send_command_zbt1(hass, ieee, command, cluster_id, endpoint_id=1
         _LOGGER.debug("Zigbee command service not available")
         return False
 
-    # Attempt to send command with specific ZBT-1 format
+    # Attempt to send command with specific ZBT-1 format based on Nordic Semiconductor CLI
     try:
+        # For ZBT-1, we need to use endpoint 11 and specify the Home Automation profile
         service_data = {
             "ieee": ieee,
             "command": command,
             "cluster_id": cluster_id,
-            "endpoint_id": endpoint_id,
-            "command_type": "server"
+            "endpoint_id": endpoint_id,  # Default to endpoint 11 for ZBT-1
+            "command_type": "server",
+            "profile_id": 0x0104  # Home Automation profile (0x0104)
         }
 
         if params:
             service_data["params"] = params
 
-        _LOGGER.debug(f"Sending ZBT-1 command: {service_data}")
+        _LOGGER.debug(f"Sending ZBT-1 command using Nordic format: {service_data}")
         await hass.services.async_call(
             "zigbee", "issue_zigbee_cluster_command", service_data
         )
@@ -128,10 +130,10 @@ def get_zbt1_endpoints(hass, device_ieee):
         _LOGGER.debug("Zigbee get_devices service not available")
         return None
 
-    # For now, we'll return a list of common endpoints to try
-    # This is a fallback method until we can properly discover endpoints
-    _LOGGER.debug(f"Using common endpoints for device {device_ieee}")
-    return [1, 2, 3, 242]
+    # Based on Nordic Semiconductor Zigbee CLI documentation, endpoint 11 is used for the lock cluster
+    # We'll still include other common endpoints as fallbacks
+    _LOGGER.debug(f"Using ZBT-1 endpoints for device {device_ieee}")
+    return [11, 1, 2, 3, 242]
 
 async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoint_id=1):
     """Read an attribute specifically with ZBT-1 formatting.

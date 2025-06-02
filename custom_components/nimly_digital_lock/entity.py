@@ -47,16 +47,8 @@ class NimlyDigitalLock(LockEntity):
                     service_method = "issue_zigbee_cluster_command"
                     _LOGGER.info(f"Using fallback service domain: {service_domain}")
                 else:
-                    # No services available, running in simulated mode
-                    _LOGGER.info("No ZHA services available for sending commands, operating in simulated mode")
-                    self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
-                        "device_id": "simulated",
-                        "name": "Simulated Nimly Lock",
-                        "manufacturer": "Nimly",
-                        "model": "Simulated ZHA Lock",
-                        "sw_version": "1.0",
-                        "zha_ieee": self._ieee
-                    }
+                    # No services available, cannot operate without them
+                    _LOGGER.error("No Zigbee services available for sending commands. Cannot communicate with lock.")
                     return False
         else:
             service_method = "issue_zigbee_cluster_command"
@@ -147,16 +139,8 @@ class NimlyDigitalLock(LockEntity):
                     service_method = "read_zigbee_cluster_attribute"
                     _LOGGER.info(f"Using fallback service domain: {service_domain}")
                 else:
-                    # No services available, running in simulated mode
-                    _LOGGER.info("No ZHA services available, operating in simulated mode")
-                    self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
-                        "device_id": "simulated",
-                        "name": "Simulated Nimly Lock",
-                        "manufacturer": "Nimly",
-                        "model": "Simulated ZHA Lock",
-                        "sw_version": "1.0",
-                        "zha_ieee": self._ieee
-                    }
+                    # No services available, cannot operate without them
+                    _LOGGER.error("No Zigbee services available for reading attributes. Cannot communicate with lock.")
                     return False
         else:
             service_method = "read_zigbee_cluster_attribute"
@@ -255,8 +239,8 @@ class NimlyDigitalLock(LockEntity):
         service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
         has_command_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
 
-        # If we're in real mode (not simulated) and services are available, try to send the command
-        if device_info and device_info["device_id"] != "simulated" and has_command_service:
+        # If services are available, try to send the command
+        if has_command_service:
             _LOGGER.debug(f"Calling Zigbee service to lock door using IEEE: {self._ieee}")
 
             # First try with the standard method
@@ -294,10 +278,7 @@ class NimlyDigitalLock(LockEntity):
                 _LOGGER.warning("Failed to send lock command after multiple attempts. Using simulated state.")
         else:
             if not has_command_service:
-                _LOGGER.info(f"Service {service_domain}.issue_zigbee_cluster_command not available, using simulated mode")
-                # Force simulated mode since services aren't available
-                if device_info:
-                    device_info["device_id"] = "simulated"
+                _LOGGER.error(f"Service {service_domain}.issue_zigbee_cluster_command not available. Cannot control lock.")
             else:
                 _LOGGER.info("Operating in simulated mode or device info not found")
 
@@ -318,8 +299,8 @@ class NimlyDigitalLock(LockEntity):
         service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
         has_command_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
 
-        # If we're in real mode (not simulated) and services are available, try to send the command
-        if device_info and device_info["device_id"] != "simulated" and has_command_service:
+        # If services are available, try to send the command
+        if has_command_service:
             _LOGGER.debug(f"Calling Zigbee service to unlock door using IEEE: {self._ieee}")
 
             # First try with the standard method
@@ -334,17 +315,20 @@ class NimlyDigitalLock(LockEntity):
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
                 _LOGGER.info("Standard unlock attempts failed, trying ZBT-1 specific method")
-                # Try multiple endpoints
-                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [1, 2, 3, 242]
+                # Try with Nordic Semiconductor format, primarily on endpoint 11
+                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3]
 
                 for endpoint in endpoints:
                     _LOGGER.debug(f"Trying unlock with ZBT-1 method on endpoint {endpoint}")
+
+                    # For ZBT-1 with Nordic Semiconductor format
+                    # Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
                     success = await async_send_command_zbt1(
                         self._hass,
-                        self._ieee_with_colons,  # Try with colons format for ZBT-1
-                        LOCK_COMMANDS["unlock_door"],  # Use numeric ID directly
-                        LOCK_CLUSTER_ID,
-                        endpoint_id=endpoint
+                        self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
+                        LOCK_COMMANDS["unlock_door"],  # Command ID 0x01 for unlock
+                        LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
+                        endpoint_id=endpoint  # Try endpoint 11 first (Nordic default)
                     )
 
                     if success:
@@ -357,10 +341,7 @@ class NimlyDigitalLock(LockEntity):
                 _LOGGER.warning("Failed to send unlock command after multiple attempts. Using simulated state.")
         else:
             if not has_command_service:
-                _LOGGER.info(f"Service {service_domain}.issue_zigbee_cluster_command not available, using simulated mode")
-                # Force simulated mode since services aren't available
-                if device_info:
-                    device_info["device_id"] = "simulated"
+                _LOGGER.error(f"Service {service_domain}.issue_zigbee_cluster_command not available. Cannot control lock.")
             else:
                 _LOGGER.info("Operating in simulated mode or device info not found")
 
