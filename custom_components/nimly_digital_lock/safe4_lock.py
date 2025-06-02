@@ -107,17 +107,20 @@ async def _send_lock_command(hass, ieee_address, command):
                     _LOGGER.debug(f"Service zha.{service_method} not available for network address, skipping")
                     continue
 
-                await hass.services.async_call(
-                    "zha",
-                    service_method,
-                    service_data,
-                    blocking=True
-                )
+                try:
+                    await hass.services.async_call(
+                        "zha",
+                        service_method,
+                        service_data,
+                        blocking=True
+                    )
 
-                _LOGGER.info(f"Successfully sent {command_name} command using network address to endpoint {endpoint_id}")
-                return True
+                    _LOGGER.info(f"Successfully sent {command_name} command using network address to endpoint {endpoint_id}")
+                    return True
+                except Exception as e:
+                    _LOGGER.debug(f"Failed to send {command_name} command using network address: {e}")
             except Exception as e:
-                _LOGGER.debug(f"Failed to send {command_name} command using network address: {e}")
+                _LOGGER.debug(f"Failed to setup network address command: {e}")
 
     # If we get here, none of the endpoints worked
     _LOGGER.error(f"All endpoints failed for {command_name} command")
