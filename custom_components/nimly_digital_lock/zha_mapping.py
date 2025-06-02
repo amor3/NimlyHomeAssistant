@@ -111,52 +111,31 @@ DEVICE_LOOKUP_METHODS = [
 ]
 
 def normalize_ieee(ieee):
-    """Normalize IEEE address to different formats for compatibility."""
+    """Normalize IEEE address to different formats for compatibility.
+
+    Args:
+        ieee: An IEEE address in any format (with or without colons)
+
+    Returns:
+        dict: Dictionary with three formats: original, no_colons, with_colons
+    """
     # Remove colons if present
     ieee_no_colons = ieee.replace(':', '')
 
+    # Clean up to only contain hex characters
+    ieee_clean = ''.join(c for c in ieee_no_colons if c.lower() in '0123456789abcdef')
+    ieee_no_colons = ieee_clean
+
     # Add colons if not present
-    if ':' not in ieee:
-        ieee_with_colons = ':'.join([ieee[i:i+2] for i in range(0, len(ieee), 2)])
-    else:
-        ieee_with_colons = ieee
+    ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
 
     return {
         "original": ieee,
         "no_colons": ieee_no_colons,
         "with_colons": ieee_with_colons
     }
-"""ZHA mapping utilities for Nimly lock integration.
 
-This helper module provides mappings between ZHA command names and IDs
-for compatibility across different ZHA gateway implementations.
-"""
-
-# Standard Zigbee Cluster IDs
-LOCK_CLUSTER_ID = 0x0101  # Door Lock cluster
-POWER_CLUSTER_ID = 0x0001  # Power Configuration cluster
-
-def normalize_ieee(ieee):
-    """Normalize IEEE address to a consistent format.
-
-    Args:
-        ieee: An IEEE address in any format (with or without colons)
-
-    Returns:
-        Tuple with three formats: (original, no_colons, with_colons)
-    """
-    # Clean up the IEEE address to only contain hex characters
-    ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
-
-    # Create the version without colons
-    ieee_no_colons = ieee_clean
-
-    # Create the version with colons
-    ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
-
-    return (ieee, ieee_no_colons, ieee_with_colons)
-
-# Add mapping for different ZHA gateway implementations if needed
+# Add mapping for different ZHA gateway implementations
 def get_cluster_handler_name(gateway_type="zha"):
     """Get the appropriate cluster handler name based on gateway type."""
     if gateway_type == "zigbee":

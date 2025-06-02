@@ -140,17 +140,24 @@ class NimlyDigitalLock(LockEntity):
                 _LOGGER.info(f"Found alternative service: {service_domain}.{alternative_service}")
                 service_method = alternative_service
             else:
-                # No services available, running in simulated mode
-                _LOGGER.info("No ZHA services available, operating in simulated mode")
-                self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
-                    "device_id": "simulated",
-                    "name": "Simulated Nimly Lock",
-                    "manufacturer": "Nimly",
-                    "model": "Simulated ZHA Lock",
-                    "sw_version": "1.0",
-                    "zha_ieee": self._ieee
-                }
-                return False
+                # Try the other service domain as fallback
+                fallback_domain = "zigbee" if service_domain == "zha" else "zha"
+                if self._hass.services.has_service(fallback_domain, "read_zigbee_cluster_attribute"):
+                    service_domain = fallback_domain
+                    service_method = "read_zigbee_cluster_attribute"
+                    _LOGGER.info(f"Using fallback service domain: {service_domain}")
+                else:
+                    # No services available, running in simulated mode
+                    _LOGGER.info("No ZHA services available, operating in simulated mode")
+                    self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
+                        "device_id": "simulated",
+                        "name": "Simulated Nimly Lock",
+                        "manufacturer": "Nimly",
+                        "model": "Simulated ZHA Lock",
+                        "sw_version": "1.0",
+                        "zha_ieee": self._ieee
+                    }
+                    return False
         else:
             service_method = "read_zigbee_cluster_attribute"
 
