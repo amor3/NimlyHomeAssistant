@@ -74,9 +74,16 @@ class NimlyDigitalLock(LockEntity):
                     service_data["params"] = params
 
                 _LOGGER.debug(f"Sending {service_domain} command using {service_method}: {service_data}")
+
+                # First check if the service is available
+                if not self._hass.services.has_service(service_domain, service_method):
+                    _LOGGER.warning(f"Service {service_domain}.{service_method} is not available")
+                    continue
+
                 await self._hass.services.async_call(
                     service_domain, service_method, service_data
                 )
+                _LOGGER.info(f"Successfully sent command to {ieee_format} using {service_domain}.{service_method}")
                 return True
             except Exception as e:
                 _LOGGER.warning(f"Failed to send command {command} with IEEE format {ieee_format}: {e}")

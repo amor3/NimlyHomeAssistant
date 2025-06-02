@@ -15,13 +15,34 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input:
             # Normalize IEEE address format
             ieee = user_input["ieee"]
+
+            # Validate IEEE address length
             # Remove any non-hex characters (like colons)
             ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
+
+            # IEEE addresses should be exactly 16 hex characters (64 bits)
+            if len(ieee_clean) != 16:
+                errors["ieee"] = "invalid_ieee_length"
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=vol.Schema({
+                        vol.Required("ieee"): cv.string,
+                        vol.Required("name", default=user_input.get("name", "Nimly Front Door")): cv.string,
+                    }),
+                    errors=errors,
+                )
+
             # Format with colons for consistency
             ieee_formatted = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
 
+            # Ensure all key formats are stored
+            from .zha_mapping import normalize_ieee
+            ieee_formats = normalize_ieee(ieee_formatted)
+
             self._user_data = {
                 "ieee": ieee_formatted,  # Store the formatted version
+                "ieee_no_colons": ieee_formats["no_colons"],
+                "ieee_with_colons": ieee_formats["with_colons"],
                 "name": user_input["name"],
             }
             return self.async_create_entry(
