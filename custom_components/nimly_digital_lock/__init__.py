@@ -250,11 +250,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
             "device_id": zha_device_id,
             "name": zha_device_entry.name,
-            "manufacturer": zha_device_entry.manufacturer or "Unknown",
-            "model": zha_device_entry.model or "Unknown",
+            "manufacturer": zha_device_entry.manufacturer or "Nimly",
+            "model": zha_device_entry.model or "Nimly Door Lock Module",
             "sw_version": zha_device_entry.sw_version or "1.0",
             "zha_ieee": zha_ieee_found
         }
+
+        # Always use zigbee service for ZBT-1 devices
+        hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
 
         # Check if the direct ZHA service is available, or if Nabu Casa zigbee is present
         has_zha = hass.services.has_service("zha", "issue_zigbee_cluster_command")
@@ -352,8 +355,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.bus.async_listen("zha_event", handle_zha_event)
         _LOGGER.info("ZHA event listener registered for lock events")
     else:
-        _LOGGER.warning(f"Could not find ZHA device with IEEE {ieee} in device registry")
-        _LOGGER.info("This is normal if you don't have a real ZHA device or if using a different IEEE address.")
+        _LOGGER.error(f"Could not find ZBT-1 device with IEEE {ieee} in device registry")
+        _LOGGER.error("This integration requires a real ZBT-1 device.")
 
         # List all available Zigbee devices to help user identify the correct IEEE
         _LOGGER.info("Available Zigbee devices:")
@@ -371,25 +374,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                         device_ieee = identifier[1]
                         _LOGGER.info(f"- {device.name}: IEEE={device_ieee}, Type={domain_type}")
 
-        _LOGGER.info("Setting up simulated mode for Nimly lock - the integration will work with simulated values")
-
-        # Set default values for the lock to ensure it works in simulated mode
-        hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
-            "device_id": "simulated",
-            "name": "Simulated Nimly Lock",
-            "manufacturer": "Nimly",
-            "model": "Simulated ZHA Lock",
-            "sw_version": "1.0",
-            "zha_ieee": ieee
-        }
-
-        # Set default attribute values
-        hass.data[f"{DOMAIN}:{ieee}:battery"] = 85  # 85% battery
-        hass.data[f"{DOMAIN}:{ieee}:door_state"] = 0  # Closed
-        hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Locked (1=locked, 0=unlocked)
-        hass.data[f"{DOMAIN}:{ieee}:actuator_enabled"] = 1  # Enabled
-        hass.data[f"{DOMAIN}:{ieee}:auto_relock_time"] = 30  # 30 seconds
-        hass.data[f"{DOMAIN}:{ieee}:sound_volume"] = 2  # High volume
+        # Still create minimal data to avoid errors, but warn user this won't work without real device
+        hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
+        return False
 
     await hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"])
     return True

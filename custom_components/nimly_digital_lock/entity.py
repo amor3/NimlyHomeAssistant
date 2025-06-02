@@ -374,101 +374,50 @@ class NimlyDigitalLock(LockEntity):
         """Update entity state and attributes."""
         _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
-        # Get device info - handle the case if it's missing
-        device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
-        if not device_info:
-            _LOGGER.warning(f"ZHA device info not found for {self._name}, creating default simulated device")
-            self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
-                "device_id": "simulated",
-                "name": "Simulated Nimly Lock",
-                "manufacturer": "Nimly",
-                "model": "Simulated ZHA Lock",
-                "sw_version": "1.0",
-                "zha_ieee": self._ieee
-            }
-            device_info = self._hass.data[f"{DOMAIN}_ZHA_DEVICE"]
+        # Service domain should always be zigbee for ZBT-1
+        service_domain = "zigbee"
 
-        # In simulated mode or when device info is missing
-        if not device_info or device_info["device_id"] == "simulated" or "zha" not in self._hass.data:
-            _LOGGER.debug("Using simulated or stored values")
-
-            # Get stored lock state or use default
-            lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
-            if lock_state is not None:
-                self._is_locked = (lock_state == 1)
-            else:
-                # Default to locked if no state is stored
-                self._is_locked = True
-                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
-
-            # Update all attributes from stored values
-            for attr in ATTRIBUTE_MAP:
-                value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
-
-                # If we don't have a stored value, set defaults
-                if value is None:
-                    if attr == "battery":
-                        value = 85  # 85% battery
-                    elif attr == "door_state":
-                        value = 0  # Closed
-                    elif attr == "actuator_enabled":
-                        value = 1  # Enabled
-                    elif attr == "auto_relock_time":
-                        value = 30  # 30 seconds
-                    elif attr == "sound_volume":
-                        value = 2  # High
-                    else:
-                        value = 0  # Default value
-
-                    # Store the default value
-                    self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
-
-                # Update our attribute dictionary
-                self._attrs[attr] = value
-
-        # If not in simulated mode, try to update from ZHA if services are available
-        elif device_info["device_id"] != "simulated":
-            # Check if necessary services are available before attempting to use them
-            service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
-            has_read_service = self._hass.services.has_service(service_domain, "read_zigbee_cluster_attribute")
-
-            if has_read_service:
-                _LOGGER.debug("ZHA services available, attempting to read attributes")
+        # Try to read the current lock state from the physical device
+        try:
+            # Try reading from multiple endpoints to find the one that works
+            endpoints = [1, 2, 3, 242]  # Common endpoints to try
+            for endpoint in endpoints:
                 try:
-                    # Try to read the lock state first
-                    _LOGGER.debug("Requesting lock state update via ZHA service")
-                    await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0)  # 0 = lock state attribute (standard)
+                    _LOGGER.debug(f"Reading lock state from endpoint {endpoint}")
+                    await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0, endpoint)
 
                     # Also try to read the battery level
-                    await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021)  # Battery percentage remaining
+                    await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021, endpoint)
                 except Exception as e:
-                    _LOGGER.warning(f"Error reading Zigbee attributes: {e}")
-            else:
-                _LOGGER.debug("ZHA services not available, running in simulated mode")
-                # Force simulated mode since ZHA services aren't available
-                self._hass.data[f"{DOMAIN}_ZHA_DEVICE"]["device_id"] = "simulated"
+                    _LOGGER.debug(f"Failed to read from endpoint {endpoint}: {e}")
+        except Exception as e:
+            _LOGGER.warning(f"Error reading attributes from device: {e}")
 
-            # Use current value from data store regardless of success with ZHA
-            lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
-            if lock_state is not None:
-                self._is_locked = (lock_state == 1)
-                _LOGGER.debug(f"Using stored lock state: {self._is_locked}")
-
-            # Update all attributes from stored values
-            for attr in ATTRIBUTE_MAP:
-                value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
-                if value is not None:
-                    self._attrs[attr] = value
-
-        # Add some debugging info to attributes
-        self._attrs["simulated"] = "true" if not device_info or device_info["device_id"] == "simulated" else "false"
-
-        # Check if zha data exists and has the expected structure
-        zha_data = self._hass.data.get("zha")
-        if zha_data and hasattr(zha_data, "get"):
-            self._attrs["last_updated"] = zha_data.get("_last_update", "unknown")
+        # Use current value from data store
+        lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
+        if lock_state is not None:
+            self._is_locked = (lock_state == 1)
+            _LOGGER.debug(f"Current lock state: {self._is_locked}")
         else:
-            self._attrs["last_updated"] = "unavailable"
+            # If no state stored yet, default to unknown
+            self._is_locked = None
+            _LOGGER.warning("Lock state unknown - has not been set yet")
+
+        # Update attributes from stored values
+        for attr in ATTRIBUTE_MAP:
+            value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
+            if value is not None:
+                self._attrs[attr] = value
+
+        # Add last update timestamp
+        self._attrs["last_updated"] = self._hass.data.get(
+            f"{DOMAIN}:{self._ieee}:last_update", 
+            "unknown"
+        )
+
+        # Store current time as last update
+        from datetime import datetime
+        self._hass.data[f"{DOMAIN}:{self._ieee}:last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         _LOGGER.debug(f"Updated lock state: {self._is_locked}, attributes: {self._attrs}")
 
