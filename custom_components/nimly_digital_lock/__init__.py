@@ -305,6 +305,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             "zha_ieee": zha_ieee_found
         }
 
+        # Start the polling service for the lock
+        _LOGGER.info(f"Starting polling service for the lock with IEEE {ieee}")
+        from .poll_lock import start_polling_service
+        hass.loop.create_task(start_polling_service(hass, ieee, poll_interval=60))
+
         # Always use zigbee service for Nabu Casa ZBT-1 devices
         hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
         _LOGGER.info("Using 'zigbee' service for Nabu Casa ZBT-1 device")

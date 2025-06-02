@@ -2,6 +2,7 @@ import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from .entity import NimlyDigitalLock
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -12,9 +13,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # Check if we should use the known ZHA device instead
     zha_ieee = "f4:ce:36:0a:04:4d:31:f5"
 
+    # Check if we found a ZHA device during setup
+    if f"{DOMAIN}_ZHA_DEVICE" in hass.data and "zha_ieee" in hass.data[f"{DOMAIN}_ZHA_DEVICE"]:
+        zha_device_ieee = hass.data[f"{DOMAIN}_ZHA_DEVICE"]["zha_ieee"]
+        _LOGGER.info(f"Using discovered ZHA device IEEE: {zha_device_ieee}")
+        zha_ieee = zha_device_ieee
+
     # Log info about the device setup
     _LOGGER.info(f"Setting up Nimly lock entity with IEEE {ieee} and name {name}")
     _LOGGER.info(f"Known ZHA device with IEEE {zha_ieee} will be used as a fallback")
+
+    # Make sure the data structure is initialized
+    if f"{DOMAIN}:{ieee}:lock_state" not in hass.data:
+        hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Default to locked
+        _LOGGER.info(f"Initializing lock state to locked (1)")
 
     # Create the lock entity
     lock = NimlyDigitalLock(hass, ieee, name)

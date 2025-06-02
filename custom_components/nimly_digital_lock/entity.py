@@ -6,14 +6,16 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.core import callback
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
 # Import commands mapping for ZBT-1 devices and Safe4 ZigBee Door Lock specific constants
-from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS, format_ieee_with_colons
+from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS, format_ieee_with_colons, format_ieee, normalize_ieee, POWER_ATTRIBUTES, LOCK_ATTRIBUTES
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
 from .safe4_lock import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND, SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
 
 _LOGGER = logging.getLogger(__name__)
+
 
 
 class NimlyDigitalLock(LockEntity):
@@ -591,11 +593,20 @@ class NimlyDigitalLock(LockEntity):
         service_domain = "zigbee"
         _LOGGER.debug(f"Using service domain {service_domain} for ZBT-1 device updates")
 
+        # Make sure we have our fallback IEEE for ZHA
+        if not hasattr(self, '_zha_ieee') or not self._zha_ieee:
+            self._zha_ieee = "f4:ce:36:0a:04:4d:31:f5"  # Fallback to the known device
+
         # Try to read the current lock state from the physical device
         try:
             # First, try to read attributes from the known ZHA device
             _LOGGER.debug(f"Trying to read attributes from ZHA device with IEEE {self._zha_ieee}")
             try:
+                # Log all available Zigbee services to help debug
+                all_services = self._hass.services.async_services()
+                if "zigbee" in all_services:
+                    _LOGGER.debug(f"Available Zigbee services: {all_services['zigbee']}")
+
                 # Read lock state using Safe4 module first (most reliable)
                 result = await read_safe4_attribute(
                     self._hass,
@@ -682,6 +693,16 @@ class NimlyDigitalLock(LockEntity):
             self._is_locked = True
             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
             _LOGGER.warning("Lock state unknown - defaulting to locked for security")
+
+        # Debug: Log all lock-related keys in hass.data to help troubleshoot
+        lock_keys = []
+        for key in self._hass.data:
+            if f"{DOMAIN}:" in key:
+                lock_keys.append(key)
+        _LOGGER.debug(f"All lock data keys: {lock_keys}")
+
+        for key in lock_keys:
+            _LOGGER.debug(f"  {key}: {self._hass.data[key]}")
 
         # Update attributes from stored values
         for attr in ATTRIBUTE_MAP:
