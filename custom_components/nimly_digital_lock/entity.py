@@ -289,11 +289,22 @@ class NimlyDigitalLock(LockEntity):
         """Lock the door using Safe4 ZigBee Door Lock commands."""
         _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
 
-        # IMPORTANT: Safe4 ZigBee Door Lock requires:
-        # - Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00
-        # - Must use endpoint 11 with no parameters
+        # First try with the direct command module (most reliable method)
+        from .direct_command import lock_door
+        _LOGGER.info(f"Attempting lock with direct command module")
+        success = await lock_door(self._hass, self._ieee_with_colons)
 
-        # Use the dedicated Safe4 lock module that implements the exact specification format
+        # If direct command succeeds, update state and return
+        if success:
+            _LOGGER.info(f"Successfully locked {self.name} using direct command")
+            # Update internal state
+            self._is_locked = True
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+            self.async_write_ha_state()
+            return True
+
+        # If direct command fails, try the Safe4 lock module
+        _LOGGER.info(f"Direct command failed, trying Safe4 module")
         success = await send_safe4_lock_command(
             self._hass,
             self._ieee_with_colons  # IEEE address with colons
@@ -457,11 +468,22 @@ class NimlyDigitalLock(LockEntity):
         """Unlock the door using Safe4 ZigBee Door Lock commands."""
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
 
-        # IMPORTANT: Safe4 ZigBee Door Lock requires:
-        # - Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
-        # - Must use endpoint 11 with no parameters
+        # First try with the direct command module (most reliable method)
+        from .direct_command import unlock_door
+        _LOGGER.info(f"Attempting unlock with direct command module")
+        success = await unlock_door(self._hass, self._ieee_with_colons)
 
-        # Use the dedicated Safe4 lock module that implements the exact specification format
+        # If direct command succeeds, update state and return
+        if success:
+            _LOGGER.info(f"Successfully unlocked {self.name} using direct command")
+            # Update internal state
+            self._is_locked = False
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+            self.async_write_ha_state()
+            return True
+
+        # If direct command fails, try the Safe4 lock module
+        _LOGGER.info(f"Direct command failed, trying Safe4 module")
         success = await send_safe4_unlock_command(
             self._hass,
             self._ieee_with_colons  # IEEE address with colons

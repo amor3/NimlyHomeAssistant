@@ -15,6 +15,9 @@ async def start_polling_service(hass, ieee, poll_interval=60):
     from .zha_mapping import format_ieee_with_colons
     ieee_with_colons = format_ieee_with_colons(ieee)
 
+    # Import the direct command module
+    from .direct_command import send_direct_command
+
     while True:
         try:
             # Poll lock state
