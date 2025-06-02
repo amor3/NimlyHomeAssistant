@@ -9,6 +9,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     ieee = entry.data["ieee"]
     name = entry.data.get("name", "Nimly Front Door")
 
+    _LOGGER.info(f"Setting up Nimly lock entity with IEEE {ieee} and name {name}")
+
     # Create the lock entity
     lock = NimlyDigitalLock(hass, ieee, name)
     async_add_entities([lock])

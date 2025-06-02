@@ -1,7 +1,5 @@
 {
-  "title": {
-    "en": "Nimly Zigbee Digital Lock"
-  },
+  "title": "Nimly Zigbee Digital Lock",
   "config": {
     "step": {
       "user": {

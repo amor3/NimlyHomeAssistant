@@ -4,6 +4,7 @@ This module adds specific support functions for the Nabu Casa ZBT-1 device.
 """
 
 import logging
+from .zha_mapping import ZBT1_ENDPOINTS, COMMAND_PROFILE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,13 +30,14 @@ async def async_send_command_zbt1(hass, ieee, command, cluster_id, endpoint_id=1
     # Attempt to send command with specific ZBT-1 format based on Nordic Semiconductor CLI
     try:
         # For ZBT-1, we need to use endpoint 11 and specify the Home Automation profile
+        # For ZBT-1, we need to ensure proper format with Nordic Semiconductor
         service_data = {
             "ieee": ieee,
             "command": command,
             "cluster_id": cluster_id,
             "endpoint_id": endpoint_id,  # Default to endpoint 11 for ZBT-1
             "command_type": "server",
-            "profile_id": 0x0104,  # Home Automation profile (0x0104)
+            "profile_id": COMMAND_PROFILE,  # Home Automation profile from constants
             "manufacturer_code": 0  # Nordic Semiconductor uses standard manufacturer code
         }
 
@@ -78,7 +80,7 @@ async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoi
             "attribute": attribute_id,
             "endpoint_id": endpoint_id,
             "cluster_type": "in",
-            "profile_id": 0x0104,  # Home Automation profile (0x0104)
+            "profile_id": COMMAND_PROFILE,  # Home Automation profile from constants
             "manufacturer_code": 0  # Nordic Semiconductor uses standard manufacturer code
         }
 
@@ -110,12 +112,8 @@ def get_zbt1_endpoints(hass, device_ieee):
         # Even if get_devices service is not available, we can still return known endpoints
         _LOGGER.debug(f"Using ZBT-1 endpoints for device {device_ieee}")
 
-        # Return endpoints in priority order: 
-        # 11: Nordic Semiconductor primary endpoint
-        # 1: Standard Home Automation profile endpoint
-        # 242: Sometimes used for UART operations
-        # 2,3: Other common endpoints
-        return [11, 1, 242, 2, 3]
+        # Return endpoints in priority order from zha_mapping
+        return ZBT1_ENDPOINTS
     except Exception as e:
         _LOGGER.warning(f"Error determining ZBT-1 endpoints: {e}")
         # Return the most common endpoint (11) as fallback

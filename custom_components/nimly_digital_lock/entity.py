@@ -7,8 +7,8 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
-# Import LOCK_COMMANDS for command ID lookup
-from .zha_mapping import LOCK_COMMANDS
+# Import commands mapping for ZBT-1 devices
+from .zha_mapping import LOCK_COMMANDS, ZBT1_LOCK_COMMANDS
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -148,6 +148,10 @@ class NimlyDigitalLock(LockEntity):
         # Try with different IEEE formats
         formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
 
+        # Log the available endpoints for ZBT-1
+        zbt1_endpoints = get_zbt1_endpoints(self._hass, self._ieee)
+        _LOGGER.debug(f"Available ZBT-1 endpoints for {self._ieee}: {zbt1_endpoints}")
+
         for ieee_format in formats_to_try:
             try:
                 # Different parameter formats for different integrations
@@ -247,10 +251,14 @@ class NimlyDigitalLock(LockEntity):
             success = await self._send_zigbee_command("lock_door")
 
             # If that fails, try with numeric command ID directly
-            if not success and "lock_door" in LOCK_COMMANDS:
-                _LOGGER.info("First lock attempt failed, trying with numeric command ID")
-                command_id = LOCK_COMMANDS["lock_door"]
-                success = await self._send_zigbee_command(command_id)
+            if not success:
+                try:
+                    if "lock_door" in LOCK_COMMANDS:
+                        _LOGGER.info("First lock attempt failed, trying with numeric command ID")
+                        command_id = LOCK_COMMANDS["lock_door"]
+                        success = await self._send_zigbee_command(command_id)
+                except Exception as e:
+                    _LOGGER.warning(f"Error trying to use LOCK_COMMANDS: {e}")
 
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
@@ -266,7 +274,7 @@ class NimlyDigitalLock(LockEntity):
                     success = await async_send_command_zbt1(
                         self._hass,
                         self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
-                        LOCK_COMMANDS["lock_door"],  # Command ID 0x00 for lock
+                        ZBT1_LOCK_COMMANDS["lock_door"],  # Command ID 0x00 for lock - use ZBT1 specific commands
                         LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
                         endpoint_id=endpoint,  # Try endpoint 11 first (Nordic default)
                         params={}  # Ensure empty params are passed
@@ -311,10 +319,14 @@ class NimlyDigitalLock(LockEntity):
             success = await self._send_zigbee_command("unlock_door")
 
             # If that fails, try with numeric command ID directly
-            if not success and "unlock_door" in LOCK_COMMANDS:
-                _LOGGER.info("First unlock attempt failed, trying with numeric command ID")
-                command_id = LOCK_COMMANDS["unlock_door"]
-                success = await self._send_zigbee_command(command_id)
+            if not success:
+                try:
+                    if "unlock_door" in LOCK_COMMANDS:
+                        _LOGGER.info("First unlock attempt failed, trying with numeric command ID")
+                        command_id = LOCK_COMMANDS["unlock_door"]
+                        success = await self._send_zigbee_command(command_id)
+                except Exception as e:
+                    _LOGGER.warning(f"Error trying to use LOCK_COMMANDS: {e}")
 
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
@@ -330,7 +342,7 @@ class NimlyDigitalLock(LockEntity):
                     success = await async_send_command_zbt1(
                         self._hass,
                         self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
-                        LOCK_COMMANDS["unlock_door"],  # Command ID 0x01 for unlock
+                        ZBT1_LOCK_COMMANDS["unlock_door"],  # Command ID 0x01 for unlock - use ZBT1 specific commands
                         LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
                         endpoint_id=endpoint,  # Try endpoint 11 first (Nordic default)
                         params={}  # Ensure empty params are passed
@@ -360,8 +372,9 @@ class NimlyDigitalLock(LockEntity):
         """Update entity state and attributes."""
         _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
-        # Service domain should always be zigbee for ZBT-1
+        # Service domain should always be zigbee for Nabu Casa ZBT-1
         service_domain = "zigbee"
+        _LOGGER.debug(f"Using service domain {service_domain} for ZBT-1 device updates")
 
         # Try to read the current lock state from the physical device
         try:
@@ -409,9 +422,10 @@ class NimlyDigitalLock(LockEntity):
             self._is_locked = (lock_state == 1)
             _LOGGER.debug(f"Current lock state: {self._is_locked}")
         else:
-            # If no state stored yet, default to unknown
-            self._is_locked = None
-            _LOGGER.warning("Lock state unknown - has not been set yet")
+            # If no state stored yet, default to locked (secure default)
+            self._is_locked = True
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+            _LOGGER.warning("Lock state unknown - defaulting to locked for security")
 
         # Update attributes from stored values
         for attr in ATTRIBUTE_MAP:

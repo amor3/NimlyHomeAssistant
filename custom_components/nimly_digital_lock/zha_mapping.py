@@ -7,8 +7,8 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
-# Door Lock cluster command IDs
-LOCK_COMMANDS = {
+# Door Lock cluster command IDs - ZBT-1 specific mapping
+ZBT1_LOCK_COMMANDS = {
     "lock_door": 0x00,
     "unlock_door": 0x01,
     "toggle": 0x02,
@@ -38,14 +38,14 @@ LOCK_COMMANDS = {
 }
 
 
-def normalize_ieee(ieee):
-    """Normalize IEEE address to lowercase with colons.
+def format_ieee(ieee):
+    """Format IEEE address to lowercase with colons.
 
     Args:
         ieee: IEEE address in any format
 
     Returns:
-        Normalized IEEE address with colons
+        Formatted IEEE address with colons
     """
     # Remove any non-hex characters
     ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
@@ -191,3 +191,9 @@ def get_cluster_handler_name(gateway_type="zha"):
         return "zigbee_cluster_handler"  # For Nabu Casa Zigbee integration
     else:
         return "zha_cluster_handler"  # For standard ZHA
+
+# Zigbee profile ID used by ZBT-1 devices
+COMMAND_PROFILE = 0x0104  # Home Automation profile
+
+# ZBT-1 specific constants
+ZBT1_ENDPOINTS = [11, 1, 242, 2, 3]  # Common endpoints for ZBT-1, prioritizing Nordic endpoint 11

@@ -8,7 +8,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 # Define ZHA domain constant directly instead of importing from unavailable path
 ZHA_DOMAIN = "zha"
 from .const import DOMAIN, ATTRIBUTE_MAP
-from .zha_mapping import normalize_ieee
+from .zha_mapping import normalize_ieee, format_ieee
 
 _LOGGER = logging.getLogger(__name__)
 
