@@ -13,4 +13,4 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities([NimlyLockBatteryLowSensor(hass, ieee, f"{name} Battery Low", entry.entry_id)])
     # Log the unique_id for debugging
     ieee_clean = ieee.replace(':', '').lower()
-    _LOGGER.debug(f"Binary sensor unique_id: {DOMAIN}_battery_low_{ieee_clean}_{entry.entry_id}")
+    _LOGGER.debug("Binary sensor unique_id: %s_battery_low_%s_%s", DOMAIN, ieee_clean, entry.entry_id)

@@ -24,6 +24,43 @@ class NimlyDigitalLock(LockEntity):
         service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
         _LOGGER.debug(f"Using {service_domain} service domain for commands")
 
+        # Check if the service exists
+        has_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
+        if not has_service:
+            _LOGGER.warning(f"Service {service_domain}.issue_zigbee_cluster_command not available")
+
+            # Try alternative service names
+            alternatives = ["send_zigbee_command", "execute_zigbee_command"]
+            service_method = None
+
+            for alt in alternatives:
+                if self._hass.services.has_service(service_domain, alt):
+                    _LOGGER.info(f"Found alternative service: {service_domain}.{alt}")
+                    service_method = alt
+                    break
+
+            if not service_method:
+                # Check the other service domain as fallback
+                fallback_domain = "zigbee" if service_domain == "zha" else "zha"
+                if self._hass.services.has_service(fallback_domain, "issue_zigbee_cluster_command"):
+                    service_domain = fallback_domain
+                    service_method = "issue_zigbee_cluster_command"
+                    _LOGGER.info(f"Using fallback service domain: {service_domain}")
+                else:
+                    # No services available, running in simulated mode
+                    _LOGGER.info("No ZHA services available for sending commands, operating in simulated mode")
+                    self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
+                        "device_id": "simulated",
+                        "name": "Simulated Nimly Lock",
+                        "manufacturer": "Nimly",
+                        "model": "Simulated ZHA Lock",
+                        "sw_version": "1.0",
+                        "zha_ieee": self._ieee
+                    }
+                    return False
+        else:
+            service_method = "issue_zigbee_cluster_command"
+
         # Try with different IEEE formats
         formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
 
@@ -42,9 +79,9 @@ class NimlyDigitalLock(LockEntity):
                 if params:
                     service_data["params"] = params
 
-                _LOGGER.debug(f"Sending {service_domain} command: {service_data}")
+                _LOGGER.debug(f"Sending {service_domain} command using {service_method}: {service_data}")
                 await self._hass.services.async_call(
-                    service_domain, "issue_zigbee_cluster_command", service_data
+                    service_domain, service_method, service_data
                 )
                 return True
             except Exception as e:
@@ -84,16 +121,38 @@ class NimlyDigitalLock(LockEntity):
         _LOGGER.error(f"All attempts to send command {command} failed")
         return False
 
-        _LOGGER.error(f"Failed to send command {command} with all IEEE formats")
-        return False
-
     async def _read_zigbee_attribute(self, cluster_id, attribute_id, endpoint_id=1):
         """Helper method to read Zigbee attributes directly using service calls.
         Works with both ZHA and Nabu Casa zigbee integration.
         """
-        # Determine which service to use (zha or zigbee)
+        # Check if services are available first
         service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
         _LOGGER.debug(f"Using {service_domain} service domain for attribute read")
+
+        # Verify service exists before trying to call it
+        has_service = self._hass.services.has_service(service_domain, "read_zigbee_cluster_attribute")
+        if not has_service:
+            _LOGGER.warning(f"Service {service_domain}.read_zigbee_cluster_attribute not available")
+
+            # Try alternative service name for ZHA
+            alternative_service = "get_zigbee_cluster_attribute"
+            if self._hass.services.has_service(service_domain, alternative_service):
+                _LOGGER.info(f"Found alternative service: {service_domain}.{alternative_service}")
+                service_method = alternative_service
+            else:
+                # No services available, running in simulated mode
+                _LOGGER.info("No ZHA services available, operating in simulated mode")
+                self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
+                    "device_id": "simulated",
+                    "name": "Simulated Nimly Lock",
+                    "manufacturer": "Nimly",
+                    "model": "Simulated ZHA Lock",
+                    "sw_version": "1.0",
+                    "zha_ieee": self._ieee
+                }
+                return False
+        else:
+            service_method = "read_zigbee_cluster_attribute"
 
         # Try with different IEEE formats
         formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
@@ -102,8 +161,6 @@ class NimlyDigitalLock(LockEntity):
             try:
                 # Different parameter formats for different integrations
                 if service_domain == "zigbee":  # Nabu Casa Zigbee
-                    # Try both methods for Nabu Casa format
-                    # Method 1: Standard format similar to ZHA
                     service_data = {
                         "ieee": ieee_format,
                         "cluster_id": cluster_id,
@@ -111,15 +168,6 @@ class NimlyDigitalLock(LockEntity):
                         "attribute": attribute_id,
                         "endpoint_id": endpoint_id
                     }
-
-                    # Remove None values as they may cause issues
-                    service_data = {k: v for k, v in service_data.items() if v is not None}
-
-                    _LOGGER.debug(f"Reading {service_domain} attribute: {service_data}")
-                    await self._hass.services.async_call(
-                        service_domain, "read_zigbee_cluster_attribute", service_data
-                    )
-                    return True
                 else:  # Standard ZHA
                     service_data = {
                         "ieee": ieee_format,
@@ -129,11 +177,14 @@ class NimlyDigitalLock(LockEntity):
                         "endpoint_id": endpoint_id
                     }
 
-                    _LOGGER.debug(f"Reading {service_domain} attribute: {service_data}")
-                    await self._hass.services.async_call(
-                        service_domain, "read_zigbee_cluster_attribute", service_data
-                    )
-                    return True
+                # Remove None values as they may cause issues
+                service_data = {k: v for k, v in service_data.items() if v is not None}
+
+                _LOGGER.debug(f"Reading {service_domain} attribute using {service_method}: {service_data}")
+                await self._hass.services.async_call(
+                    service_domain, service_method, service_data
+                )
+                return True
             except Exception as e:
                 _LOGGER.warning(f"Failed to read attribute {attribute_id} with IEEE format {ieee_format}: {e}")
 

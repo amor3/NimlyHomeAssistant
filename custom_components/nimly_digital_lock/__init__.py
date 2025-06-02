@@ -174,12 +174,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         # Log all available services to help with debugging
         zigbee_services = {}
-        if "zigbee" in hass.services.async_services():
-            zigbee_services["zigbee"] = hass.services.async_services()["zigbee"]
-        if "zha" in hass.services.async_services():
-            zigbee_services["zha"] = hass.services.async_services()["zha"]
+        all_services = hass.services.async_services()
 
-        _LOGGER.debug(f"Available Zigbee services: {zigbee_services}")
+        # Scan for ANY services that might be relevant for Zigbee operations
+        if "zigbee" in all_services:
+            zigbee_services["zigbee"] = all_services["zigbee"]
+        if "zha" in all_services:
+            zigbee_services["zha"] = all_services["zha"]
+        if "mqtt" in all_services:
+            zigbee_services["mqtt"] = all_services["mqtt"]
+        if "zigbee2mqtt" in all_services:
+            zigbee_services["zigbee2mqtt"] = all_services["zigbee2mqtt"]
+        if "z2m" in all_services:
+            zigbee_services["z2m"] = all_services["z2m"]
+        if "zha_toolkit" in all_services:
+            zigbee_services["zha_toolkit"] = all_services["zha_toolkit"]
+        if "zha_map" in all_services:
+            zigbee_services["zha_map"] = all_services["zha_map"]
+
+        _LOGGER.debug(f"Available Zigbee-related services: {zigbee_services}")
+
+        # Check for specific service methods in different domains
+        available_methods = {}
+        for domain, services in zigbee_services.items():
+            for service in services:
+                if any(keyword in service for keyword in ["zigbee", "cluster", "command", "attribute"]):
+                    if domain not in available_methods:
+                        available_methods[domain] = []
+                    available_methods[domain].append(service)
+
+        _LOGGER.info(f"Available Zigbee command/attribute methods: {available_methods}")
 
         if has_zigbee:
             _LOGGER.info("Detected Nabu Casa zigbee integration")
@@ -230,10 +254,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                     hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 0  # Unlocked
                     _LOGGER.info("Unlock command detected, setting state to unlocked")
 
-                # Force our lock entity to update
+                # Force our lock entity to update with new entity_id format
                 hass.async_create_task(hass.services.async_call(
                     "homeassistant", "update_entity", 
-                    {"entity_id": f"lock.nimly_{ieee_no_colons.lower()}"}
+                    {"entity_id": f"lock.{DOMAIN}_{ieee_no_colons.lower()}"}
                 ))
 
         # Register the event listener
