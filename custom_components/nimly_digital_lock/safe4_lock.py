@@ -128,3 +128,56 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
         "f4:ce:36:0a:04:4d:31:f5",
         "f4ce360a044d31f5"
     ]
+
+    # For ZBT-1 devices, use the default cluster type
+    cluster_type = "in"
+
+    # Try with the recommended endpoint 11 first, then others if that fails
+    endpoints = [11, 1, 2, 3, 242]
+
+    for endpoint_id in endpoints:
+        for ieee in ieee_formats:
+            for service_domain in service_domains:
+                for service_method in service_methods:
+                    try:
+                        # Check if the service exists before trying to call it
+                        if not hass.services.has_service(service_domain, service_method):
+                            _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
+                            continue
+
+                        _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id} endpoint {endpoint_id} using {service_domain}.{service_method}")
+
+                        # Prepare service data
+                        service_data = {
+                            "ieee": ieee,
+                            "endpoint_id": endpoint_id,
+                            "cluster_id": cluster_id,
+                            "cluster_type": cluster_type,
+                            "attribute": attribute_id
+                        }
+
+                        # Call the service
+                        await hass.services.async_call(
+                            service_domain,
+                            service_method,
+                            service_data,
+                            blocking=True
+                        )
+
+                        # If we reach here, the call succeeded
+                        _LOGGER.info(f"Successfully read attribute {attribute_id} from cluster {cluster_id} endpoint {endpoint_id}")
+
+                        # Get the value from the data store
+                        if DOMAIN in hass.data:
+                            result = hass.data.get(f"{DOMAIN}:{ieee}:{attribute_id}")
+                            return result
+
+                    except Exception as e:
+                        _LOGGER.debug(f"Failed to read attribute with {service_domain}.{service_method}: {e}")
+
+    # If we reach here, all attempts failed
+    _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
+    return None
+
+    # For ZBT-1 devices, use the default cluster type
+    cluster_type = "in"

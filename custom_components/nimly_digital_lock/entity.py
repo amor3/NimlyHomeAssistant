@@ -657,8 +657,10 @@ class NimlyDigitalLock(LockEntity):
                     0x0000  # Lock state attribute
                 )
 
-                if result:
-                    _LOGGER.info(f"Successfully read lock state from ZHA device {self._zha_ieee}")
+                if result is not None:
+                    _LOGGER.info(f"Successfully read lock state from ZHA device {self._zha_ieee}: {result}")
+                    # Store the result
+                    self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = result
 
                 # Read the battery level using Safe4 module
                 battery_result = await read_safe4_attribute(
@@ -667,6 +669,11 @@ class NimlyDigitalLock(LockEntity):
                     SAFE4_POWER_CLUSTER,
                     0x0021  # Battery percentage remaining
                 )
+
+                if battery_result is not None:
+                    _LOGGER.info(f"Successfully read battery level from ZHA device {self._zha_ieee}: {battery_result}")
+                    # Store the result
+                    self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery_result
 
                 if battery_result:
                     _LOGGER.info(f"Successfully read battery level from ZHA device {self._zha_ieee}")
@@ -696,16 +703,24 @@ class NimlyDigitalLock(LockEntity):
                         0x0000  # Lock state attribute
                     )
 
-                    if not result:
+                    if result is not None:
+                        _LOGGER.info(f"Successfully read lock state: {result}")
+                        # Store the result
+                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = result
+                    else:
                         # Fall back to ZBT-1 method
                         _LOGGER.debug("Falling back to ZBT-1 method for lock state")
-                        await async_read_attribute_zbt1(
+                        lock_state = await async_read_attribute_zbt1(
                             self._hass, 
                             self._ieee_with_colons, 
                             LOCK_CLUSTER_ID, 
                             0x0000,  # Lock state attribute
-                            endpoint_id=11  # Must be 11 per Safe4 spec
+                            endpoint_id=11,  # Must be 11 per Safe4 spec
+                            cluster_type="in"
                         )
+                        if lock_state is not None:
+                            _LOGGER.info(f"Successfully read lock state via ZBT1: {lock_state}")
+                            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
 
                     # Read the battery level using Safe4 module
                     battery_result = await read_safe4_attribute(
@@ -715,16 +730,24 @@ class NimlyDigitalLock(LockEntity):
                         0x0021  # Battery percentage remaining
                     )
 
-                    if not battery_result:
+                    if battery_result is not None:
+                        _LOGGER.info(f"Successfully read battery level: {battery_result}")
+                        # Store the result
+                        self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery_result
+                    else:
                         # Fall back to ZBT-1 method
                         _LOGGER.debug("Falling back to ZBT-1 method for battery")
-                        await async_read_attribute_zbt1(
+                        battery = await async_read_attribute_zbt1(
                             self._hass, 
                             self._ieee_with_colons, 
                             POWER_CLUSTER_ID, 
                             0x0021,  # Battery percentage remaining
-                            endpoint_id=11  # Must be 11 per Safe4 spec
+                            endpoint_id=11,  # Must be 11 per Safe4 spec
+                            cluster_type="in"
                         )
+                        if battery is not None:
+                            _LOGGER.info(f"Successfully read battery via ZBT1: {battery}")
+                            self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery
 
                 except Exception as e:
                     _LOGGER.debug(f"Failed to read from endpoint {endpoint}: {e}")

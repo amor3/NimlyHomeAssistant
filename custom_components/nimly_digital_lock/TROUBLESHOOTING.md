@@ -1,6 +1,70 @@
 # Nordic ZBT-1 Safe4 Digital Lock Troubleshooting Guide
 # Nimly Digital Lock Troubleshooting Guide
+# Troubleshooting Nimly Digital Lock Integration
 
+## Common Issues
+
+### "Failed to read attribute X from endpoint 11: Action zha.get_zigbee_cluster_attribute not found"
+
+This error occurs when the integration tries to read attributes from the ZigBee device but the ZHA service isn't correctly matched to your installation.
+
+**Solution:**
+
+1. The integration now automatically tries multiple service methods and endpoints to find one that works
+2. If you're still seeing this error, check that your ZHA integration is properly configured
+3. You can also try using the direct Safe4 commands from Developer Tools > Services:
+
+```yaml
+service: nimly_digital_lock.send_safe4_command
+data:
+  ieee: "your_device_ieee_address"
+  command: "lock"  # or "unlock"
+```
+
+### Device Not Found
+
+If your Nimly lock device can't be found by the integration:
+
+1. Make sure the IEEE address you provided is correct
+2. Check that the ZHA integration properly recognizes your device
+3. Try removing and re-adding the ZHA device before setting up this integration
+
+### Battery or Lock State Not Updating
+
+If the battery level or lock state doesn't update:
+
+1. Check your logs for any error messages
+2. Try manually sending a command to refresh the state
+3. Ensure the device is within range of your ZigBee network
+
+## Advanced Troubleshooting
+
+You can run diagnostics on your lock by using the service:
+
+```yaml
+service: nimly_digital_lock.run_diagnostics
+data:
+  entity_id: "lock.nimly_digital_lock_your_device_id"
+```
+
+This will output detailed information to your logs that can help identify issues.
+
+## ZigBee Network Issues
+
+If you're experiencing connectivity problems:
+
+1. Check the signal strength sensor provided by this integration
+2. Consider adding ZigBee repeaters to improve network coverage
+3. Make sure your ZigBee coordinator is not experiencing interference from other wireless devices
+
+## Reporting Issues
+
+When reporting issues, please include:
+
+1. Your Home Assistant version
+2. The version of this integration
+3. Any relevant error messages from the logs
+4. The model of your Nimly lock device
 ## Common Issues
 
 ### Coroutine Errors
