@@ -23,7 +23,7 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             # Check if using dropdown selection
-            if "device_selection" in user_input and user_input["device_selection"] != "manual":
+            if "device_selection" in user_input and user_input["device_selection"] != "manual" and "separator" not in user_input["device_selection"]:
                 # User selected a device from dropdown
                 selected_device = user_input["device_selection"]
                 _LOGGER.debug(f"Selected device from dropdown: {selected_device}")
@@ -70,7 +70,10 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Prepare device selection options
         device_options = {"manual": "Enter IEEE address manually"}
 
-        # Add all found zigbee devices
+        # Add all found zigbee devices, prioritizing Nordic ZBT-1 devices
+        nordic_devices = []
+        other_devices = []
+
         for device_id, device_info in zigbee_devices.items():
             name = device_info.get("name", "Unknown Device")
             ieee = device_info.get("ieee")
@@ -84,6 +87,21 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if model:
                 display_name += f" {model}"
             display_name += f" ({ieee})"
+
+            # Check if this is a Nordic ZBT-1 device
+            is_nordic = False
+            if manufacturer and "nordic" in manufacturer.lower():
+                is_nordic = True
+            elif model and any(term in model.lower() for term in ["zbt-1", "zbt1", "safe4"]):
+                is_nordic = True
+            elif name and any(term in name.lower() for term in ["door lock", "nimly", "safe4"]):
+                is_nordic = True
+
+            # Add to appropriate list
+            if is_nordic:
+                nordic_devices.append((display_name, display_name))
+            else:
+                other_devices.append((display_name, display_name))
 
             device_options[display_name] = display_name
 

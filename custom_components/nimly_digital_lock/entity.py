@@ -720,10 +720,11 @@ class NimlyDigitalLock(LockEntity):
             self._is_locked = (lock_state == 1)
             _LOGGER.debug(f"Current lock state: {self._is_locked}")
         else:
-            # If no state stored yet, default to locked (secure default)
+            # If no state could be read, show an error
+            _LOGGER.error("Could not determine lock state - Nordic ZBT-1 device may be unreachable")
+            # Default to locked for security
             self._is_locked = True
             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
-            _LOGGER.warning("Lock state unknown - defaulting to locked for security")
 
         # Debug: Log all lock-related keys in hass.data to help troubleshoot
         lock_keys = []
@@ -794,8 +795,8 @@ class NimlyLockBatteryLowSensor(BinarySensorEntity):
         return {
             "identifiers": {(DOMAIN, self._ieee)},
             "name": self._name.replace(" Battery Low", ""),
-            "manufacturer": "Nimly",
-            "model": "Nimly Door Lock Module",
+            "manufacturer": "Nordic Semiconductor",
+            "model": "ZBT-1 Safe4 Door Lock",
             "sw_version": "1.0",
             "entry_type": DeviceEntryType.SERVICE,
         }

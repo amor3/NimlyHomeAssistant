@@ -85,11 +85,11 @@ class NimlySensor(SensorEntity):
 
     @property
     def device_info(self):
-        # Extract the base name (e.g., "Nimly Front Door") from the sensor name
+        # Extract the base name (e.g., "Nordic Front Door") from the sensor name
         # regardless of how many parts there are
         parts = self._name.split(' ')
         if len(parts) >= 3:
-            # First two parts are likely "Nimly Front Door"
+            # First two parts are likely "Nordic Front Door"
             base_name = parts[0] + ' ' + parts[1] + ' ' + parts[2]
         else:
             # Fallback to just the name
@@ -98,8 +98,8 @@ class NimlySensor(SensorEntity):
         return {
             "identifiers": {(DOMAIN, self._ieee)},
             "name": base_name,
-            "manufacturer": "Nimly",
-            "model": "Zigbee Door Lock Module",
+            "manufacturer": "Nordic Semiconductor",
+            "model": "ZBT-1 Safe4 Door Lock",
             "sw_version": "1.0",
             "entry_type": DeviceEntryType.SERVICE,
         }

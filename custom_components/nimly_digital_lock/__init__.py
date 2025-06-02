@@ -556,8 +556,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                         device_ieee = identifier[1]
                         _LOGGER.info(f"- {device.name}: IEEE={device_ieee}, Type={domain_type}")
 
-        # Still create minimal data to avoid errors, but warn user this won't work without real device
-        hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
+        # Cannot proceed without real ZBT-1 device
         return False
 
     await hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"])

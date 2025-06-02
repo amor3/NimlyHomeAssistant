@@ -1,8 +1,8 @@
-# Nimly Digital Lock Troubleshooting Guide
+# Nordic ZBT-1 Safe4 Digital Lock Troubleshooting Guide
 
 ## Finding Your Lock's ZigBee Address
 
-When adding a new lock, the integration now provides a dropdown list of all ZigBee devices discovered in your Home Assistant system. This makes it easier to identify your lock without having to manually find the IEEE address.
+When adding a new lock, the integration now provides a dropdown list of all ZigBee devices discovered in your Home Assistant system, with Nordic ZBT-1 devices prioritized at the top. This makes it easier to identify your lock without having to manually find the IEEE address.
 
 1. Go to **Settings** > **Devices & Services** > **Add Integration**
 2. Search for and select **Nimly Digital Lock**
