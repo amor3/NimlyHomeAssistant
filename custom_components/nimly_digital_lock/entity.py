@@ -42,8 +42,8 @@ class NimlyDigitalLock(LockEntity):
         return {
             "identifiers": {(DOMAIN, self._ieee)},
             "name": self._name,
-            "manufacturer": "Safe4",
-            "model": "Zigbee Door Lock Module",
+            "manufacturer": "Nimly",
+            "model": "Nimly Door Lock Module",
             "sw_version": "1.0",
             "entry_type": DeviceEntryType.SERVICE,
         }
@@ -142,33 +142,34 @@ class NimlyDigitalLock(LockEntity):
             except Exception as e:
                 _LOGGER.debug("Error reading %s: %s", attr, e)
 
-        class NimlyLockSensor(LockEntity):
-            def __init__(self, hass, ieee, attribute, name):
-                self._hass = hass
-                self._ieee = ieee
-                self._attribute = attribute
-                self._name = name
-                self._unique_id = f"nimly_{attribute}_{ieee.replace(':', '')}"
 
-        @property
-        def name(self):
-            return self._name
+class NimlyLockSensor(LockEntity):
+    def __init__(self, hass, ieee, attribute, name):
+        self._hass = hass
+        self._ieee = ieee
+        self._attribute = attribute
+        self._name = name
+        self._unique_id = f"nimly_{attribute}_{ieee.replace(':','')}"
 
-        @property
-        def unique_id(self):
-            return self._unique_id
+    @property
+    def name(self):
+        return self._name
 
-        @property
-        def state(self):
-            return self._hass.data.get(f"{DOMAIN}:{self._ieee}:{self._attribute}")
+    @property
+    def unique_id(self):
+        return self._unique_id
 
-        @property
-        def device_class(self):
-            if self._attribute == "battery":
-                return "battery"
-            if self._attribute in ["rssi", "rssi_dbm"]:
-                return "signal_strength"
-            return None
+    @property
+    def state(self):
+        return self._hass.data.get(f"{DOMAIN}:{self._ieee}:{self._attribute}")
+
+    @property
+    def device_class(self):
+        if self._attribute == "battery":
+            return "battery"
+        if self._attribute in ["rssi", "rssi_dbm"]:
+            return "signal_strength"
+        return None
 
     @property
     def unit_of_measurement(self):
@@ -182,15 +183,13 @@ class NimlyDigitalLock(LockEntity):
             return "dB"
         return None
 
+    @property
+    def entity_category(self):
+        return EntityCategory.DIAGNOSTIC
 
-@property
-def entity_category(self):
-    return EntityCategory.DIAGNOSTIC
-
-
-@property
-def state_class(self):
-    return SensorStateClass.MEASUREMENT
+    @property
+    def state_class(self):
+        return SensorStateClass.MEASUREMENT
 
 
 class NimlyLockBatteryLowSensor(BinarySensorEntity):
@@ -225,8 +224,8 @@ class NimlyLockBatteryLowSensor(BinarySensorEntity):
         return {
             "identifiers": {(DOMAIN, self._ieee)},
             "name": self._name.replace(" Battery Low", ""),
-            "manufacturer": "Safe4",
-            "model": "Zigbee Door Lock Module",
+            "manufacturer": "Nimly",
+            "model": "Nimly Door Lock Module",
             "sw_version": "1.0",
             "entry_type": DeviceEntryType.SERVICE,
         }
