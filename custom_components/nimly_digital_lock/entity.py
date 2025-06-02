@@ -7,6 +7,8 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
+# Importing zha_mapping properly
+from .zha_mapping import LOCK_COMMANDS
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,7 +55,7 @@ class NimlyDigitalLock(LockEntity):
 
         # Let's try one more approach - with numeric command ID instead of string command
         # This is helpful for some Zigbee implementations including Nabu Casa
-        from ..zha_mapping import LOCK_COMMANDS
+        # Use the properly imported LOCK_COMMANDS from above
         if command in LOCK_COMMANDS:
             command_id = LOCK_COMMANDS[command]
             _LOGGER.debug(f"Trying with numeric command ID {command_id} instead of string command {command}")
@@ -144,10 +146,14 @@ class NimlyDigitalLock(LockEntity):
         self._name = name
 
         # Normalize IEEE formats
-        self._ieee_no_colons = ieee.replace(':', '')
+        self._ieee_no_colons = ieee.replace(':', '').lower()
         self._ieee_with_colons = ':'.join([self._ieee_no_colons[i:i+2] for i in range(0, len(self._ieee_no_colons), 2)]) if ':' not in ieee else ieee
 
-        self._unique_id = f"nimly_{self._ieee_no_colons}"
+        # Use domain as prefix to ensure uniqueness across integrations
+        self._unique_id = f"{DOMAIN}_lock_{self._ieee_no_colons}"
+        # Set entity_id format to avoid collisions
+        self._attr_entity_id = f"{DOMAIN}_{self._ieee_no_colons}"
+
         self._is_locked = None
         self._attrs = {}
 
@@ -201,7 +207,7 @@ class NimlyDigitalLock(LockEntity):
                 success = await async_send_command_zbt1(self._hass, self._ieee, "lock_door", LOCK_CLUSTER_ID)
                 if not success:
                     # Try with command ID instead of name
-                    from ..zha_mapping import LOCK_COMMANDS
+                    # Using the already imported LOCK_COMMANDS
                     success = await async_send_command_zbt1(self._hass, self._ieee, LOCK_COMMANDS["lock_door"], LOCK_CLUSTER_ID)
 
             if success:
@@ -238,7 +244,7 @@ class NimlyDigitalLock(LockEntity):
                 success = await async_send_command_zbt1(self._hass, self._ieee, "unlock_door", LOCK_CLUSTER_ID)
                 if not success:
                     # Try with command ID instead of name
-                    from ..zha_mapping import LOCK_COMMANDS
+                    # Using the already imported LOCK_COMMANDS
                     success = await async_send_command_zbt1(self._hass, self._ieee, LOCK_COMMANDS["unlock_door"], LOCK_CLUSTER_ID)
 
             if success:
@@ -361,7 +367,13 @@ class NimlyLockBatteryLowSensor(BinarySensorEntity):
         self._hass = hass
         self._ieee = ieee
         self._name = name
-        self._unique_id = f"nimly_battery_low_{ieee.replace(':', '')}_{entry_id}"
+
+        # Create unique ID with domain prefix to avoid collisions
+        ieee_clean = ieee.replace(':', '').lower()
+        self._unique_id = f"{DOMAIN}_battery_low_{ieee_clean}_{entry_id}"
+
+        # Set entity_id format to avoid collisions
+        self._attr_entity_id = f"{DOMAIN}_{ieee_clean}_battery_low"
 
     @property
     def name(self):

@@ -2,6 +2,7 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.entity_registry import EntityRegistry
 from homeassistant.helpers.event import async_track_state_change_event
 
 # Define ZHA domain constant directly instead of importing from unavailable path
@@ -18,6 +19,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Initialize the data dictionary for this entry
     ieee = entry.data["ieee"]
     _LOGGER.debug(f"Setting up Nimly Digital Lock with IEEE: {ieee}")
+
+    # Handle potential entity migration
+    # This helps if entities already exist with the old format
+    entity_registry = er.async_get(hass)
+
+    # Try to find and fix any existing entity registrations
+    ieee_clean = ieee.replace(':', '').lower()
+    old_id_patterns = [
+        f"nimly_{ieee_clean}",
+        f"nimly_battery_{ieee_clean}",
+        f"nimly_battery_low_{ieee_clean}"
+    ]
+
+    # Log what we're looking for
+    _LOGGER.debug(f"Looking for entities matching patterns: {old_id_patterns}")
+
+    # Try to find any matching entities and remove them so they can be recreated
+    # This allows the system to generate new statistic IDs
+    for entity_id, entity in list(entity_registry.entities.items()):
+        for pattern in old_id_patterns:
+            if pattern in entity.unique_id:
+                _LOGGER.info(f"Found entity with old unique_id pattern: {entity.unique_id}, removing for recreation")
+                entity_registry.async_remove(entity_id)
+                break
 
     # Normalize IEEE address format - ZHA might use different formats
     # Try both with and without colons

@@ -15,11 +15,18 @@ class NimlySensor(SensorEntity):
         self._ieee = ieee
         self._attribute = attribute
         self._name = name
-        self._unique_id = f"nimly_{attribute}_{ieee.replace(':','')}_{entry_id}"
+
+        # Create truly unique ID by incorporating more components
+        # Using a consistent format that's guaranteed to be unique across different installations
+        ieee_clean = ieee.replace(':', '').lower()
+        self._unique_id = f"{DOMAIN}_{attribute}_{ieee_clean}_{entry_id}"
         self._attr_has_entity_name = True
 
+        # Set entity_id format to avoid collisions with other integrations
+        self._attr_entity_id = f"{DOMAIN}_{ieee_clean}_{attribute}"
+
         # Initialize data for debugging
-        _LOGGER.debug(f"Initializing sensor: {self._name} for attribute {attribute}")
+        _LOGGER.debug(f"Initializing sensor: {self._name} for attribute {attribute} with unique_id {self._unique_id}")
         key = f"{DOMAIN}:{ieee}:{attribute}"
         if key not in self._hass.data:
             _LOGGER.warning(f"Key {key} not found in hass.data, initializing to None")
