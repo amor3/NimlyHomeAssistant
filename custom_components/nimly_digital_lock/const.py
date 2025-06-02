@@ -1,7 +1,9 @@
 DOMAIN = "nimly_digital_lock"
-LOCK_CLUSTER_ID = 0x0101
-POWER_CLUSTER_ID = 0x0001
-ENDPOINT_ID = 11
+# Standard ZigBee Cluster IDs
+LOCK_CLUSTER_ID = 0x0101  # Door Lock cluster
+POWER_CLUSTER_ID = 0x0001  # Power Configuration cluster
+# We'll discover the correct endpoint ID during device initialization
+ENDPOINT_ID = None  # This will be discovered per device
 
 ATTRIBUTE_MAP = {
     "battery": (POWER_CLUSTER_ID, 0x0021),

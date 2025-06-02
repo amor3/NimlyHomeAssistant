@@ -51,21 +51,25 @@ class NimlyDigitalLock(LockEntity):
     async def async_lock(self, **kwargs):
         _LOGGER.info(f"Locking {self._name} [{self._ieee}]")
         try:
-            resp = await self._hass.services.async_call(
-                "zha",
-                "issue_zigbee_cluster_command",
-                {
-                    "ieee": self._ieee,
-                    "endpoint_id": ENDPOINT_ID,
-                    "cluster_id": LOCK_CLUSTER_ID,
-                    "command": 0x00,  # Lock
-                    "command_type": "client",
-                    "args": [],
-                },
-                return_response=True,
-                blocking=True
-            )
-            _LOGGER.debug(f"Lock response: {resp}")
+            # Get ZHA device
+            zha_gateway = self._hass.data.get("zha", {}).get("gateway", None)
+            if not zha_gateway:
+                _LOGGER.error("ZHA gateway not found")
+                return False
+
+            zha_device = zha_gateway.get_device(self._ieee)
+            if not zha_device:
+                _LOGGER.error(f"ZHA device not found for {self._ieee}")
+                return False
+
+            # Find the lock cluster and send lock command
+            for endpoint in zha_device.endpoints.values():
+                if LOCK_CLUSTER_ID in endpoint.in_clusters:
+                    lock_cluster = endpoint.in_clusters[LOCK_CLUSTER_ID]
+                    result = await lock_cluster.lock_door()
+                    _LOGGER.debug(f"Lock command result: {result}")
+                    break
+
             # Update state regardless of response
             await self.async_update()
             self._is_locked = True
@@ -78,21 +82,25 @@ class NimlyDigitalLock(LockEntity):
     async def async_unlock(self, **kwargs):
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}]")
         try:
-            resp = await self._hass.services.async_call(
-                "zha",
-                "issue_zigbee_cluster_command",
-                {
-                    "ieee": self._ieee,
-                    "endpoint_id": ENDPOINT_ID,
-                    "cluster_id": LOCK_CLUSTER_ID,
-                    "command": 0x01,  # Unlock
-                    "command_type": "client",
-                    "args": [],
-                },
-                return_response=True,
-                blocking=True
-            )
-            _LOGGER.debug(f"Unlock response: {resp}")
+            # Get ZHA device
+            zha_gateway = self._hass.data.get("zha", {}).get("gateway", None)
+            if not zha_gateway:
+                _LOGGER.error("ZHA gateway not found")
+                return False
+
+            zha_device = zha_gateway.get_device(self._ieee)
+            if not zha_device:
+                _LOGGER.error(f"ZHA device not found for {self._ieee}")
+                return False
+
+            # Find the lock cluster and send unlock command
+            for endpoint in zha_device.endpoints.values():
+                if LOCK_CLUSTER_ID in endpoint.in_clusters:
+                    lock_cluster = endpoint.in_clusters[LOCK_CLUSTER_ID]
+                    result = await lock_cluster.unlock_door()
+                    _LOGGER.debug(f"Unlock command result: {result}")
+                    break
+
             # Update state regardless of response
             await self.async_update()
             self._is_locked = False
@@ -106,50 +114,50 @@ class NimlyDigitalLock(LockEntity):
         # Add detailed logging for debugging
         _LOGGER.debug(f"Starting update for lock {self._name} [{self._ieee}]")
 
+        # Use state data from ZHA component
         try:
-            resp = await self._hass.services.async_call(
-                "zha",
-                "read_zigbee_cluster_attributes",
-                {
-                    "ieee": self._ieee,
-                    "endpoint_id": ENDPOINT_ID,
-                    "cluster_id": LOCK_CLUSTER_ID,
-                    "cluster_type": "in",
-                    "attribute": [0x0000],
-                },
-                return_response=True,
-            )
-            _LOGGER.debug(f"Lock state response: {resp}")
-            if resp and isinstance(resp, list):
-                state = resp[0]
-                self._is_locked = state == 1
-                _LOGGER.debug(f"Lock state: {state}, is_locked set to {self._is_locked}")
-        except Exception as e:
-            _LOGGER.error(f"Failed to poll lock state: {e}")
+            # Get ZHA device
+            zha_gateway = self._hass.data.get("zha", {}).get("gateway", None)
+            if not zha_gateway:
+                _LOGGER.error("ZHA gateway not found")
+                return
 
-        _LOGGER.debug(f"Reading {len(ATTRIBUTE_MAP)} attributes for {self._ieee}")
-        for attr, (cid, aid) in ATTRIBUTE_MAP.items():
-            try:
-                _LOGGER.debug(f"Reading attribute {attr} (cluster: 0x{cid:04x}, attr: 0x{aid:04x})")
-                resp = await self._hass.services.async_call(
-                    "zha",
-                    "read_zigbee_cluster_attributes",
-                    {
-                        "ieee": self._ieee,
-                        "endpoint_id": ENDPOINT_ID,
-                        "cluster_id": cid,
-                        "cluster_type": "in",
-                        "attribute": [aid],
-                    },
-                    return_response=True,
-                )
-                _LOGGER.debug(f"Response for {attr}: {resp}")
-                value = resp[0] if resp else None
-                self._attrs[attr] = value
-                self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
-                _LOGGER.debug(f"Set {attr} = {value}")
-            except Exception as e:
-                _LOGGER.error(f"Error reading {attr}: {e}")
+            zha_device = zha_gateway.get_device(self._ieee)
+            if not zha_device:
+                _LOGGER.error(f"ZHA device not found for {self._ieee}")
+                return
+
+            # Find the lock cluster
+            for endpoint in zha_device.endpoints.values():
+                if LOCK_CLUSTER_ID in endpoint.in_clusters:
+                    lock_cluster = endpoint.in_clusters[LOCK_CLUSTER_ID]
+                    # Get lock state
+                    result = await lock_cluster.read_attributes([0x0000])
+                    if result and 0x0000 in result[0]:
+                        state = result[0][0x0000]
+                        self._is_locked = state == 1
+                        _LOGGER.debug(f"Lock state: {state}, is_locked set to {self._is_locked}")
+                    break
+
+            # Read other attributes
+            _LOGGER.debug(f"Reading attributes for {self._ieee}")
+            for attr, (cid, aid) in ATTRIBUTE_MAP.items():
+                try:
+                    for endpoint in zha_device.endpoints.values():
+                        if cid in endpoint.in_clusters:
+                            cluster = endpoint.in_clusters[cid]
+                            result = await cluster.read_attributes([aid])
+                            if result and aid in result[0]:
+                                value = result[0][aid]
+                                self._attrs[attr] = value
+                                self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
+                                _LOGGER.debug(f"Set {attr} = {value}")
+                            break
+                except Exception as e:
+                    _LOGGER.error(f"Error reading attribute {attr}: {e}")
+
+        except Exception as e:
+            _LOGGER.error(f"Failed to update lock: {e}")
 
 
 
