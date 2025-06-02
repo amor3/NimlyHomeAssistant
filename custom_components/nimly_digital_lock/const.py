@@ -1,5 +1,3 @@
-"""Constants for the Nimly Digital Lock integration."""
-
 DOMAIN = "nimly_digital_lock"
 LOCK_CLUSTER_ID = 0x0101
 POWER_CLUSTER_ID = 0x0001
