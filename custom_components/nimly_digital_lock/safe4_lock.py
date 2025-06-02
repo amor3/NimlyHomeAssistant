@@ -3,6 +3,8 @@
 import logging
 import asyncio
 
+from .const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
 
 # Safe4 Door Lock Constants
@@ -179,5 +181,5 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
     return None
 
-    # For ZBT-1 devices, use the default cluster type
-    cluster_type = "in"
+# For ZBT-1 devices, use the default cluster type
+cluster_type = "in"
