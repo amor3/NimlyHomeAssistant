@@ -20,6 +20,94 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     ieee = entry.data["ieee"]
     _LOGGER.debug(f"Setting up Nimly Digital Lock with IEEE: {ieee}")
 
+    # Register custom services
+    async def send_raw_zigbee_command(call):
+        """Send a raw Zigbee command to the lock for advanced troubleshooting."""
+        ieee = call.data["ieee"]
+        command = call.data["command"]
+        cluster_id = call.data["cluster_id"]
+        endpoint_id = call.data.get("endpoint_id", 1)
+        command_type = call.data.get("command_type", "server")
+        params = call.data.get("params", {})
+
+        # Determine which service to use
+        service_domain = hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+
+        # Prepare service data
+        service_data = {
+            "ieee": ieee,
+            "command": command,
+            "command_type": command_type,
+            "cluster_id": cluster_id,
+            "endpoint_id": endpoint_id
+        }
+
+        if params:
+            service_data["params"] = params
+
+        _LOGGER.debug(f"Sending raw Zigbee command: {service_data}")
+        try:
+            await hass.services.async_call(
+                service_domain, "issue_zigbee_cluster_command", service_data
+            )
+            _LOGGER.info(f"Raw Zigbee command sent successfully: {command} to cluster {cluster_id}")
+            return True
+        except Exception as e:
+            _LOGGER.error(f"Failed to send raw Zigbee command: {e}")
+            return False
+
+    async def try_all_endpoints(call):
+        """Try sending the same command to all common endpoints."""
+        ieee = call.data["ieee"]
+        command = call.data["command"]
+        cluster_id = call.data["cluster_id"]
+
+        # Common endpoints to try
+        endpoints = [1, 2, 3, 242]
+        results = {}
+
+        # Try each endpoint
+        for endpoint in endpoints:
+            _LOGGER.info(f"Trying endpoint {endpoint} with command {command}")
+            try:
+                # Determine which service to use
+                service_domain = hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+
+                # Prepare service data
+                service_data = {
+                    "ieee": ieee,
+                    "command": command,
+                    "command_type": "server",
+                    "cluster_id": cluster_id,
+                    "endpoint_id": endpoint
+                }
+
+                await hass.services.async_call(
+                    service_domain, "issue_zigbee_cluster_command", service_data
+                )
+                _LOGGER.info(f"Command sent successfully to endpoint {endpoint}")
+                results[endpoint] = "success"
+            except Exception as e:
+                _LOGGER.error(f"Failed to send command to endpoint {endpoint}: {e}")
+                results[endpoint] = f"failed: {str(e)}"
+
+        _LOGGER.info(f"All endpoint results: {results}")
+
+        # Display a notification with results
+        await hass.services.async_call(
+            "persistent_notification", "create",
+            {
+                "title": "Nimly Lock - Endpoint Test Results",
+                "message": f"Command: {command}\nCluster: {cluster_id}\nResults: {results}"
+            }
+        )
+
+        return results
+
+    # Register the services
+    hass.services.async_register(DOMAIN, "send_raw_zigbee_command", send_raw_zigbee_command)
+    hass.services.async_register(DOMAIN, "try_all_endpoints", try_all_endpoints)
+
     # Handle potential entity migration
     # This helps if entities already exist with the old format
     entity_registry = er.async_get(hass)

@@ -22,7 +22,7 @@ class NimlyDigitalLock(LockEntity):
         """
         # Determine which service to use (zha or zigbee)
         service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
-        _LOGGER.debug(f"Using {service_domain} service domain for commands")
+        _LOGGER.debug(f"Using {service_domain} service domain for commands with command {command}, cluster {cluster_id}, endpoint {endpoint_id}")
 
         # Check if the service exists
         has_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
@@ -259,13 +259,39 @@ class NimlyDigitalLock(LockEntity):
         if device_info and device_info["device_id"] != "simulated" and has_command_service:
             _LOGGER.debug(f"Calling Zigbee service to lock door using IEEE: {self._ieee}")
 
-            # Send the command
+            # First try with the standard method
             success = await self._send_zigbee_command("lock_door")
+
+            # If that fails, try with numeric command ID directly
+            if not success and "lock_door" in LOCK_COMMANDS:
+                _LOGGER.info("First lock attempt failed, trying with numeric command ID")
+                command_id = LOCK_COMMANDS["lock_door"]
+                success = await self._send_zigbee_command(command_id)
+
+            # If still unsuccessful, try ZBT-1 specific method
+            if not success:
+                _LOGGER.info("Standard lock attempts failed, trying ZBT-1 specific method")
+                # Try multiple endpoints
+                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [1, 2, 3, 242]
+
+                for endpoint in endpoints:
+                    _LOGGER.debug(f"Trying lock with ZBT-1 method on endpoint {endpoint}")
+                    success = await async_send_command_zbt1(
+                        self._hass,
+                        self._ieee_with_colons,  # Try with colons format for ZBT-1
+                        LOCK_COMMANDS["lock_door"],  # Use numeric ID directly
+                        LOCK_CLUSTER_ID,
+                        endpoint_id=endpoint
+                    )
+
+                    if success:
+                        _LOGGER.info(f"ZBT-1 lock successful on endpoint {endpoint}")
+                        break
 
             if success:
                 _LOGGER.info("Lock command sent successfully")
             else:
-                _LOGGER.warning("Failed to send lock command. Using simulated state.")
+                _LOGGER.warning("Failed to send lock command after multiple attempts. Using simulated state.")
         else:
             if not has_command_service:
                 _LOGGER.info(f"Service {service_domain}.issue_zigbee_cluster_command not available, using simulated mode")
@@ -296,13 +322,39 @@ class NimlyDigitalLock(LockEntity):
         if device_info and device_info["device_id"] != "simulated" and has_command_service:
             _LOGGER.debug(f"Calling Zigbee service to unlock door using IEEE: {self._ieee}")
 
-            # Send the command
+            # First try with the standard method
             success = await self._send_zigbee_command("unlock_door")
+
+            # If that fails, try with numeric command ID directly
+            if not success and "unlock_door" in LOCK_COMMANDS:
+                _LOGGER.info("First unlock attempt failed, trying with numeric command ID")
+                command_id = LOCK_COMMANDS["unlock_door"]
+                success = await self._send_zigbee_command(command_id)
+
+            # If still unsuccessful, try ZBT-1 specific method
+            if not success:
+                _LOGGER.info("Standard unlock attempts failed, trying ZBT-1 specific method")
+                # Try multiple endpoints
+                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [1, 2, 3, 242]
+
+                for endpoint in endpoints:
+                    _LOGGER.debug(f"Trying unlock with ZBT-1 method on endpoint {endpoint}")
+                    success = await async_send_command_zbt1(
+                        self._hass,
+                        self._ieee_with_colons,  # Try with colons format for ZBT-1
+                        LOCK_COMMANDS["unlock_door"],  # Use numeric ID directly
+                        LOCK_CLUSTER_ID,
+                        endpoint_id=endpoint
+                    )
+
+                    if success:
+                        _LOGGER.info(f"ZBT-1 unlock successful on endpoint {endpoint}")
+                        break
 
             if success:
                 _LOGGER.info("Unlock command sent successfully")
             else:
-                _LOGGER.warning("Failed to send unlock command. Using simulated state.")
+                _LOGGER.warning("Failed to send unlock command after multiple attempts. Using simulated state.")
         else:
             if not has_command_service:
                 _LOGGER.info(f"Service {service_domain}.issue_zigbee_cluster_command not available, using simulated mode")

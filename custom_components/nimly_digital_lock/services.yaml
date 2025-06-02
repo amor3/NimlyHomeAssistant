@@ -1,0 +1,45 @@
+# Services for the Nimly Digital Lock component
+
+send_raw_zigbee_command:
+  description: Send a raw Zigbee command to the lock for debugging and troubleshooting
+  fields:
+    ieee:
+      description: IEEE address of the Zigbee device
+      example: 'f4:ce:36:0a:04:4d:31:f5'
+      required: true
+    command:
+      description: Command ID (numeric) or name (string)
+      example: 0 or 'lock_door'
+      required: true
+    cluster_id:
+      description: Zigbee cluster ID
+      example: 257
+      required: true
+    endpoint_id:
+      description: Zigbee endpoint ID
+      example: 1
+      default: 1
+    command_type:
+      description: Command type (server or client)
+      example: 'server'
+      default: 'server'
+    params:
+      description: Parameters for the command (if needed)
+      example: '{"param1": 1}'
+      required: false
+
+try_all_endpoints:
+  description: Try sending the same command to all common endpoints (1, 2, 3, 242)
+  fields:
+    ieee:
+      description: IEEE address of the Zigbee device
+      example: 'f4:ce:36:0a:04:4d:31:f5'
+      required: true
+    command:
+      description: Command ID (numeric) or name (string)
+      example: 0 or 'lock_door'
+      required: true
+    cluster_id:
+      description: Zigbee cluster ID
+      example: 257
+      required: true

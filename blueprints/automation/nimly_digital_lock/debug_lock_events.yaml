@@ -1,0 +1,56 @@
+blueprint:
+  name: Nimly Lock - Debug Events
+  description: Log and notify about all lock-related events for debugging
+  domain: automation
+  input:
+    lock_entity:
+      name: Lock Entity
+      selector:
+        entity:
+          domain: lock
+    notify_device:
+      name: Device to notify
+      description: Device that will receive notifications
+      selector:
+        device:
+  trigger:
+    - platform: state
+      entity_id: !input lock_entity
+    - platform: event
+      event_type: zha_event
+    - platform: event
+      event_type: state_changed
+      event_data:
+        entity_id: !input lock_entity
+  action:
+    - service: persistent_notification.create
+      data:
+        title: "Lock Debug Event"
+        message: >-
+          Event Type: {{ trigger.platform }}
+          {% if trigger.platform == 'state' %}
+          Lock state changed: {{ trigger.from_state.state }} -> {{ trigger.to_state.state }}
+          {% elif trigger.platform == 'event' and trigger.event.event_type == 'zha_event' %}
+          ZHA Event: {{ trigger.event.data }}
+          Command: {{ trigger.event.data.command }}
+          Cluster ID: {{ trigger.event.data.cluster_id }}
+          Endpoint: {{ trigger.event.data.endpoint_id }}
+          {% else %}
+          Other event: {{ trigger.event.event_type }}
+          Data: {{ trigger.event.data }}
+          {% endif %}
+
+          Time: {{ now().strftime('%Y-%m-%d %H:%M:%S') }}
+    - service: notify.mobile_app
+      target:
+        device_id: !input notify_device
+      data:
+        title: "Lock Debug Event"
+        message: >-
+          {% if trigger.platform == 'state' %}
+          Lock: {{ trigger.from_state.state }} -> {{ trigger.to_state.state }}
+          {% elif trigger.platform == 'event' and trigger.event.event_type == 'zha_event' %}
+          ZHA: {{ trigger.event.data.command }}
+          {% else %}
+          {{ trigger.event.event_type }}
+          {% endif %}
