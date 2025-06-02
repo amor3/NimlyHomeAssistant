@@ -31,7 +31,8 @@ async def _send_lock_command(hass, ieee_address, command):
 
     # Get the service domain to use - try both zigbee (Nabu Casa) and ZHA
     service_domains = ["zigbee", "zha"]
-    service_method = "issue_zigbee_cluster_command"
+    # Try multiple service method names as different integrations use different names
+    service_methods = ["issue_zigbee_cluster_command", "send_zigbee_command", "command"]
 
     # Normalize IEEE address - try with and without colons
     ieee_no_colons = ieee_address.replace(':', '')
@@ -51,65 +52,72 @@ async def _send_lock_command(hass, ieee_address, command):
     for endpoint_id in COMMON_ENDPOINTS:
         for ieee in ieee_formats:
             for service_domain in service_domains:
-                try:
-                    _LOGGER.debug(f"Trying endpoint {endpoint_id} with {command_name} command using {service_domain} service and IEEE {ieee}")
+                for service_method in service_methods:
+                    try:
+                        _LOGGER.debug(f"Trying endpoint {endpoint_id} with {command_name} command using {service_domain}.{service_method} and IEEE {ieee}")
 
-                    # Prepare service data for the direct command
-                    service_data = {
-                        "ieee": ieee,
-                        "endpoint_id": endpoint_id,
-                        "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
-                        "command": command,
-                        "command_type": "server"
-                    }
+                        # Prepare service data for the direct command
+                        service_data = {
+                            "ieee": ieee,
+                            "endpoint_id": endpoint_id,
+                            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+                            "command": command,
+                            "command_type": "server"
+                        }
 
-                    # Add empty params or args based on the service domain
-                    if service_domain == "zha":
-                        service_data["args"] = []
-                    else:
-                        service_data["params"] = {}
+                        # Add empty params or args based on the service domain and method
+                        if service_domain == "zha":
+                            service_data["args"] = []
+                        else:
+                            service_data["params"] = {}
 
-                    # Check if the service exists
-                    if not hass.services.has_service(service_domain, service_method):
-                        _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
-                        continue
+                        # Check if the service exists
+                        if not hass.services.has_service(service_domain, service_method):
+                            _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
+                            continue
 
-                    # Call the service
-                    await hass.services.async_call(
-                        service_domain,
-                        service_method,
-                        service_data,
-                        blocking=True
-                    )
+                        # Call the service
+                        await hass.services.async_call(
+                            service_domain,
+                            service_method,
+                            service_data,
+                            blocking=True
+                        )
 
-                    _LOGGER.info(f"Successfully sent {command_name} command to endpoint {endpoint_id}")
-                    return True
-                except Exception as e:
-                    _LOGGER.debug(f"Failed to send {command_name} command to endpoint {endpoint_id} with IEEE {ieee} using {service_domain}: {e}")
+                        _LOGGER.info(f"Successfully sent {command_name} command to endpoint {endpoint_id} using {service_domain}.{service_method}")
+                        return True
+                    except Exception as e:
+                        _LOGGER.debug(f"Failed to send {command_name} command to endpoint {endpoint_id} with IEEE {ieee} using {service_domain}.{service_method}: {e}")
 
         # If we get this far, try with network address
-        try:
-            # Try with network address (only works with ZHA)
-            service_data = {
-                "nwk": "0x7FDB",  # The known network address
-                "endpoint_id": endpoint_id,
-                "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
-                "command": command,
-                "command_type": "server",
-                "params": {}
-            }
+        for service_method in service_methods:
+            try:
+                # Try with network address (only works with ZHA)
+                service_data = {
+                    "nwk": "0x7FDB",  # The known network address
+                    "endpoint_id": endpoint_id,
+                    "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+                    "command": command,
+                    "command_type": "server",
+                    "params": {}
+                }
 
-            await hass.services.async_call(
-                "zha",
-                service_method,
-                service_data,
-                blocking=True
-            )
+                # Check if the service exists
+                if not hass.services.has_service("zha", service_method):
+                    _LOGGER.debug(f"Service zha.{service_method} not available for network address, skipping")
+                    continue
 
-            _LOGGER.info(f"Successfully sent {command_name} command using network address to endpoint {endpoint_id}")
-            return True
-        except Exception as e:
-            _LOGGER.debug(f"Failed to send {command_name} command using network address: {e}")
+                await hass.services.async_call(
+                    "zha",
+                    service_method,
+                    service_data,
+                    blocking=True
+                )
+
+                _LOGGER.info(f"Successfully sent {command_name} command using network address to endpoint {endpoint_id}")
+                return True
+            except Exception as e:
+                _LOGGER.debug(f"Failed to send {command_name} command using network address: {e}")
 
     # If we get here, none of the endpoints worked
     _LOGGER.error(f"All endpoints failed for {command_name} command")
@@ -120,7 +128,13 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
 
     # Try both zigbee (Nabu Casa) and ZHA services
     service_domains = ["zigbee", "zha"]
-    service_methods = ["get_zigbee_cluster_attribute", "read_zigbee_cluster_attribute"]
+    # Add more potential service method names for different Zigbee integrations
+    service_methods = [
+        "get_zigbee_cluster_attribute", 
+        "read_zigbee_cluster_attribute",
+        "read_attribute",
+        "get_attribute"
+    ]
 
     # Normalize IEEE address - try with and without colons
     ieee_no_colons = ieee_address.replace(':', '')

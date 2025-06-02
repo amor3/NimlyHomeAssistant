@@ -441,9 +441,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
         _LOGGER.info("Using 'zigbee' service for Nabu Casa ZBT-1 device")
 
-        # Check if the direct ZHA service is available, or if Nabu Casa zigbee is present
-        has_zha = hass.services.has_service("zha", "issue_zigbee_cluster_command")
-        has_zigbee = hass.services.has_service("zigbee", "issue_zigbee_cluster_command")
+        # Check for all possible Zigbee service methods
+        zigbee_service_methods = ["issue_zigbee_cluster_command", "send_zigbee_command", "command", "execute_zigbee_command"]
+        has_zha = any(hass.services.has_service("zha", method) for method in zigbee_service_methods)
+        has_zigbee = any(hass.services.has_service("zigbee", method) for method in zigbee_service_methods)
 
         # Log all available services to help with debugging
         zigbee_services = {}

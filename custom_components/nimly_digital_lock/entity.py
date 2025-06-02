@@ -25,37 +25,34 @@ class NimlyDigitalLock(LockEntity):
         Works with both ZHA and Nabu Casa zigbee integration.
         """
         # Determine which service to use (zha or zigbee)
-        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
-        _LOGGER.debug(f"Using {service_domain} service domain for commands with command {command}, cluster {cluster_id}, endpoint {endpoint_id}")
+        service_domains = ["zigbee", "zha"]
+        _LOGGER.debug(f"Trying service domains for commands with command {command}, cluster {cluster_id}, endpoint {endpoint_id}")
 
-        # Check if the service exists
-        has_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
-        if not has_service:
-            _LOGGER.warning(f"Service {service_domain}.issue_zigbee_cluster_command not available")
+        # Try multiple service methods as different integrations use different names
+        service_methods = ["issue_zigbee_cluster_command", "send_zigbee_command", "execute_zigbee_command", "command"]
 
-            # Try alternative service names
-            alternatives = ["send_zigbee_command", "execute_zigbee_command"]
-            service_method = None
+        # Keep track of whether we found any service
+        found_service = False
+        service_domain = None
+        service_method = None
 
-            for alt in alternatives:
-                if self._hass.services.has_service(service_domain, alt):
-                    _LOGGER.info(f"Found alternative service: {service_domain}.{alt}")
-                    service_method = alt
-                    break
+        # First check if any of the services exist
+        for domain in service_domains:
+            for method in service_methods:
+                if self._hass.services.has_service(domain, method):
+                    _LOGGER.info(f"Found available service: {domain}.{method}")
+                    service_domain = domain
+                    service_method = method
+                    found_service = True
+                    # Don't break here, we want to log all available services
 
-            if not service_method:
-                # Check the other service domain as fallback
-                fallback_domain = "zigbee" if service_domain == "zha" else "zha"
-                if self._hass.services.has_service(fallback_domain, "issue_zigbee_cluster_command"):
-                    service_domain = fallback_domain
-                    service_method = "issue_zigbee_cluster_command"
-                    _LOGGER.info(f"Using fallback service domain: {service_domain}")
-                else:
-                    # No services available, cannot operate without them
-                    _LOGGER.error("No Zigbee services available for sending commands. Cannot communicate with lock.")
-                    return False
-        else:
-            service_method = "issue_zigbee_cluster_command"
+        if not found_service:
+            # No services available, cannot operate without them
+            _LOGGER.error("No Zigbee services available for sending commands. Cannot communicate with lock.")
+            return False
+
+        # Use the first available service that was found
+        _LOGGER.info(f"Using {service_domain}.{service_method} for sending Zigbee commands")
 
         # Try with different address formats, including IEEE and network addresses
         formats_to_try = [
@@ -151,33 +148,40 @@ class NimlyDigitalLock(LockEntity):
         """Helper method to read Zigbee attributes directly using service calls.
         Works with both ZHA and Nabu Casa zigbee integration.
         """
-        # Check if services are available first
-        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
-        _LOGGER.debug(f"Using {service_domain} service domain for attribute read")
+        # Try multiple service domains
+        service_domains = ["zigbee", "zha"]
+        _LOGGER.debug(f"Trying service domains for attribute read")
 
-        # Verify service exists before trying to call it
-        has_service = self._hass.services.has_service(service_domain, "read_zigbee_cluster_attribute")
-        if not has_service:
-            _LOGGER.warning(f"Service {service_domain}.read_zigbee_cluster_attribute not available")
+        # Try multiple service methods as different integrations use different names
+        service_methods = [
+            "read_zigbee_cluster_attribute", 
+            "get_zigbee_cluster_attribute",
+            "read_attribute", 
+            "get_attribute"
+        ]
 
-            # Try alternative service name for ZHA
-            alternative_service = "get_zigbee_cluster_attribute"
-            if self._hass.services.has_service(service_domain, alternative_service):
-                _LOGGER.info(f"Found alternative service: {service_domain}.{alternative_service}")
-                service_method = alternative_service
-            else:
-                # Try the other service domain as fallback
-                fallback_domain = "zigbee" if service_domain == "zha" else "zha"
-                if self._hass.services.has_service(fallback_domain, "read_zigbee_cluster_attribute"):
-                    service_domain = fallback_domain
-                    service_method = "read_zigbee_cluster_attribute"
-                    _LOGGER.info(f"Using fallback service domain: {service_domain}")
-                else:
-                    # No services available, cannot operate without them
-                    _LOGGER.error("No Zigbee services available for reading attributes. Cannot communicate with lock.")
-                    return False
-        else:
-            service_method = "read_zigbee_cluster_attribute"
+        # Keep track of whether we found any service
+        found_service = False
+        service_domain = None
+        service_method = None
+
+        # First check if any of the services exist
+        for domain in service_domains:
+            for method in service_methods:
+                if self._hass.services.has_service(domain, method):
+                    _LOGGER.info(f"Found available attribute read service: {domain}.{method}")
+                    service_domain = domain
+                    service_method = method
+                    found_service = True
+                    # Don't break here, we want to log all available services
+
+        if not found_service:
+            # No services available, cannot operate without them
+            _LOGGER.error("No Zigbee services available for reading attributes. Cannot communicate with lock.")
+            return False
+
+        # Use the first available service that was found
+        _LOGGER.info(f"Using {service_domain}.{service_method} for reading Zigbee attributes")
 
         # Try with different IEEE formats, including the specific ZHA IEEE address
         formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons, self._zha_ieee, self._zha_ieee_no_colons]
