@@ -57,6 +57,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     ieee_formats = [ieee, ieee_no_colons, ieee_with_colons]
     ieee_formats_lower = [addr.lower() for addr in ieee_formats]
 
+    # Debug all available services
+    _LOGGER.debug(f"Available services: {hass.services.async_services()}")
+
+    # Check specifically for zigbee service availability
+    has_zigbee_service = hass.services.has_service("zigbee", "issue_zigbee_cluster_command")
+    _LOGGER.info(f"Nabu Casa Zigbee service available: {has_zigbee_service}")
+
     # Scan through all devices in the registry
     for device_id, device in device_registry.devices.items():
         # Check if this is a ZHA device - check for both ZHA and Zigbee (Nabu Casa)
@@ -137,16 +144,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         }
 
         # Check if the direct ZHA service is available, or if Nabu Casa zigbee is present
-        has_zha = "zha" in hass.data and hass.services.has_service("zha", "issue_zigbee_cluster_command")
+        has_zha = hass.services.has_service("zha", "issue_zigbee_cluster_command")
         has_zigbee = hass.services.has_service("zigbee", "issue_zigbee_cluster_command")
 
-        if has_zigbee and not has_zha:
-            _LOGGER.info("Detected Nabu Casa zigbee integration instead of ZHA")
+        # Log all available services to help with debugging
+        zigbee_services = {}
+        if "zigbee" in hass.services.async_services():
+            zigbee_services["zigbee"] = hass.services.async_services()["zigbee"]
+        if "zha" in hass.services.async_services():
+            zigbee_services["zha"] = hass.services.async_services()["zha"]
+
+        _LOGGER.debug(f"Available Zigbee services: {zigbee_services}")
+
+        if has_zigbee:
+            _LOGGER.info("Detected Nabu Casa zigbee integration")
             # Store which service to use for zigbee commands
             hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
-        else:
+        elif has_zha:
             _LOGGER.info("Using standard ZHA integration")
             hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zha"
+        else:
+            _LOGGER.warning("No Zigbee service found - defaulting to 'zigbee' for Nabu Casa")
+            hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
 
         # Log which service we're using
         _LOGGER.info(f"Using {hass.data[f'{DOMAIN}_ZIGBEE_SERVICE']} service for zigbee commands")
@@ -197,7 +216,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         _LOGGER.info("ZHA event listener registered for lock events")
     else:
         _LOGGER.warning(f"Could not find ZHA device with IEEE {ieee} in device registry")
-        _LOGGER.info("Setting up simulated mode for Nimly lock")
+        _LOGGER.info("This is normal if you don't have a real ZHA device or if using a different IEEE address.")
+
+        # List all available Zigbee devices to help user identify the correct IEEE
+        _LOGGER.info("Available Zigbee devices:")
+        for device_id, device in device_registry.devices.items():
+            # Check if this is a ZHA or Zigbee device
+            is_zha = any(identifier[0] == ZHA_DOMAIN for identifier in device.identifiers)
+            is_nabu = any(identifier[0] == "zigbee" for identifier in device.identifiers)
+
+            if is_zha or is_nabu:
+                domain_type = "zha" if is_zha else "zigbee"
+
+                # Extract IEEE address
+                for identifier in device.identifiers:
+                    if identifier[0] == ZHA_DOMAIN or identifier[0] == "zigbee":
+                        device_ieee = identifier[1]
+                        _LOGGER.info(f"- {device.name}: IEEE={device_ieee}, Type={domain_type}")
+
+        _LOGGER.info("Setting up simulated mode for Nimly lock - the integration will work with simulated values")
 
         # Set default values for the lock to ensure it works in simulated mode
         hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {

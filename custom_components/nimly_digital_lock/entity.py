@@ -7,6 +7,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
+from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class NimlyDigitalLock(LockEntity):
 
         for ieee_format in formats_to_try:
             try:
+                # For Nabu Casa ZBT-1, command format is essentially the same
                 service_data = {
                     "ieee": ieee_format,
                     "command": command,
@@ -34,7 +36,7 @@ class NimlyDigitalLock(LockEntity):
                     "endpoint_id": endpoint_id
                 }
 
-                # Add params if not empty (Nabu Casa zigbee might handle this differently)
+                # Add params if not empty
                 if params:
                     service_data["params"] = params
 
@@ -45,6 +47,40 @@ class NimlyDigitalLock(LockEntity):
                 return True
             except Exception as e:
                 _LOGGER.warning(f"Failed to send command {command} with IEEE format {ieee_format}: {e}")
+
+        # If we get here, all attempts failed
+        _LOGGER.error(f"Failed to send command {command} with all IEEE formats")
+
+        # Let's try one more approach - with numeric command ID instead of string command
+        # This is helpful for some Zigbee implementations including Nabu Casa
+        from ..zha_mapping import LOCK_COMMANDS
+        if command in LOCK_COMMANDS:
+            command_id = LOCK_COMMANDS[command]
+            _LOGGER.debug(f"Trying with numeric command ID {command_id} instead of string command {command}")
+
+            for ieee_format in formats_to_try:
+                try:
+                    service_data = {
+                        "ieee": ieee_format,
+                        "command": command_id,  # Use numeric ID instead of string
+                        "command_type": "server",
+                        "cluster_id": cluster_id,
+                        "endpoint_id": endpoint_id
+                    }
+
+                    if params:
+                        service_data["params"] = params
+
+                    _LOGGER.debug(f"Sending {service_domain} command with ID: {service_data}")
+                    await self._hass.services.async_call(
+                        service_domain, "issue_zigbee_cluster_command", service_data
+                    )
+                    return True
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to send command ID {command_id} with IEEE format {ieee_format}: {e}")
+
+        _LOGGER.error(f"All attempts to send command {command} failed")
+        return False
 
         _LOGGER.error(f"Failed to send command {command} with all IEEE formats")
         return False
@@ -62,19 +98,40 @@ class NimlyDigitalLock(LockEntity):
 
         for ieee_format in formats_to_try:
             try:
-                service_data = {
-                    "ieee": ieee_format,
-                    "cluster_id": cluster_id,
-                    "cluster_type": "in",
-                    "attribute": attribute_id,
-                    "endpoint_id": endpoint_id
-                }
+                # Different parameter formats for different integrations
+                if service_domain == "zigbee":  # Nabu Casa Zigbee
+                    # Try both methods for Nabu Casa format
+                    # Method 1: Standard format similar to ZHA
+                    service_data = {
+                        "ieee": ieee_format,
+                        "cluster_id": cluster_id,
+                        "cluster_type": "in",
+                        "attribute": attribute_id,
+                        "endpoint_id": endpoint_id
+                    }
 
-                _LOGGER.debug(f"Reading {service_domain} attribute: {service_data}")
-                await self._hass.services.async_call(
-                    service_domain, "read_zigbee_cluster_attribute", service_data
-                )
-                return True
+                    # Remove None values as they may cause issues
+                    service_data = {k: v for k, v in service_data.items() if v is not None}
+
+                    _LOGGER.debug(f"Reading {service_domain} attribute: {service_data}")
+                    await self._hass.services.async_call(
+                        service_domain, "read_zigbee_cluster_attribute", service_data
+                    )
+                    return True
+                else:  # Standard ZHA
+                    service_data = {
+                        "ieee": ieee_format,
+                        "cluster_id": cluster_id,
+                        "cluster_type": "in",
+                        "attribute": attribute_id,
+                        "endpoint_id": endpoint_id
+                    }
+
+                    _LOGGER.debug(f"Reading {service_domain} attribute: {service_data}")
+                    await self._hass.services.async_call(
+                        service_domain, "read_zigbee_cluster_attribute", service_data
+                    )
+                    return True
             except Exception as e:
                 _LOGGER.warning(f"Failed to read attribute {attribute_id} with IEEE format {ieee_format}: {e}")
 
@@ -132,10 +189,20 @@ class NimlyDigitalLock(LockEntity):
 
         # If we're in real mode (not simulated), try to send the command
         if device_info and device_info["device_id"] != "simulated":
-            _LOGGER.debug(f"Calling ZHA service to lock door using IEEE: {self._ieee}")
+            _LOGGER.debug(f"Calling Zigbee service to lock door using IEEE: {self._ieee}")
 
-            # Use helper method to send the command
+            # First try the standard helper method
             success = await self._send_zigbee_command("lock_door")
+
+            # If that failed, try the specific ZBT-1 method
+            if not success:
+                _LOGGER.info("Standard command failed, trying ZBT-1 specific format")
+                # Try with both command name and command ID
+                success = await async_send_command_zbt1(self._hass, self._ieee, "lock_door", LOCK_CLUSTER_ID)
+                if not success:
+                    # Try with command ID instead of name
+                    from ..zha_mapping import LOCK_COMMANDS
+                    success = await async_send_command_zbt1(self._hass, self._ieee, LOCK_COMMANDS["lock_door"], LOCK_CLUSTER_ID)
 
             if success:
                 _LOGGER.info("Lock command sent successfully")
@@ -159,10 +226,20 @@ class NimlyDigitalLock(LockEntity):
 
         # If we're in real mode (not simulated), try to send the command
         if device_info and device_info["device_id"] != "simulated":
-            _LOGGER.debug(f"Calling ZHA service to unlock door using IEEE: {self._ieee}")
+            _LOGGER.debug(f"Calling Zigbee service to unlock door using IEEE: {self._ieee}")
 
-            # Use helper method to send the command
+            # First try the standard helper method
             success = await self._send_zigbee_command("unlock_door")
+
+            # If that failed, try the specific ZBT-1 method
+            if not success:
+                _LOGGER.info("Standard command failed, trying ZBT-1 specific format")
+                # Try with both command name and command ID
+                success = await async_send_command_zbt1(self._hass, self._ieee, "unlock_door", LOCK_CLUSTER_ID)
+                if not success:
+                    # Try with command ID instead of name
+                    from ..zha_mapping import LOCK_COMMANDS
+                    success = await async_send_command_zbt1(self._hass, self._ieee, LOCK_COMMANDS["unlock_door"], LOCK_CLUSTER_ID)
 
             if success:
                 _LOGGER.info("Unlock command sent successfully")
@@ -181,8 +258,19 @@ class NimlyDigitalLock(LockEntity):
         """Update entity state and attributes."""
         _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
-        # Get device info
+        # Get device info - handle the case if it's missing
         device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
+        if not device_info:
+            _LOGGER.warning(f"ZHA device info not found for {self._name}, creating default simulated device")
+            self._hass.data[f"{DOMAIN}_ZHA_DEVICE"] = {
+                "device_id": "simulated",
+                "name": "Simulated Nimly Lock", 
+                "manufacturer": "Nimly",
+                "model": "Simulated ZHA Lock",
+                "sw_version": "1.0",
+                "zha_ieee": self._ieee
+            }
+            device_info = self._hass.data[f"{DOMAIN}_ZHA_DEVICE"]
 
         # In simulated mode or when device info is missing
         if not device_info or device_info["device_id"] == "simulated" or "zha" not in self._hass.data:
@@ -224,18 +312,28 @@ class NimlyDigitalLock(LockEntity):
 
         # If not in simulated mode, trigger ZHA reads
         elif device_info["device_id"] != "simulated":
-            # Try to read the lock state first
-            _LOGGER.debug("Requesting lock state update via ZHA service")
-            success = await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0)  # 0 = lock state attribute
+            try:
+                # Try to read the lock state first
+                _LOGGER.debug("Requesting lock state update via ZHA service")
 
-            # Use current value from data store regardless of success
-            lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
-            if lock_state is not None:
-                self._is_locked = (lock_state == 1)
-                _LOGGER.debug(f"Using stored lock state: {self._is_locked}")
+                # For ZBT-1, we may need to try multiple attributes or methods
+                # to find what works with this specific coordinator
+                await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0)  # 0 = lock state attribute (standard)
 
-            # Also try to read the battery level
-            await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021)  # Battery percentage remaining
+                # Use current value from data store regardless of success
+                lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
+                if lock_state is not None:
+                    self._is_locked = (lock_state == 1)
+                    _LOGGER.debug(f"Using stored lock state: {self._is_locked}")
+
+                # Also try to read the battery level, but don't fail if it doesn't work
+                try:
+                    await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021)  # Battery percentage remaining
+                except Exception as e:
+                    _LOGGER.debug(f"Could not read battery level: {e}")
+            except Exception as e:
+                _LOGGER.warning(f"Error reading Zigbee attributes: {e}")
+                _LOGGER.debug("Using previously stored values instead")
 
             # Update all attributes from stored values
             for attr in ATTRIBUTE_MAP:

@@ -29,6 +29,27 @@ LOCK_COMMANDS = {
     "clear_year_day_schedule": 0x10
 }
 
+# Zigbee Door Lock Cluster Commands (from ZCL spec)
+LOCK_COMMANDS = {
+    "lock_door": 0x00,
+    "unlock_door": 0x01,
+    "toggle_door": 0x02,
+    "unlock_with_timeout": 0x03,
+    "get_log_record": 0x04,
+    "set_pin_code": 0x05,
+    "get_pin_code": 0x06,
+    "clear_pin_code": 0x07,
+    "clear_all_pin_codes": 0x08,
+    "set_user_status": 0x09,
+    "get_user_status": 0x0A,
+    "set_week_day_schedule": 0x0B,
+    "get_week_day_schedule": 0x0C,
+    "clear_week_day_schedule": 0x0D,
+    "set_year_day_schedule": 0x0E,
+    "get_year_day_schedule": 0x0F,
+    "clear_year_day_schedule": 0x10
+}
+
 # Zigbee Door Lock Cluster Attributes (from ZCL spec)
 LOCK_ATTRIBUTES = {
     "lock_state": 0x0000,

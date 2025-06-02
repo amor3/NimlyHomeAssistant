@@ -23,7 +23,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 await lock_entity.async_update()
                 _LOGGER.debug(f"Periodic update completed successfully for {lock_entity.name}")
             except Exception as e:
+                import traceback
                 _LOGGER.error(f"Error in periodic update for {lock_entity.name}: {e}")
+                _LOGGER.error(f"Traceback: {traceback.format_exc()}")
             # Force state update
             lock_entity.async_write_ha_state()
             await asyncio.sleep(30)  # Update every 30 seconds
