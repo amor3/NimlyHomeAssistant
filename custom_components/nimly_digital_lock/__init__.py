@@ -492,10 +492,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Log which service we're using
         _LOGGER.info(f"Using {hass.data[f'{DOMAIN}_ZIGBEE_SERVICE']} service for zigbee commands")
 
-        # Set default initial attribute values
-        hass.data[f"{DOMAIN}:{ieee}:battery"] = 85  # 85% battery
+            # Use more realistic default values or check from ZHA if possible
+        import asyncio
+
+        # Attempt to read actual values from device if possible
+        from .safe4_lock import read_safe4_attribute
+        from .safe4_lock import SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
+
+        # Try to read battery level
+        try:
+            battery_result = await read_safe4_attribute(
+                hass,
+                zha_ieee_found,  # Use the actually discovered ZHA device
+                SAFE4_POWER_CLUSTER,
+                0x0021  # Battery percentage remaining
+            )
+            if battery_result:
+                _LOGGER.info(f"Read actual battery level from device: {battery_result}")
+                hass.data[f"{DOMAIN}:{ieee}:battery"] = battery_result
+            else:
+                # Use reasonable default
+                hass.data[f"{DOMAIN}:{ieee}:battery"] = 85  # 85% battery
+        except Exception as e:
+            _LOGGER.warning(f"Could not read battery level: {e}")
+            hass.data[f"{DOMAIN}:{ieee}:battery"] = 85  # Default to 85% battery
+
+        # Try to read lock state
+        try:
+            lock_result = await read_safe4_attribute(
+                hass,
+                zha_ieee_found,  # Use the actually discovered ZHA device
+                SAFE4_DOOR_LOCK_CLUSTER,
+                0x0000  # Lock state attribute
+            )
+            if lock_result is not None:
+                _LOGGER.info(f"Read actual lock state from device: {lock_result}")
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = lock_result
+            else:
+                # Default to locked for security
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Locked
+        except Exception as e:
+            _LOGGER.warning(f"Could not read lock state: {e}")
+            hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Default to locked
+
+        # Set other default values
         hass.data[f"{DOMAIN}:{ieee}:door_state"] = 0  # Closed
-        hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Locked (1=locked, 0=unlocked)
         hass.data[f"{DOMAIN}:{ieee}:actuator_enabled"] = 1  # Enabled
         hass.data[f"{DOMAIN}:{ieee}:auto_relock_time"] = 30  # 30 seconds
         hass.data[f"{DOMAIN}:{ieee}:sound_volume"] = 2  # High volume

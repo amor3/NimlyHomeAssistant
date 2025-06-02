@@ -337,6 +337,10 @@ def format_ieee_with_colons(ieee):
     """Format IEEE address with colons regardless of input format.
     This is an alias for format_ieee for backward compatibility.
     """
+    # Check if ieee is empty to avoid exceptions
+    if not ieee:
+        return ""
+
     # Format the IEEE to include colons
     ieee_no_colons = ieee.replace(':', '').lower()
     return ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])

@@ -127,7 +127,57 @@ logger:
 ```
 2. Restart Home Assistant
 3. Try operating the lock and check the logs for detailed information
+# Nimly Digital Lock Integration for Home Assistant
 
+## Overview
+
+This integration provides support for Nimly Digital Locks with ZigBee connectivity through the Home Assistant ZHA integration. It allows you to control your lock, view battery status, and monitor other diagnostic information.
+
+## Features
+
+- Lock/unlock control
+- Battery level monitoring
+- PIN code management
+- Door state monitoring
+- Diagnostics and troubleshooting tools
+
+## Configuration
+
+Add your Nimly lock through the Home Assistant UI by going to:
+
+Configuration → Integrations → Add Integration → Nimly Digital Lock
+
+You'll need to provide the IEEE address of your lock, which can be found in the ZHA device list.
+
+## Using the Integration
+
+After adding your lock, you'll have access to:
+
+- A lock entity for basic control
+- Sensor entities for battery level and other attributes
+- Services for PIN code management and advanced controls
+
+## Services
+
+The integration provides several services for advanced functionality:
+
+- `nimly_digital_lock.set_pin_code`: Set a PIN code for a specific user
+- `nimly_digital_lock.clear_pin_code`: Remove a PIN code
+- `nimly_digital_lock.run_diagnostics`: Run diagnostic tests to check lock connectivity
+- `nimly_digital_lock.send_direct_command`: Send direct ZigBee commands (advanced users)
+
+## Troubleshooting
+
+If you encounter issues with your lock:
+
+1. Check that your ZigBee coordinator can reach the lock (good signal strength)
+2. Run diagnostics using the `nimly_digital_lock.run_diagnostics` service
+3. Verify the IEEE address matches your actual device
+4. Check your logs for error messages related to the integration
+
+## Support
+
+For help with this integration, please create an issue in the GitHub repository or ask on the Home Assistant community forums.
 ## Common Working Configurations
 
 Users have reported success with these configurations:

@@ -10,8 +10,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     ieee = entry.data["ieee"]
     name = entry.data.get("name", "Nimly Front Door")
 
-    # Check if we should use the known ZHA device instead
-    zha_ieee = "f4:ce:36:0a:04:4d:31:f5"
+    # Get the actual ZHA device from discovery if available
+    zha_ieee = ""
 
     # Check if we found a ZHA device during setup
     if f"{DOMAIN}_ZHA_DEVICE" in hass.data and "zha_ieee" in hass.data[f"{DOMAIN}_ZHA_DEVICE"]:

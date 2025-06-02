@@ -233,9 +233,16 @@ class NimlyDigitalLock(LockEntity):
         self._ieee_no_colons = ieee.replace(':', '').lower()
         self._ieee_with_colons = ':'.join([self._ieee_no_colons[i:i+2] for i in range(0, len(self._ieee_no_colons), 2)]) if ':' not in ieee else ieee
 
-        # Add the known ZHA device IEEE address as a fallback
-        self._zha_ieee = "f4:ce:36:0a:04:4d:31:f5"
-        self._zha_ieee_no_colons = self._zha_ieee.replace(':', '').lower()
+        # Get the actual ZHA device IEEE address from Home Assistant if available
+        zha_device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE", {})
+        self._zha_ieee = zha_device_info.get("zha_ieee", "")
+
+        # If no ZHA device was found during setup, we'll use our own IEEE as fallback
+        if not self._zha_ieee:
+            self._zha_ieee = self._ieee_with_colons
+            _LOGGER.debug(f"No ZHA device found during setup, using own IEEE as fallback: {self._zha_ieee}")
+
+        self._zha_ieee_no_colons = self._zha_ieee.replace(':', '').lower() if self._zha_ieee else ""
 
         # Add network address (nwk) support
         self._zha_nwk = "0x7FDB"
