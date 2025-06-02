@@ -55,14 +55,25 @@ class NimlyDigitalLock(LockEntity):
         else:
             service_method = "issue_zigbee_cluster_command"
 
-        # Try with different IEEE formats, including the specific ZHA IEEE address
-        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons, self._zha_ieee, self._zha_ieee_no_colons]
+        # Try with different address formats, including IEEE and network addresses
+        formats_to_try = [
+            # Original device formats
+            {"ieee": self._ieee},
+            {"ieee": self._ieee_no_colons},
+            {"ieee": self._ieee_with_colons},
+            # ZHA device formats
+            {"ieee": self._zha_ieee},
+            {"ieee": self._zha_ieee_no_colons},
+            # Try with network address (nwk) - many ZHA commands support this
+            {"nwk": self._zha_nwk}
+        ]
 
-        for ieee_format in formats_to_try:
+        for address_format in formats_to_try:
             try:
                 # For Nabu Casa ZBT-1, command format is essentially the same
                 service_data = {
-                    "ieee": ieee_format,
+                    # Add the appropriate address key (ieee or nwk)
+                    **address_format,
                     "command": command,
                     "command_type": "server",
                     "cluster_id": cluster_id,
@@ -83,10 +94,22 @@ class NimlyDigitalLock(LockEntity):
                 await self._hass.services.async_call(
                     service_domain, service_method, service_data
                 )
-                _LOGGER.info(f"Successfully sent command to {ieee_format} using {service_domain}.{service_method}")
+                # Get the address used (either IEEE or nwk) for the log message
+                address_used = "unknown address"
+                if "ieee" in address_format:
+                    address_used = f"IEEE {address_format['ieee']}"
+                elif "nwk" in address_format:
+                    address_used = f"NWK {address_format['nwk']}"
+                _LOGGER.info(f"Successfully sent command to {address_used} using {service_domain}.{service_method}")
                 return True
             except Exception as e:
-                _LOGGER.warning(f"Failed to send command {command} with IEEE format {ieee_format}: {e}")
+                # Get the address used (either IEEE or nwk) for the log message
+                address_used = "unknown address"
+                if "ieee" in address_format:
+                    address_used = f"IEEE {address_format['ieee']}"
+                elif "nwk" in address_format:
+                    address_used = f"NWK {address_format['nwk']}"
+                _LOGGER.warning(f"Failed to send command {command} with {address_used}: {e}")
 
         # If we get here, all attempts failed
         _LOGGER.error(f"Failed to send command {command} with all IEEE formats")
@@ -212,8 +235,12 @@ class NimlyDigitalLock(LockEntity):
         self._zha_ieee = "f4:ce:36:0a:04:4d:31:f5"
         self._zha_ieee_no_colons = self._zha_ieee.replace(':', '').lower()
 
-        # Log all available IEEE formats for debugging
-        _LOGGER.info(f"Available IEEE formats for device: Original: {ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}, ZHA IEEE: {self._zha_ieee}")
+        # Add network address (nwk) support
+        self._zha_nwk = "0x7FDB"
+
+        # Log all available address formats for debugging
+        _LOGGER.info(f"Available formats for device: Original: {ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}")
+        _LOGGER.info(f"ZHA device: IEEE: {self._zha_ieee}, Network Address: {self._zha_nwk}")
 
         # Use domain as prefix to ensure uniqueness across integrations
         self._unique_id = f"{DOMAIN}_lock_{self._ieee_no_colons}"
@@ -297,10 +324,42 @@ class NimlyDigitalLock(LockEntity):
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
                 _LOGGER.info("Standard lock attempts failed, trying ZBT-1 specific method according to Safe4 spec")
+                # Try a last resort approach - direct ZHA device control if available
+                try:
+                    # This is a more direct approach using ZHA internals
+                    from homeassistant.components.zha.core.gateway import ZHAGateway
+                    from homeassistant.components.zha.core.const import DOMAIN as ZHA_DOMAIN
+
+                    if ZHA_DOMAIN in self._hass.data:
+                        zha_gateway = self._hass.data[ZHA_DOMAIN].get("gateway")
+                        if zha_gateway and hasattr(zha_gateway, "devices"):
+                            # Try to find the device by nwk or ieee
+                            device = None
+                            for dev in zha_gateway.devices.values():
+                                if (hasattr(dev, "ieee") and str(dev.ieee).replace(':', '').lower() == self._zha_ieee.replace(':', '').lower()) or \
+                                   (hasattr(dev, "nwk") and str(dev.nwk) == self._zha_nwk.replace('0x', '')):
+                                    device = dev
+                                    _LOGGER.info(f"Found ZHA device: {device.ieee} / nwk: {device.nwk}")
+                                    break
+
+                            if device:
+                                # Try to get the doorlock cluster
+                                if hasattr(device, "endpoints"):
+                                    for endpoint_id, endpoint in device.endpoints.items():
+                                        if hasattr(endpoint, "door_lock"):
+                                            _LOGGER.info(f"Found door_lock cluster on endpoint {endpoint_id}")
+                                            # Try to lock via direct ZHA API
+                                            await endpoint.door_lock.lock()
+                                            _LOGGER.info("Sent lock command via direct ZHA API")
+                                            success = True
+                                            break
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to use direct ZHA device control: {e}")
+
                 # Nordic Semiconductor format requires endpoint 11 and specific command format
                 endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
 
-                # First try using the known ZHA device directly
+                # First try using the known ZHA device directly with IEEE address
                 _LOGGER.info(f"Attempting to send lock command to ZHA device with IEEE {self._zha_ieee}")
                 try:
                     # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
@@ -313,6 +372,27 @@ class NimlyDigitalLock(LockEntity):
                         endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
                         params=None  # NO parameters allowed per specification
                     )
+
+                    if not success:
+                        # If IEEE address fails, try with network address
+                        _LOGGER.info(f"Attempting to send lock command using network address {self._zha_nwk}")
+                        # Some ZHA implementations support using nwk instead of ieee
+                        from homeassistant.components.zha.core.const import ATTR_NWK
+
+                        # Try direct ZHA service call with nwk
+                        service_data = {
+                            ATTR_NWK: self._zha_nwk,  # Use network address
+                            "command": SAFE4_LOCK_COMMAND,
+                            "command_type": "server",
+                            "cluster_id": 0x0101,  # Door Lock cluster
+                            "endpoint_id": 11
+                        }
+
+                        await self._hass.services.async_call(
+                            "zha", "issue_zigbee_cluster_command", service_data
+                        )
+                        _LOGGER.info(f"Lock command sent using network address {self._zha_nwk}")
+                        success = True
 
                     if success:
                         _LOGGER.info(f"Successfully sent lock command to ZHA device {self._zha_ieee}")
@@ -415,7 +495,7 @@ class NimlyDigitalLock(LockEntity):
                 # Nordic Semiconductor format requires endpoint 11 and specific command format
                 endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
 
-                # First try using the known ZHA device directly
+                # First try using the known ZHA device directly with IEEE address
                 _LOGGER.info(f"Attempting to send unlock command to ZHA device with IEEE {self._zha_ieee}")
                 try:
                     # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
@@ -428,6 +508,27 @@ class NimlyDigitalLock(LockEntity):
                         endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
                         params=None  # NO parameters allowed per specification
                     )
+
+                    if not success:
+                        # If IEEE address fails, try with network address
+                        _LOGGER.info(f"Attempting to send unlock command using network address {self._zha_nwk}")
+                        # Some ZHA implementations support using nwk instead of ieee
+                        from homeassistant.components.zha.core.const import ATTR_NWK
+
+                        # Try direct ZHA service call with nwk
+                        service_data = {
+                            ATTR_NWK: self._zha_nwk,  # Use network address
+                            "command": SAFE4_UNLOCK_COMMAND,
+                            "command_type": "server",
+                            "cluster_id": 0x0101,  # Door Lock cluster
+                            "endpoint_id": 11
+                        }
+
+                        await self._hass.services.async_call(
+                            "zha", "issue_zigbee_cluster_command", service_data
+                        )
+                        _LOGGER.info(f"Unlock command sent using network address {self._zha_nwk}")
+                        success = True
 
                     if success:
                         _LOGGER.info(f"Successfully sent unlock command to ZHA device {self._zha_ieee}")

@@ -205,6 +205,62 @@ def normalize_ieee(ieee):
         "with_colons": ieee_with_colons
     }
 
+def format_nwk_address(nwk):
+    """Format network address (nwk) for ZHA service calls.
+
+    Args:
+        nwk: Network address, like 0x7FDB
+
+    Returns:
+        Properly formatted network address for ZHA/zigbee calls
+    """
+    # If already in hex format (0x prefix), return as is
+    if isinstance(nwk, str) and nwk.lower().startswith('0x'):
+        return nwk.lower()
+
+    # If it's a number, convert to hex
+    if isinstance(nwk, int):
+        return f"0x{nwk:04X}"
+
+    # If it's a string but not in hex format, convert
+    try:
+        # Try parsing as decimal
+        value = int(nwk)
+        return f"0x{value:04X}"
+    except ValueError:
+        # If not a number, assume it's already hex but missing prefix
+        return f"0x{nwk}"
+
+def get_zha_address_for_command(hass, ieee=None, nwk=None):
+    """Get the best address to use for ZHA commands.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address (optional)
+        nwk: Network address (optional)
+
+    Returns:
+        Dictionary with address options to try in order of preference
+    """
+    # Collect available addresses
+    addresses = {}
+
+    # Process IEEE if provided
+    if ieee:
+        ieee_formats = normalize_ieee(ieee)
+        addresses["ieee"] = ieee_formats["with_colons"]
+        addresses["ieee_no_colons"] = ieee_formats["no_colons"]
+
+    # Process network address if provided
+    if nwk:
+        addresses["nwk"] = format_nwk_address(nwk)
+
+    # Add the known working ZHA device addresses as fallbacks
+    addresses["zha_ieee"] = "f4:ce:36:0a:04:4d:31:f5"
+    addresses["zha_nwk"] = "0x7fdb"
+
+    return addresses
+
 # Add mapping for different ZHA gateway implementations
 def get_cluster_handler_name(gateway_type="zha"):
     """Get the appropriate cluster handler name based on gateway type."""
