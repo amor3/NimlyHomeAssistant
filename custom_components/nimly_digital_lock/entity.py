@@ -255,17 +255,20 @@ class NimlyDigitalLock(LockEntity):
             # If still unsuccessful, try ZBT-1 specific method
             if not success:
                 _LOGGER.info("Standard lock attempts failed, trying ZBT-1 specific method")
-                # Try multiple endpoints
-                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [1, 2, 3, 242]
+                # Try with Nordic Semiconductor format, primarily on endpoint 11
+                endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3]
 
                 for endpoint in endpoints:
                     _LOGGER.debug(f"Trying lock with ZBT-1 method on endpoint {endpoint}")
+
+                    # For ZBT-1 with Nordic Semiconductor format
+                    # Command format: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
                     success = await async_send_command_zbt1(
                         self._hass,
-                        self._ieee_with_colons,  # Try with colons format for ZBT-1
-                        LOCK_COMMANDS["lock_door"],  # Use numeric ID directly
-                        LOCK_CLUSTER_ID,
-                        endpoint_id=endpoint
+                        self._ieee_with_colons,  # Use IEEE with colons for ZBT-1
+                        LOCK_COMMANDS["lock_door"],  # Command ID 0x00 for lock
+                        LOCK_CLUSTER_ID,  # 0x0101 Door Lock cluster
+                        endpoint_id=endpoint  # Try endpoint 11 first (Nordic default)
                     )
 
                     if success:
@@ -361,7 +364,8 @@ class NimlyDigitalLock(LockEntity):
         # Try to read the current lock state from the physical device
         try:
             # Try reading from multiple endpoints to find the one that works
-            endpoints = [1, 2, 3, 242]  # Common endpoints to try
+            # Use endpoint 11 first for ZBT-1 per Nordic Semiconductor docs
+            endpoints = [11, 1, 2, 3, 242]  # ZBT-1 uses endpoint 11
             for endpoint in endpoints:
                 try:
                     _LOGGER.debug(f"Reading lock state from endpoint {endpoint}")

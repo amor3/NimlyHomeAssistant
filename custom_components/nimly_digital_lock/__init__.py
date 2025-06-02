@@ -62,8 +62,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         command = call.data["command"]
         cluster_id = call.data["cluster_id"]
 
-        # Common endpoints to try
-        endpoints = [1, 2, 3, 242]
+        # Common endpoints to try - include Nordic Semiconductor endpoint 11 first
+        endpoints = [11, 1, 2, 3, 242]
         results = {}
 
         # Try each endpoint
