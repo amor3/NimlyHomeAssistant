@@ -16,6 +16,21 @@ SAFE4_UNLOCK_COMMAND = 0x01  # Unlock Door Command
 # Common endpoint IDs for locks
 COMMON_ENDPOINTS = [1, 11, 242, 2, 3]
 
+# Helper function to discover available zigbee services
+def discover_available_services(hass):
+    """Discover all available Zigbee services in Home Assistant."""
+    available_services = {}
+    for domain in ["zigbee", "zha"]:
+        domain_services = []
+        all_services = hass.services.async_services().get(domain, {})
+        for service_name in all_services:
+            if any(keyword in service_name for keyword in ["zigbee", "cluster", "command", "attribute"]):
+                domain_services.append(service_name)
+        if domain_services:
+            available_services[domain] = domain_services
+
+    return available_services
+
 async def send_safe4_lock_command(hass, ieee_address):
     """Send lock command to a Safe4 ZigBee door lock."""
     return await _send_lock_command(hass, ieee_address, SAFE4_LOCK_COMMAND)
@@ -29,10 +44,32 @@ async def _send_lock_command(hass, ieee_address, command):
     command_name = "lock" if command == SAFE4_LOCK_COMMAND else "unlock"
     _LOGGER.info(f"Sending {command_name} command to Safe4 lock {ieee_address}")
 
-    # Get the service domain to use - try both zigbee (Nabu Casa) and ZHA
-    service_domains = ["zigbee", "zha"]
-    # Try multiple service method names as different integrations use different names
-    service_methods = ["issue_zigbee_cluster_command", "send_zigbee_command", "command"]
+    # First, discover available services in Home Assistant
+    available_services = discover_available_services(hass)
+    _LOGGER.info(f"Available Zigbee services: {available_services}")
+
+    # If we found services, use them directly
+    service_domains = []
+    service_methods = []
+
+    # Add discovered services to our list
+    for domain, methods in available_services.items():
+        service_domains.append(domain)
+        service_methods.extend(methods)
+
+    # If no services were discovered, use our default list
+    if not service_domains:
+        service_domains = ["zigbee", "zha"]
+    if not service_methods:
+        service_methods = [
+            "issue_zigbee_cluster_command", 
+            "send_zigbee_command", 
+            "command", 
+            "execute_zigbee_command", 
+            "issue_command", 
+            "send_command",
+            "command_server"
+        ]
 
     # Normalize IEEE address - try with and without colons
     ieee_no_colons = ieee_address.replace(':', '')
@@ -48,12 +85,21 @@ async def _send_lock_command(hass, ieee_address, command):
         "f4ce360a044d31f5"
     ]
 
+    # Log what we're going to try
+    _LOGGER.info(f"Will try service domains: {service_domains}")
+    _LOGGER.info(f"Will try service methods: {service_methods}")
+
     # Try each common endpoint with each address format and service domain
     for endpoint_id in COMMON_ENDPOINTS:
         for ieee in ieee_formats:
             for service_domain in service_domains:
                 for service_method in service_methods:
                     try:
+                        # Check if the service exists before trying
+                        if not hass.services.has_service(service_domain, service_method):
+                            _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
+                            continue
+
                         _LOGGER.debug(f"Trying endpoint {endpoint_id} with {command_name} command using {service_domain}.{service_method} and IEEE {ieee}")
 
                         # Prepare service data for the direct command
@@ -65,16 +111,11 @@ async def _send_lock_command(hass, ieee_address, command):
                             "command_type": "server"
                         }
 
-                        # Add empty params or args based on the service domain and method
+                        # Add parameters based on the service domain and method
                         if service_domain == "zha":
                             service_data["args"] = []
                         else:
                             service_data["params"] = {}
-
-                        # Check if the service exists
-                        if not hass.services.has_service(service_domain, service_method):
-                            _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
-                            continue
 
                         # Call the service
                         await hass.services.async_call(
@@ -129,15 +170,38 @@ async def _send_lock_command(hass, ieee_address, command):
 async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     """Read an attribute from the Safe4 lock device."""
 
-    # Try both zigbee (Nabu Casa) and ZHA services
-    service_domains = ["zigbee", "zha"]
-    # Add more potential service method names for different Zigbee integrations
-    service_methods = [
-        "get_zigbee_cluster_attribute", 
-        "read_zigbee_cluster_attribute",
-        "read_attribute",
-        "get_attribute"
-    ]
+    # First, discover available services in Home Assistant
+    available_services = discover_available_services(hass)
+    _LOGGER.info(f"Available Zigbee attribute services: {available_services}")
+
+    # If we found services, use them directly
+    service_domains = []
+    service_methods = []
+
+    # Add discovered services to our list
+    for domain, methods in available_services.items():
+        service_domains.append(domain)
+        service_methods.extend(methods)
+
+    # If no services were discovered, use our default list
+    if not service_domains:
+        service_domains = ["zigbee", "zha"]
+    if not service_methods:
+        service_methods = [
+            "get_zigbee_cluster_attribute", 
+            "read_zigbee_cluster_attribute",
+            "read_attribute",
+            "get_attribute",
+            "get_zigbee_attribute",
+            "read_zigbee_attribute",
+            "get_cluster_attribute",
+            "cluster_attribute",
+            "attribute_read"
+        ]
+
+    # Log what we're going to try
+    _LOGGER.info(f"Will try service domains for attributes: {service_domains}")
+    _LOGGER.info(f"Will try service methods for attributes: {service_methods}")
 
     # Normalize IEEE address - try with and without colons
     ieee_no_colons = ieee_address.replace(':', '')
@@ -202,6 +266,52 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
 
                     except Exception as e:
                         _LOGGER.debug(f"Failed to read attribute with {service_domain}.{service_method}: {e}")
+
+    # If all service calls failed, try using a direct ZHA gateway call if available
+    try:
+        _LOGGER.info("Attempting direct ZHA gateway access as fallback")
+        from homeassistant.components.zha.core.gateway import ZHAGateway
+        from homeassistant.components.zha.core.const import DOMAIN as ZHA_DOMAIN
+
+        if ZHA_DOMAIN in hass.data:
+            zha_gateway = hass.data[ZHA_DOMAIN].get("gateway")
+            if zha_gateway and hasattr(zha_gateway, "devices"):
+                # Try to find our device
+                device = None
+                for dev in zha_gateway.devices.values():
+                    for ieee_format in ieee_formats:
+                        if hasattr(dev, "ieee") and str(dev.ieee).replace(':', '').lower() == ieee_format.replace(':', '').lower():
+                            device = dev
+                            _LOGGER.info(f"Found ZHA device: {device.ieee}")
+                            break
+                    if device:
+                        break
+
+                if device and hasattr(device, "endpoints"):
+                    # Try all endpoints to find the one with our cluster
+                    for ep_id, endpoint in device.endpoints.items():
+                        # Check if this endpoint has the cluster we need
+                        try:
+                            # Different properties for different cluster types
+                            if cluster_type == "in":
+                                cluster = endpoint.in_clusters.get(cluster_id)
+                            else:
+                                cluster = endpoint.out_clusters.get(cluster_id)
+
+                            if cluster:
+                                _LOGGER.info(f"Found cluster {cluster_id} on endpoint {ep_id}")
+                                # Try to read the attribute directly
+                                result = await cluster.read_attributes([attribute_id])
+                                if result and attribute_id in result[0]:
+                                    value = result[0][attribute_id]
+                                    _LOGGER.info(f"Successfully read attribute {attribute_id} with value {value} via direct ZHA")
+                                    # Store the result in our data store
+                                    hass.data[f"{DOMAIN}:{ieee_address}:{attribute_id}"] = value
+                                    return value
+                        except Exception as e:
+                            _LOGGER.debug(f"Failed to read attribute via direct ZHA on endpoint {ep_id}: {e}")
+    except Exception as e:
+        _LOGGER.debug(f"Failed to use direct ZHA gateway access: {e}")
 
     # If we reach here, all attempts failed
     _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
