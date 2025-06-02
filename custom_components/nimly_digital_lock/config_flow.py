@@ -13,9 +13,15 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         errors = {}
         if user_input:
-            # Basic validation could be added here
+            # Normalize IEEE address format
+            ieee = user_input["ieee"]
+            # Remove any non-hex characters (like colons)
+            ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
+            # Format with colons for consistency
+            ieee_formatted = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+
             self._user_data = {
-                "ieee": user_input["ieee"],
+                "ieee": ieee_formatted,  # Store the formatted version
                 "name": user_input["name"],
             }
             return self.async_create_entry(

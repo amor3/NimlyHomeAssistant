@@ -14,6 +14,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     ieee = entry.data["ieee"]
     _LOGGER.debug(f"Setting up Nimly Digital Lock with IEEE: {ieee}")
 
+    # Normalize IEEE address format - ZHA might use different formats
+    # Try both with and without colons
+    ieee_no_colons = ieee.replace(':', '')
+    ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)]) if ':' not in ieee else ieee
+    _LOGGER.debug(f"IEEE address formats - Original: {ieee}, No colons: {ieee_no_colons}, With colons: {ieee_with_colons}")
+
     # Make sure the data store exists
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
@@ -98,9 +104,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                 if hasattr(zha_gateway, "get_device"):
                     _LOGGER.debug("Using get_device method")
                     try:
+                        # Try with original format
                         zha_device = zha_gateway.get_device(ieee)
                         if zha_device:
                             device_found = True
+                            _LOGGER.debug(f"Found device with original IEEE format: {ieee}")
+                        else:
+                            # Try with no colons
+                            _LOGGER.debug(f"Trying with no colons: {ieee_no_colons}")
+                            zha_device = zha_gateway.get_device(ieee_no_colons)
+                            if zha_device:
+                                device_found = True
+                                _LOGGER.debug(f"Found device with no colons format: {ieee_no_colons}")
+                            else:
+                                # Try with colons
+                                _LOGGER.debug(f"Trying with colons: {ieee_with_colons}")
+                                zha_device = zha_gateway.get_device(ieee_with_colons)
+                                if zha_device:
+                                    device_found = True
+                                    _LOGGER.debug(f"Found device with colons format: {ieee_with_colons}")
                     except Exception as e:
                         _LOGGER.warning(f"Error with get_device method: {e}")
 
@@ -124,11 +146,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                     _LOGGER.debug("Checking device_registry")
                     if hasattr(zha_gateway.device_registry, "get"):
                         try:
-                            zha_device = zha_gateway.device_registry.get(ieee)
-                            if zha_device:
-                                device_found = True
+                            # Try all IEEE formats
+                            for addr_format in [ieee, ieee_no_colons, ieee_with_colons]:
+                                zha_device = zha_gateway.device_registry.get(addr_format)
+                                if zha_device:
+                                    device_found = True
+                                    _LOGGER.debug(f"Found device in registry with format: {addr_format}")
+                                    break
                         except Exception as e:
                             _LOGGER.warning(f"Error accessing device_registry.get: {e}")
+
+                # Method 4: Last resort - scan all devices
+                if not device_found and hasattr(zha_gateway, "devices"):
+                    _LOGGER.debug("Last resort: Scanning all ZHA devices")
+                    try:
+                        # Get all devices and iterate through them
+                        if isinstance(zha_gateway.devices, dict):
+                            all_devices = zha_gateway.devices.values()
+                        elif hasattr(zha_gateway.devices, "values"):
+                            all_devices = zha_gateway.devices.values()
+                        else:
+                            all_devices = []
+
+                        for device in all_devices:
+                            device_ieee = None
+                            # Try different attribute names for IEEE
+                            if hasattr(device, 'ieee'):
+                                device_ieee = str(device.ieee)
+                            elif hasattr(device, 'ieee_address'):
+                                device_ieee = str(device.ieee_address)
+                            elif hasattr(device, 'address'):
+                                device_ieee = str(device.address)
+
+                            if device_ieee:
+                                # Normalize for comparison
+                                device_ieee_clean = device_ieee.replace(':', '').lower()
+                                search_ieee_clean = ieee_no_colons.lower()
+
+                                if device_ieee_clean == search_ieee_clean:
+                                    zha_device = device
+                                    device_found = True
+                                    _LOGGER.debug(f"Found device by scanning: {device_ieee}")
+                                    break
+                    except Exception as e:
+                        _LOGGER.warning(f"Error scanning ZHA devices: {e}")
 
                 # Log results
                 if device_found and 'zha_device' in locals() and zha_device:

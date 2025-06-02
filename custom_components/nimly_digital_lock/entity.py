@@ -17,9 +17,16 @@ class NimlyDigitalLock(LockEntity):
         self._hass = hass
         self._ieee = ieee
         self._name = name
-        self._unique_id = f"nimly_{ieee.replace(':', '')}"
+
+        # Normalize IEEE formats
+        self._ieee_no_colons = ieee.replace(':', '')
+        self._ieee_with_colons = ':'.join([self._ieee_no_colons[i:i+2] for i in range(0, len(self._ieee_no_colons), 2)]) if ':' not in ieee else ieee
+
+        self._unique_id = f"nimly_{self._ieee_no_colons}"
         self._is_locked = None
         self._attrs = {}
+
+        _LOGGER.debug(f"Initialized lock with IEEE formats - Original: {ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}")
 
     @property
     def name(self):
@@ -50,6 +57,7 @@ class NimlyDigitalLock(LockEntity):
 
     async def async_lock(self, **kwargs):
         _LOGGER.info(f"Locking {self._name} [{self._ieee}]")
+        _LOGGER.debug(f"Using IEEE formats - Original: {self._ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}")
 
         # If ZHA is not available, just update the state
         if "zha" not in self._hass.data:
@@ -301,6 +309,32 @@ class NimlyDigitalLock(LockEntity):
                 return
 
             _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
+
+            # Dump more detailed structure info
+            if isinstance(zha_data, dict):
+                _LOGGER.debug(f"ZHA data keys: {list(zha_data.keys())}")
+                # Check if there's a coordinator with devices
+                if "coordinator" in zha_data and hasattr(zha_data["coordinator"], "devices"):
+                    devices_info = []
+                    try:
+                        if isinstance(zha_data["coordinator"].devices, dict):
+                            for ieee, device in zha_data["coordinator"].devices.items():
+                                devices_info.append(f"{ieee} (type: {type(device)})")
+                        _LOGGER.debug(f"ZHA coordinator devices: {devices_info}")
+                    except Exception as e:
+                        _LOGGER.debug(f"Error examining coordinator devices: {e}")
+            else:
+                _LOGGER.debug(f"ZHA data attributes: {dir(zha_data)}")
+                # Check if there's a devices attribute
+                if hasattr(zha_data, "devices"):
+                    devices_info = []
+                    try:
+                        if isinstance(zha_data.devices, dict):
+                            for ieee, device in zha_data.devices.items():
+                                devices_info.append(f"{ieee} (type: {type(device)})")
+                        _LOGGER.debug(f"ZHA devices: {devices_info}")
+                    except Exception as e:
+                        _LOGGER.debug(f"Error examining devices: {e}")
             zha_gateway = None
             gateway_found = False
             device_found = False
@@ -347,9 +381,14 @@ class NimlyDigitalLock(LockEntity):
                 if hasattr(zha_gateway, "get_device"):
                     _LOGGER.debug("Using gateway.get_device method")
                     try:
-                        zha_device = zha_gateway.get_device(self._ieee)
-                        if zha_device:
-                            device_found = True
+                        # Try all formats of IEEE address
+                        for addr_format in [self._ieee, self._ieee_no_colons, self._ieee_with_colons]:
+                            _LOGGER.debug(f"Trying to get device with IEEE format: {addr_format}")
+                            zha_device = zha_gateway.get_device(addr_format)
+                            if zha_device:
+                                device_found = True
+                                _LOGGER.debug(f"Found device with IEEE format: {addr_format}")
+                                break
                     except Exception as e:
                         _LOGGER.warning(f"Error with get_device method: {e}")
 
@@ -373,11 +412,52 @@ class NimlyDigitalLock(LockEntity):
                     _LOGGER.debug("Checking device_registry")
                     try:
                         if hasattr(zha_gateway.device_registry, "get"):
-                            zha_device = zha_gateway.device_registry.get(self._ieee)
-                            if zha_device:
-                                device_found = True
+                            # Try all IEEE formats
+                            for addr_format in [self._ieee, self._ieee_no_colons, self._ieee_with_colons]:
+                                zha_device = zha_gateway.device_registry.get(addr_format)
+                                if zha_device:
+                                    device_found = True
+                                    _LOGGER.debug(f"Found device in registry with IEEE format: {addr_format}")
+                                    break
                     except Exception as e:
                         _LOGGER.warning(f"Error accessing device_registry: {e}")
+
+                # Last resort - scan all devices
+                if not device_found and hasattr(zha_gateway, "devices"):
+                    _LOGGER.debug("Last resort: Scanning all ZHA devices")
+                    try:
+                        # Get all devices and iterate through them
+                        if isinstance(zha_gateway.devices, dict):
+                            all_devices = zha_gateway.devices.values()
+                        elif hasattr(zha_gateway.devices, "values"):
+                            all_devices = zha_gateway.devices.values()
+                        else:
+                            all_devices = []
+
+                        # Store IEEE formats for comparison
+                        search_formats = [self._ieee.lower(), self._ieee_no_colons.lower(), self._ieee_with_colons.lower()]
+
+                        for device in all_devices:
+                            device_ieee = None
+                            # Try different attribute names for IEEE
+                            if hasattr(device, 'ieee'):
+                                device_ieee = str(device.ieee)
+                            elif hasattr(device, 'ieee_address'):
+                                device_ieee = str(device.ieee_address)
+                            elif hasattr(device, 'address'):
+                                device_ieee = str(device.address)
+
+                            if device_ieee:
+                                # Normalize for comparison
+                                device_ieee_clean = device_ieee.replace(':', '').lower()
+
+                                if device_ieee_clean in search_formats or device_ieee.lower() in search_formats:
+                                    zha_device = device
+                                    device_found = True
+                                    _LOGGER.debug(f"Found device by scanning: {device_ieee}")
+                                    break
+                    except Exception as e:
+                        _LOGGER.warning(f"Error scanning ZHA devices: {e}")
 
             if not device_found and not 'zha_device' in locals():
                 _LOGGER.warning("Could not find ZHA device through any method, using simulated values")
