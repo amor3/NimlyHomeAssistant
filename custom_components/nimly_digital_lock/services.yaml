@@ -1,6 +1,66 @@
 # Services for the Nimly Digital Lock component
 # Services for Nimly Digital Lock Integration
+# Service definitions for the Nimly Digital Lock integration
 
+run_diagnostics:
+  name: Run diagnostics
+  description: Run comprehensive diagnostics and log the results
+  target:
+    entity:
+      integration: nimly_digital_lock
+      domain: lock
+
+send_direct_command:
+  name: Send direct command
+  description: Send a direct Zigbee command to the lock for advanced troubleshooting
+  fields:
+    ieee:
+      name: IEEE Address
+      description: The IEEE address of the lock
+      required: true
+      example: "f4:ce:36:0a:04:4d:31:f5"
+      selector:
+        text:
+    command:
+      name: Command ID
+      description: The command ID to send (0=lock, 1=unlock)
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    endpoint:
+      name: Endpoint ID
+      description: The endpoint ID to target
+      required: false
+      default: 11
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    cluster_id:
+      name: Cluster ID
+      description: The cluster ID to use
+      required: false
+      default: 257
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    retry_count:
+      name: Retry Count
+      description: Number of times to retry each method
+      required: false
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
 send_safe4_command:
   name: Send Safe4 Command
   description: Send a command to a Safe4 ZigBee Door Lock using the exact format required by the specification.

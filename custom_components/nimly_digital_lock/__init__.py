@@ -256,6 +256,67 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             if zha_device_id:
                 break
 
+    # Register services for diagnostics and troubleshooting
+    from .utils.diagnostic import dump_diagnostics_to_log
+    from .direct_command import send_direct_command
+
+    async def handle_run_diagnostics(call):
+        """Handle the run_diagnostics service call."""
+        entity_id = call.data.get("entity_id")
+        if not entity_id:
+            _LOGGER.error("Entity ID required for diagnostics")
+            return
+
+        # Extract the IEEE from the entity ID
+        from homeassistant.helpers.entity_registry import EntityRegistry
+        entity_registry = EntityRegistry.async_get(hass)
+        entity_entry = entity_registry.async_get(entity_id)
+
+        if not entity_entry or not entity_entry.unique_id:
+            _LOGGER.error(f"Could not find entity {entity_id}")
+            return
+
+        # The unique_id format is usually domain_ieee_...
+        parts = entity_entry.unique_id.split('_')
+        if len(parts) < 2:
+            _LOGGER.error(f"Could not extract IEEE from unique_id {entity_entry.unique_id}")
+            return
+
+        ieee = parts[1]
+        _LOGGER.info(f"Running diagnostics for entity {entity_id} with IEEE {ieee}")
+        await dump_diagnostics_to_log(hass, ieee)
+
+    async def handle_direct_command(call):
+        """Handle the send_direct_command service call."""
+        ieee = call.data.get("ieee")
+        command = call.data.get("command")
+        endpoint = call.data.get("endpoint", 11)
+        cluster_id = call.data.get("cluster_id", 0x0101)
+        retry_count = call.data.get("retry_count", 3)
+
+        if not ieee or command is None:
+            _LOGGER.error("IEEE and command are required")
+            return
+
+        _LOGGER.info(f"Manual direct command: IEEE={ieee}, cmd={command}, endpoint={endpoint}")
+        result = await send_direct_command(
+            hass, ieee, command, endpoint, cluster_id, retry_count
+        )
+
+        if result:
+            _LOGGER.info("Manual command succeeded")
+        else:
+            _LOGGER.error("Manual command failed")
+
+    # Register the services
+    hass.services.async_register(
+        DOMAIN, "run_diagnostics", handle_run_diagnostics
+    )
+
+    hass.services.async_register(
+        DOMAIN, "send_direct_command", handle_direct_command
+    )
+
     # If device not found in device registry, try entity registry as a fallback
     if not zha_device_id:
         _LOGGER.info("Device not found in device registry. Checking entity registry...")

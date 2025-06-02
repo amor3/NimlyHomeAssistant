@@ -5,51 +5,86 @@ import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
-async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x0101):
+async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x0101, retry_count=3, retry_delay=1.0):
     """Send a direct command to the lock using multiple methods.
 
     This function attempts to send the command in various formats to maximize
     the chance of success.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        command: Command ID to send
+        endpoint: Endpoint ID to target
+        cluster_id: Cluster ID to use
+        retry_count: Number of retries for each method
+        retry_delay: Delay between retries in seconds
     """
     _LOGGER.info(f"Sending direct command {command} to endpoint {endpoint}")
 
-    # 1. Try Nabu Casa Zigbee service first (most reliable for ZBT-1)
-    try:
-        service_data = {
-            "ieee": ieee,
-            "endpoint_id": endpoint,
-            "cluster_id": cluster_id,
-            "command": command,
-            "command_type": "server"
-        }
+    # Diagnostics - store command info for debugging
+    if f"NIMLY_LAST_COMMAND" not in hass.data:
+        hass.data["NIMLY_LAST_COMMAND"] = []
+    command_info = {
+        "ieee": ieee,
+        "command": command,
+        "endpoint": endpoint,
+        "cluster_id": cluster_id,
+        "timestamp": hass.loop.time()
+    }
+    hass.data["NIMLY_LAST_COMMAND"].append(command_info)
 
-        # Send using Nabu Casa Zigbee service
-        await hass.services.async_call(
-            "zigbee", "issue_zigbee_cluster_command", service_data, blocking=True
-        )
-        _LOGGER.info(f"Successfully sent command using Nabu Casa Zigbee service")
-        return True
-    except Exception as e:
-        _LOGGER.warning(f"Failed to send using Nabu Casa Zigbee: {e}")
+    # 1. Try Nabu Casa Zigbee service first (most reliable for ZBT-1)
+    for attempt in range(retry_count):
+        try:
+            service_data = {
+                "ieee": ieee,
+                "endpoint_id": endpoint,
+                "cluster_id": cluster_id,
+                "command": command,
+                "command_type": "server"
+            }
+
+            # Send using Nabu Casa Zigbee service
+            _LOGGER.debug(f"Nabu Casa attempt {attempt+1}/{retry_count}")
+            await hass.services.async_call(
+                "zigbee", "issue_zigbee_cluster_command", service_data, blocking=True
+            )
+            _LOGGER.info(f"Successfully sent command using Nabu Casa Zigbee service on attempt {attempt+1}")
+            return True
+        except Exception as e:
+            _LOGGER.warning(f"Failed to send using Nabu Casa Zigbee (attempt {attempt+1}): {e}")
+            if attempt < retry_count - 1:
+                await asyncio.sleep(retry_delay)
 
     # 2. Try ZHA service as fallback
-    try:
-        service_data = {
-            "ieee": ieee,
-            "endpoint_id": endpoint,
-            "cluster_id": cluster_id,
-            "command": command,
-            "command_type": "server"
-        }
+    for attempt in range(retry_count):
+        try:
+            service_data = {
+                "ieee": ieee,
+                "endpoint_id": endpoint,
+                "cluster_id": cluster_id,
+                "command": command,
+                "command_type": "server"
+            }
 
-        # Send using ZHA service
-        await hass.services.async_call(
-            "zha", "issue_zigbee_cluster_command", service_data, blocking=True
-        )
-        _LOGGER.info(f"Successfully sent command using ZHA service")
-        return True
-    except Exception as e:
-        _LOGGER.warning(f"Failed to send using ZHA: {e}")
+            # Send using ZHA service
+            _LOGGER.debug(f"ZHA attempt {attempt+1}/{retry_count}")
+            await hass.services.async_call(
+                "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+            )
+            _LOGGER.info(f"Successfully sent command using ZHA service on attempt {attempt+1}")
+            return True
+        except Exception as e:
+            _LOGGER.warning(f"Failed to send using ZHA (attempt {attempt+1}): {e}")
+            if attempt < retry_count - 1:
+                await asyncio.sleep(retry_delay)
+
+            # If this is the last attempt, check if we're getting a specific error about device not responding
+            if attempt == retry_count - 1 and "device did not respond" in str(e).lower():
+                _LOGGER.error("Device not responding - likely a network connectivity issue")
+                # Add a hint about possible solution
+                _LOGGER.error("SUGGESTION: Try restarting your ZigBee coordinator or moving the lock closer to the hub")
 
     # 3. Try alternate IEEE formats
     ieee_no_colons = ieee.replace(':', '')

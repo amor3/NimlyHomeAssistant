@@ -62,7 +62,87 @@ Endpoint:   11 (default for ZBT-1)
 ### Debug Commands
 
 If the lock is not responding correctly, you can try manually sending commands using the service:
+# Nimly Digital Lock Integration for Home Assistant
 
+## Troubleshooting
+
+If you're experiencing connection issues with your Nimly lock, there are several troubleshooting steps you can take:
+
+### 1. Run the Diagnostics Service
+
+The integration now includes a diagnostic service that can help identify connection problems:
+
+1. Go to **Developer Tools** > **Services**
+2. Select the `nimly_digital_lock.run_diagnostics` service
+3. For the target entity, select your Nimly lock entity
+4. Click **Call Service**
+5. Check your Home Assistant logs for detailed diagnostic information
+
+### 2. Common Error: "Failed to send request: device did not respond"
+
+This error typically means:
+
+- The ZigBee network can't reach your lock
+- The lock is in power-saving mode or has low batteries
+- There's interference in your ZigBee network
+
+**Solutions:**
+
+1. **Check the lock's batteries** - Low batteries are a common cause of connectivity issues
+2. **Restart your ZigBee coordinator** - Power cycle your coordinator device
+3. **Reduce distance/obstacles** - Try moving your coordinator closer to the lock
+4. **Try different endpoints** - Use the `send_direct_command` service with different endpoint values (common ones are 1, 11, and 242)
+
+### 3. Using the Direct Command Service
+
+For advanced troubleshooting, you can bypass the normal lock controls and send commands directly:
+
+1. Go to **Developer Tools** > **Services**
+2. Select the `nimly_digital_lock.send_direct_command` service
+3. Fill in the parameters:
+   - `ieee`: Your lock's IEEE address (from the diagnostics report)
+   - `command`: 0 for lock, 1 for unlock
+   - `endpoint`: Try different values (11 is default, but 1 or 242 may work better)
+   - `retry_count`: Increase for more attempts (default is 3)
+4. Click **Call Service**
+
+### 4. ZHA-Specific Troubleshooting
+
+If you're using ZHA (ZigBee Home Automation):
+
+1. Check if the lock is properly paired in ZHA
+2. Try removing and re-adding the lock to your ZigBee network
+3. Ensure your ZHA coordinator firmware is up to date
+
+### 5. Checking the Logs
+
+Detailed logs are essential for troubleshooting:
+
+1. Enable debug logging by adding to your `configuration.yaml`:
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.nimly_digital_lock: debug
+```
+2. Restart Home Assistant
+3. Try operating the lock and check the logs for detailed information
+
+## Common Working Configurations
+
+Users have reported success with these configurations:
+
+1. **ZHA with Silicon Labs EZSP coordinator**:
+   - Endpoint: 11
+   - Retry count: 3
+
+2. **Nabu Casa Yellow with ZHA**:
+   - Endpoint: 1
+   - Retry count: 5
+
+3. **ConBee II with deCONZ**:
+   - Use the ZigBee service domain
+   - Endpoint: 242
 ```yaml
 service: nimly_digital_lock.send_raw_zigbee_command
 data:
