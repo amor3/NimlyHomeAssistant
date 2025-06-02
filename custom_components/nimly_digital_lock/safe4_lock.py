@@ -60,9 +60,14 @@ async def _send_lock_command(hass, ieee_address, command):
                         "endpoint_id": endpoint_id,
                         "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
                         "command": command,
-                        "command_type": "server",
-                        "params": {}
+                        "command_type": "server"
                     }
+
+                    # Add empty params or args based on the service domain
+                    if service_domain == "zha":
+                        service_data["args"] = []
+                    else:
+                        service_data["params"] = {}
 
                     # Check if the service exists
                     if not hass.services.has_service(service_domain, service_method):
@@ -158,6 +163,10 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
                             "attribute": attribute_id
                         }
 
+                        # Add required empty parameters based on service domain
+                        if service_domain == "zha" and "get_zigbee_cluster_attribute" in service_method:
+                            service_data["args"] = []
+
                         # Call the service
                         await hass.services.async_call(
                             service_domain,
@@ -180,6 +189,3 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     # If we reach here, all attempts failed
     _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
     return None
-
-# For ZBT-1 devices, use the default cluster type
-cluster_type = "in"
