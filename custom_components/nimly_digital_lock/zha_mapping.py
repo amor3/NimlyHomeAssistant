@@ -230,6 +230,9 @@ ZBT1_LOCK_COMMANDS = {
 
 # Export individual command constants for direct use
 ZBT1_LOCK_COMMAND = 0x00    # Lock command
+
+# Define endpoints for ZBT-1 device according to Nordic Semiconductor specs
+ZBT1_ENDPOINTS = [11, 1, 2, 3, 242]  # Primary endpoint is 11 per Safe4 spec
 ZBT1_UNLOCK_COMMAND = 0x01  # Unlock command
 
 # Lock attributes - Defined at module level to avoid duplicate declarations

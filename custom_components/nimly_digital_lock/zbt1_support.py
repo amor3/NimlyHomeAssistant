@@ -9,7 +9,24 @@ ZBT1_ENDPOINTS = [1, 11, 242, 2, 3]
 
 async def get_zbt1_endpoints(hass, ieee_address):
     """Get the list of endpoints for a ZBT-1 device."""
-    return ZBT1_ENDPOINTS
+    import logging
+    _LOGGER = logging.getLogger(__name__)
+
+    try:
+        # Import constants from zha_mapping module
+        from .zha_mapping import ZBT1_ENDPOINTS
+
+        # Default endpoints for Nordic ZBT-1 per specification
+        default_endpoints = [11, 1, 2, 3]  # Default endpoints per Nordic spec
+
+        if ZBT1_ENDPOINTS:
+            return ZBT1_ENDPOINTS
+        else:
+            _LOGGER.debug(f"No endpoints defined in ZBT1_ENDPOINTS, using defaults")
+            return default_endpoints
+    except Exception as e:
+        _LOGGER.warning(f"Error retrieving ZBT1 endpoints: {e}")
+        return [11, 1, 2, 3]  # Return default endpoints on error
 
 async def async_send_command_zbt1(hass, ieee_address, cluster_id, command, **kwargs):
     """Send a command to a ZBT-1 device using the Nabu Casa Zigbee implementation."""

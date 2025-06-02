@@ -183,12 +183,16 @@ class NimlyDigitalLock(LockEntity):
         formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons, self._zha_ieee, self._zha_ieee_no_colons]
 
         # Log the available endpoints for ZBT-1
-        zbt1_endpoints = get_zbt1_endpoints(self._hass, self._ieee)
-        _LOGGER.debug(f"Available ZBT-1 endpoints for {self._ieee}: {zbt1_endpoints}")
+        try:
+            zbt1_endpoints = await get_zbt1_endpoints(self._hass, self._ieee)
+            _LOGGER.debug(f"Available ZBT-1 endpoints for {self._ieee}: {zbt1_endpoints}")
 
-        # Also try to get endpoints for the specific ZHA device
-        zha_zbt1_endpoints = get_zbt1_endpoints(self._hass, self._zha_ieee)
-        _LOGGER.debug(f"Available ZBT-1 endpoints for ZHA device {self._zha_ieee}: {zha_zbt1_endpoints}")
+            # Also try to get endpoints for the specific ZHA device
+            zha_zbt1_endpoints = await get_zbt1_endpoints(self._hass, self._zha_ieee)
+            _LOGGER.debug(f"Available ZBT-1 endpoints for ZHA device {self._zha_ieee}: {zha_zbt1_endpoints}")
+        except Exception as e:
+            _LOGGER.warning(f"Error getting ZBT-1 endpoints: {e}")
+            zbt1_endpoints = [11, 1, 2, 3, 242]  # Default endpoints to try
 
         for ieee_format in formats_to_try:
             try:
@@ -672,7 +676,13 @@ class NimlyDigitalLock(LockEntity):
             # Fall back to original approach if ZHA device reading failed
             # Try reading from multiple endpoints to find the one that works
             # Use endpoint 11 first for ZBT-1 per Nordic Semiconductor docs
-            endpoints = get_zbt1_endpoints(self._hass, self._ieee) or [11, 1, 2, 3, 242]
+            try:
+                endpoints = await get_zbt1_endpoints(self._hass, self._ieee)
+                if not endpoints:
+                    endpoints = [11, 1, 2, 3, 242]
+            except Exception as e:
+                _LOGGER.warning(f"Error getting ZBT-1 endpoints: {e}")
+                endpoints = [11, 1, 2, 3, 242]  # Default endpoints to try
 
             for endpoint in endpoints:
                 try:

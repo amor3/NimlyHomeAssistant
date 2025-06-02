@@ -1,5 +1,68 @@
 # Nordic ZBT-1 Safe4 Digital Lock Troubleshooting Guide
+# Nimly Digital Lock Troubleshooting Guide
 
+## Common Issues
+
+### Coroutine Errors
+
+If you see errors like:
+
+```
+RuntimeWarning: coroutine 'get_zbt1_endpoints' was never awaited
+```
+
+or
+
+```
+Error reading attributes from device: 'coroutine' object is not iterable
+```
+
+Try restarting Home Assistant after installation, as this will ensure all components are properly initialized.
+
+### Connection Issues
+
+If your lock is not responding:
+
+1. Verify that your lock is within good range of your ZigBee coordinator
+2. Check the battery level of your lock
+3. Try using the diagnostics service to run tests:
+
+```yaml
+service: nimly_digital_lock.run_diagnostics
+data:
+  entity_id: lock.nimly_digital_lock_YOUR_IEEE
+```
+
+### Manual Command Testing
+
+You can test direct commands to the lock using the following service:
+
+```yaml
+service: nimly_digital_lock.send_direct_command
+data:
+  ieee: "YOUR_IEEE_ADDRESS"  # e.g., "f4:ce:36:0a:04:4d:31:f5"
+  command: 0  # 0 for lock, 1 for unlock
+  endpoint: 11
+```
+
+### Logs
+
+Enable debug logging by adding to configuration.yaml:
+
+```yaml
+logger:
+  default: warning
+  logs:
+    custom_components.nimly_digital_lock: debug
+```
+
+## Device Information
+
+The integration uses endpoint 11 as the primary endpoint for Nordic ZBT-1 devices per the Safe4 specification. If you have issues, the integration will try multiple endpoints (11, 1, 2, 3, 242) to find which one works with your device.
+
+## Support
+
+If you continue to have issues, please collect your Home Assistant logs with debug enabled and report them to the project maintainers.
 ## Finding Your Lock's ZigBee Address
 
 When adding a new lock, the integration now provides a dropdown list of all ZigBee devices discovered in your Home Assistant system, with Nordic ZBT-1 devices prioritized at the top. This makes it easier to identify your lock without having to manually find the IEEE address.
