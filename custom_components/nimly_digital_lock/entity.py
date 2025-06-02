@@ -6,13 +6,81 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
-from .const import DOMAIN, ATTRIBUTE_MAP, LOCK_CLUSTER_ID, ENDPOINT_ID
+from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class NimlyDigitalLock(LockEntity):
-    # ... (same as fixed before, keep as is)
+
+    async def _send_zigbee_command(self, command, cluster_id=LOCK_CLUSTER_ID, endpoint_id=1, params={}):
+        """Helper method to send Zigbee commands directly using service calls.
+        Works with both ZHA and Nabu Casa zigbee integration.
+        """
+        # Determine which service to use (zha or zigbee)
+        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+        _LOGGER.debug(f"Using {service_domain} service domain for commands")
+
+        # Try with different IEEE formats
+        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
+
+        for ieee_format in formats_to_try:
+            try:
+                service_data = {
+                    "ieee": ieee_format,
+                    "command": command,
+                    "command_type": "server",
+                    "cluster_id": cluster_id,
+                    "endpoint_id": endpoint_id
+                }
+
+                # Add params if not empty (Nabu Casa zigbee might handle this differently)
+                if params:
+                    service_data["params"] = params
+
+                _LOGGER.debug(f"Sending {service_domain} command: {service_data}")
+                await self._hass.services.async_call(
+                    service_domain, "issue_zigbee_cluster_command", service_data
+                )
+                return True
+            except Exception as e:
+                _LOGGER.warning(f"Failed to send command {command} with IEEE format {ieee_format}: {e}")
+
+        _LOGGER.error(f"Failed to send command {command} with all IEEE formats")
+        return False
+
+    async def _read_zigbee_attribute(self, cluster_id, attribute_id, endpoint_id=1):
+        """Helper method to read Zigbee attributes directly using service calls.
+        Works with both ZHA and Nabu Casa zigbee integration.
+        """
+        # Determine which service to use (zha or zigbee)
+        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+        _LOGGER.debug(f"Using {service_domain} service domain for attribute read")
+
+        # Try with different IEEE formats
+        formats_to_try = [self._ieee, self._ieee_no_colons, self._ieee_with_colons]
+
+        for ieee_format in formats_to_try:
+            try:
+                service_data = {
+                    "ieee": ieee_format,
+                    "cluster_id": cluster_id,
+                    "cluster_type": "in",
+                    "attribute": attribute_id,
+                    "endpoint_id": endpoint_id
+                }
+
+                _LOGGER.debug(f"Reading {service_domain} attribute: {service_data}")
+                await self._hass.services.async_call(
+                    service_domain, "read_zigbee_cluster_attribute", service_data
+                )
+                return True
+            except Exception as e:
+                _LOGGER.warning(f"Failed to read attribute {attribute_id} with IEEE format {ieee_format}: {e}")
+
+        _LOGGER.error(f"Failed to read attribute {attribute_id} with all IEEE formats")
+        return False
+
     def __init__(self, hass, ieee, name):
         self._hass = hass
         self._ieee = ieee
@@ -56,440 +124,85 @@ class NimlyDigitalLock(LockEntity):
         }
 
     async def async_lock(self, **kwargs):
+        """Lock the door."""
         _LOGGER.info(f"Locking {self._name} [{self._ieee}]")
-        _LOGGER.debug(f"Using IEEE formats - Original: {self._ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}")
 
-        # If ZHA is not available, just update the state
-        if "zha" not in self._hass.data:
-            _LOGGER.warning("ZHA not available, simulating lock operation")
-            self._is_locked = True
-            self.async_write_ha_state()
-            return True
+        # Get device info
+        device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
 
-        try:
-            # Try to access ZHA gateway - the structure may vary by HA version
-            zha_data = self._hass.data.get("zha")
-            if not zha_data:
-                _LOGGER.warning("ZHA data not found")
-                self._is_locked = True
-                self.async_write_ha_state()
-                return True
+        # If we're in real mode (not simulated), try to send the command
+        if device_info and device_info["device_id"] != "simulated":
+            _LOGGER.debug(f"Calling ZHA service to lock door using IEEE: {self._ieee}")
 
-            _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
-            zha_gateway = None
-            gateway_found = False
+            # Use helper method to send the command
+            success = await self._send_zigbee_command("lock_door")
 
-            # Method 1: Direct gateway attribute
-            if hasattr(zha_data, "gateway"):
-                _LOGGER.debug("Found gateway via attribute")
-                zha_gateway = zha_data.gateway
-                gateway_found = True
-            # Method 2: Gateway in dict
-            elif isinstance(zha_data, dict) and "gateway" in zha_data:
-                _LOGGER.debug("Found gateway via dictionary key")
-                zha_gateway = zha_data["gateway"]
-                gateway_found = True
-            # Method 3: For newer ZHA versions using application_controller
-            elif hasattr(zha_data, "application_controller") and zha_data.application_controller:
-                _LOGGER.debug("Found application_controller")
-                zha_gateway = zha_data.application_controller
-                gateway_found = True
-            # Method 4: Try direct device access if we have a get_device method at the top level
-            elif hasattr(zha_data, "get_device"):
-                _LOGGER.debug("Using ZHA data get_device method directly")
-                zha_device = zha_data.get_device(self._ieee)
-                if zha_device:
-                    _LOGGER.debug(f"Found device directly: {self._ieee}")
-                    gateway_found = True  # Skip the next steps
+            if success:
+                _LOGGER.info("Lock command sent successfully")
+            else:
+                _LOGGER.warning("Failed to send lock command. Using simulated state.")
+        else:
+            _LOGGER.info("Operating in simulated mode or device info not found")
 
-            if not gateway_found:
-                _LOGGER.warning("ZHA gateway not found, simulating lock operation")
-                self._is_locked = True
-                self.async_write_ha_state()
-                return True
-
-            # If we didn't get the device directly in Method 4
-            if 'zha_device' not in locals():
-                # Try different methods to get the device
-                if hasattr(zha_gateway, "get_device"):
-                    _LOGGER.debug("Using gateway.get_device method")
-                    zha_device = zha_gateway.get_device(self._ieee)
-                elif hasattr(zha_gateway, "devices") and isinstance(zha_gateway.devices, dict):
-                    _LOGGER.debug("Accessing gateway.devices dictionary")
-                    zha_device = zha_gateway.devices.get(self._ieee)
-                else:
-                    _LOGGER.warning("Could not find a way to access ZHA devices")
-                    self._is_locked = True
-                    self.async_write_ha_state()
-                    return True
-
-            if not zha_device:
-                _LOGGER.warning(f"ZHA device not found for {self._ieee}")
-                self._is_locked = True
-                self.async_write_ha_state()
-                return True
-
-            # Find the lock cluster and send lock command
-            command_sent = False
-            for endpoint in zha_device.endpoints.values():
-                if LOCK_CLUSTER_ID in endpoint.in_clusters:
-                    lock_cluster = endpoint.in_clusters[LOCK_CLUSTER_ID]
-                    try:
-                        if hasattr(lock_cluster, "lock_door"):
-                            result = await lock_cluster.lock_door()
-                            _LOGGER.debug(f"Lock command result: {result}")
-                            command_sent = True
-                        else:
-                            # Try a more generic command approach
-                            result = await lock_cluster.command(0x00)  # Lock command
-                            _LOGGER.debug(f"Generic lock command result: {result}")
-                            command_sent = True
-                    except Exception as e:
-                        _LOGGER.error(f"Error sending lock command: {e}")
-                    break
-
-            if not command_sent:
-                _LOGGER.warning("Could not send lock command, lock cluster not found")
-
-            # Update state regardless of response
-            await self.async_update()
-            self._is_locked = True
-            self.async_write_ha_state()
-            return True
-        except Exception as e:
-            _LOGGER.error(f"Error locking: {e}")
-            # Set state anyway for better user experience
-            self._is_locked = True
-            self.async_write_ha_state()
-            return True  # Return success even if there was an error
+        # Update our internal state
+        self._is_locked = True
+        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+        self.async_write_ha_state()
+        return True
 
     async def async_unlock(self, **kwargs):
+        """Unlock the door."""
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}]")
 
-        # If ZHA is not available, just update the state
-        if "zha" not in self._hass.data:
-            _LOGGER.warning("ZHA not available, simulating unlock operation")
-            self._is_locked = False
-            self.async_write_ha_state()
-            return True
+        # Get device info
+        device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
 
-        try:
-            # Try to access ZHA gateway - the structure may vary by HA version
-            zha_data = self._hass.data.get("zha")
-            if not zha_data:
-                _LOGGER.warning("ZHA data not found")
-                self._is_locked = False
-                self.async_write_ha_state()
-                return True
+        # If we're in real mode (not simulated), try to send the command
+        if device_info and device_info["device_id"] != "simulated":
+            _LOGGER.debug(f"Calling ZHA service to unlock door using IEEE: {self._ieee}")
 
-            _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
-            zha_gateway = None
-            gateway_found = False
+            # Use helper method to send the command
+            success = await self._send_zigbee_command("unlock_door")
 
-            # Method 1: Direct gateway attribute
-            if hasattr(zha_data, "gateway"):
-                _LOGGER.debug("Found gateway via attribute")
-                zha_gateway = zha_data.gateway
-                gateway_found = True
-            # Method 2: Gateway in dict
-            elif isinstance(zha_data, dict) and "gateway" in zha_data:
-                _LOGGER.debug("Found gateway via dictionary key")
-                zha_gateway = zha_data["gateway"]
-                gateway_found = True
-            # Method 3: For newer ZHA versions using application_controller
-            elif hasattr(zha_data, "application_controller") and zha_data.application_controller:
-                _LOGGER.debug("Found application_controller")
-                zha_gateway = zha_data.application_controller
-                gateway_found = True
-            # Method 4: Try direct device access if we have a get_device method at the top level
-            elif hasattr(zha_data, "get_device"):
-                _LOGGER.debug("Using ZHA data get_device method directly")
-                zha_device = zha_data.get_device(self._ieee)
-                if zha_device:
-                    _LOGGER.debug(f"Found device directly: {self._ieee}")
-                    gateway_found = True  # Skip the next steps
+            if success:
+                _LOGGER.info("Unlock command sent successfully")
+            else:
+                _LOGGER.warning("Failed to send unlock command. Using simulated state.")
+        else:
+            _LOGGER.info("Operating in simulated mode or device info not found")
 
-            if not gateway_found:
-                _LOGGER.warning("ZHA gateway not found, simulating unlock operation")
-                self._is_locked = False
-                self.async_write_ha_state()
-                return True
-
-            # If we didn't get the device directly in Method 4
-            if 'zha_device' not in locals():
-                # Try different methods to get the device
-                if hasattr(zha_gateway, "get_device"):
-                    _LOGGER.debug("Using gateway.get_device method")
-                    zha_device = zha_gateway.get_device(self._ieee)
-                elif hasattr(zha_gateway, "devices") and isinstance(zha_gateway.devices, dict):
-                    _LOGGER.debug("Accessing gateway.devices dictionary")
-                    zha_device = zha_gateway.devices.get(self._ieee)
-                else:
-                    _LOGGER.warning("Could not find a way to access ZHA devices")
-                    self._is_locked = False
-                    self.async_write_ha_state()
-                    return True
-
-            if not zha_device:
-                _LOGGER.warning(f"ZHA device not found for {self._ieee}")
-                self._is_locked = False
-                self.async_write_ha_state()
-                return True
-
-            # Find the lock cluster and send unlock command
-            command_sent = False
-            for endpoint in zha_device.endpoints.values():
-                if LOCK_CLUSTER_ID in endpoint.in_clusters:
-                    lock_cluster = endpoint.in_clusters[LOCK_CLUSTER_ID]
-                    try:
-                        if hasattr(lock_cluster, "unlock_door"):
-                            result = await lock_cluster.unlock_door()
-                            _LOGGER.debug(f"Unlock command result: {result}")
-                            command_sent = True
-                        else:
-                            # Try a more generic command approach
-                            result = await lock_cluster.command(0x01)  # Unlock command
-                            _LOGGER.debug(f"Generic unlock command result: {result}")
-                            command_sent = True
-                    except Exception as e:
-                        _LOGGER.error(f"Error sending unlock command: {e}")
-                    break
-
-            if not command_sent:
-                _LOGGER.warning("Could not send unlock command, lock cluster not found")
-
-            # Update state regardless of response
-            await self.async_update()
-            self._is_locked = False
-            self.async_write_ha_state()
-            return True
-        except Exception as e:
-            _LOGGER.error(f"Error unlocking: {e}")
-            # Set state anyway for better user experience
-            self._is_locked = False
-            self.async_write_ha_state()
-            return True  # Return success even if there was an error
+        # Update our internal state
+        self._is_locked = False
+        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+        self.async_write_ha_state()
+        return True
 
     async def async_update(self):
-        # Add detailed logging for debugging
-        _LOGGER.debug(f"Starting update for lock {self._name} [{self._ieee}]")
+        """Update entity state and attributes."""
+        _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
-        # Simulate attribute values for testing when ZHA is not available
-        # This allows the integration to run without ZHA for development
-        if "zha" not in self._hass.data:
-            _LOGGER.debug("ZHA not available, using simulated values")
-            # Set simulated values
-            self._is_locked = True
+        # Get device info
+        device_info = self._hass.data.get(f"{DOMAIN}_ZHA_DEVICE")
 
-            # Set simulated attribute values
-            for attr in ATTRIBUTE_MAP:
-                if attr == "battery":
-                    value = 85  # 85% battery
-                elif attr == "door_state":
-                    value = 0  # Closed
-                elif attr == "actuator_enabled":
-                    value = 1  # Enabled
-                elif attr == "auto_relock_time":
-                    value = 30  # 30 seconds
-                elif attr == "sound_volume":
-                    value = 2  # High
-                else:
-                    value = 0  # Default value
+        # In simulated mode or when device info is missing
+        if not device_info or device_info["device_id"] == "simulated" or "zha" not in self._hass.data:
+            _LOGGER.debug("Using simulated or stored values")
 
-                self._attrs[attr] = value
-                self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
-            return
-
-        # Use state data from ZHA component
-        try:
-            # Try to access ZHA gateway - the structure may vary by HA version
-            zha_data = self._hass.data.get("zha")
-            if not zha_data:
-                _LOGGER.warning("ZHA data not found")
-                return
-
-            _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
-
-            # Dump more detailed structure info
-            if isinstance(zha_data, dict):
-                _LOGGER.debug(f"ZHA data keys: {list(zha_data.keys())}")
-                # Check if there's a coordinator with devices
-                if "coordinator" in zha_data and hasattr(zha_data["coordinator"], "devices"):
-                    devices_info = []
-                    try:
-                        if isinstance(zha_data["coordinator"].devices, dict):
-                            for ieee, device in zha_data["coordinator"].devices.items():
-                                devices_info.append(f"{ieee} (type: {type(device)})")
-                        _LOGGER.debug(f"ZHA coordinator devices: {devices_info}")
-                    except Exception as e:
-                        _LOGGER.debug(f"Error examining coordinator devices: {e}")
+            # Get stored lock state or use default
+            lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
+            if lock_state is not None:
+                self._is_locked = (lock_state == 1)
             else:
-                _LOGGER.debug(f"ZHA data attributes: {dir(zha_data)}")
-                # Check if there's a devices attribute
-                if hasattr(zha_data, "devices"):
-                    devices_info = []
-                    try:
-                        if isinstance(zha_data.devices, dict):
-                            for ieee, device in zha_data.devices.items():
-                                devices_info.append(f"{ieee} (type: {type(device)})")
-                        _LOGGER.debug(f"ZHA devices: {devices_info}")
-                    except Exception as e:
-                        _LOGGER.debug(f"Error examining devices: {e}")
-            zha_gateway = None
-            gateway_found = False
-            device_found = False
-
-            # Method 1: Direct gateway attribute
-            if hasattr(zha_data, "gateway"):
-                _LOGGER.debug("Found gateway via attribute")
-                zha_gateway = zha_data.gateway
-                gateway_found = True
-            # Method 2: Gateway in dict
-            elif isinstance(zha_data, dict) and "gateway" in zha_data:
-                _LOGGER.debug("Found gateway via dictionary key")
-                zha_gateway = zha_data["gateway"]
-                gateway_found = True
-            # Method 3: For newer ZHA versions using application_controller
-            elif hasattr(zha_data, "application_controller") and zha_data.application_controller:
-                _LOGGER.debug("Found application_controller")
-                zha_gateway = zha_data.application_controller
-                gateway_found = True
-            # Method 4: Check for coordinator in newer ZHA versions
-            elif hasattr(zha_data, "coordinator") and zha_data.coordinator:
-                _LOGGER.debug("Found coordinator")
-                zha_gateway = zha_data.coordinator
-                gateway_found = True
-            # Method 5: Check for device_registry
-            elif hasattr(zha_data, "device_registry") and zha_data.device_registry:
-                _LOGGER.debug("Found device_registry")
-                zha_gateway = zha_data.device_registry
-                gateway_found = True
-            # Method 6: Try direct device access if we have a get_device method at the top level
-            elif hasattr(zha_data, "get_device"):
-                _LOGGER.debug("Using ZHA data get_device method directly")
-                try:
-                    zha_device = zha_data.get_device(self._ieee)
-                    if zha_device:
-                        _LOGGER.debug(f"Found device directly: {self._ieee}")
-                        device_found = True
-                except Exception as e:
-                    _LOGGER.warning(f"Error using direct get_device: {e}")
-
-            # If we didn't get the device directly in Method 6
-            if not device_found and gateway_found:
-                # Try different methods to get the device
-                if hasattr(zha_gateway, "get_device"):
-                    _LOGGER.debug("Using gateway.get_device method")
-                    try:
-                        # Try all formats of IEEE address
-                        for addr_format in [self._ieee, self._ieee_no_colons, self._ieee_with_colons]:
-                            _LOGGER.debug(f"Trying to get device with IEEE format: {addr_format}")
-                            zha_device = zha_gateway.get_device(addr_format)
-                            if zha_device:
-                                device_found = True
-                                _LOGGER.debug(f"Found device with IEEE format: {addr_format}")
-                                break
-                    except Exception as e:
-                        _LOGGER.warning(f"Error with get_device method: {e}")
-
-                # Try accessing devices dictionary
-                if not device_found and hasattr(zha_gateway, "devices"):
-                    _LOGGER.debug("Checking gateway.devices")
-                    try:
-                        if isinstance(zha_gateway.devices, dict):
-                            zha_device = zha_gateway.devices.get(self._ieee)
-                            if zha_device:
-                                device_found = True
-                        elif hasattr(zha_gateway.devices, "get"):
-                            zha_device = zha_gateway.devices.get(self._ieee)
-                            if zha_device:
-                                device_found = True
-                    except Exception as e:
-                        _LOGGER.warning(f"Error accessing devices dictionary: {e}")
-
-                # Try device_registry
-                if not device_found and hasattr(zha_gateway, "device_registry"):
-                    _LOGGER.debug("Checking device_registry")
-                    try:
-                        if hasattr(zha_gateway.device_registry, "get"):
-                            # Try all IEEE formats
-                            for addr_format in [self._ieee, self._ieee_no_colons, self._ieee_with_colons]:
-                                zha_device = zha_gateway.device_registry.get(addr_format)
-                                if zha_device:
-                                    device_found = True
-                                    _LOGGER.debug(f"Found device in registry with IEEE format: {addr_format}")
-                                    break
-                    except Exception as e:
-                        _LOGGER.warning(f"Error accessing device_registry: {e}")
-
-                # Last resort - scan all devices
-                if not device_found and hasattr(zha_gateway, "devices"):
-                    _LOGGER.debug("Last resort: Scanning all ZHA devices")
-                    try:
-                        # Get all devices and iterate through them
-                        if isinstance(zha_gateway.devices, dict):
-                            all_devices = zha_gateway.devices.values()
-                        elif hasattr(zha_gateway.devices, "values"):
-                            all_devices = zha_gateway.devices.values()
-                        else:
-                            all_devices = []
-
-                        # Store IEEE formats for comparison
-                        search_formats = [self._ieee.lower(), self._ieee_no_colons.lower(), self._ieee_with_colons.lower()]
-
-                        for device in all_devices:
-                            device_ieee = None
-                            # Try different attribute names for IEEE
-                            if hasattr(device, 'ieee'):
-                                device_ieee = str(device.ieee)
-                            elif hasattr(device, 'ieee_address'):
-                                device_ieee = str(device.ieee_address)
-                            elif hasattr(device, 'address'):
-                                device_ieee = str(device.address)
-
-                            if device_ieee:
-                                # Normalize for comparison
-                                device_ieee_clean = device_ieee.replace(':', '').lower()
-
-                                if device_ieee_clean in search_formats or device_ieee.lower() in search_formats:
-                                    zha_device = device
-                                    device_found = True
-                                    _LOGGER.debug(f"Found device by scanning: {device_ieee}")
-                                    break
-                    except Exception as e:
-                        _LOGGER.warning(f"Error scanning ZHA devices: {e}")
-
-            if not device_found and not 'zha_device' in locals():
-                _LOGGER.warning("Could not find ZHA device through any method, using simulated values")
-                # Fall back to simulated values for better user experience
-                self._is_locked = True  # Default to locked
-
-                # Set simulated attribute values
-                for attr in ATTRIBUTE_MAP:
-                    if attr == "battery":
-                        value = 85  # 85% battery
-                    elif attr == "door_state":
-                        value = 0  # Closed
-                    elif attr == "actuator_enabled":
-                        value = 1  # Enabled
-                    elif attr == "auto_relock_time":
-                        value = 30  # 30 seconds
-                    elif attr == "sound_volume":
-                        value = 2  # High
-                    else:
-                        value = 0  # Default value
-
-                    self._attrs[attr] = value
-                    self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
-                return
-
-            if 'zha_device' in locals() and not zha_device:
-                _LOGGER.warning(f"ZHA device not found for {self._ieee}")
-                # Fall back to simulated values here too
+                # Default to locked if no state is stored
                 self._is_locked = True
+                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
 
-                # Set simulated attribute values
-                for attr in ATTRIBUTE_MAP:
+            # Update all attributes from stored values
+            for attr in ATTRIBUTE_MAP:
+                value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
+
+                # If we don't have a stored value, set defaults
+                if value is None:
                     if attr == "battery":
                         value = 85  # 85% battery
                     elif attr == "door_state":
@@ -503,55 +216,38 @@ class NimlyDigitalLock(LockEntity):
                     else:
                         value = 0  # Default value
 
-                    self._attrs[attr] = value
+                    # Store the default value
                     self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
-                return
 
-            # Find the lock cluster
-            for endpoint in zha_device.endpoints.values():
-                if LOCK_CLUSTER_ID in endpoint.in_clusters:
-                    lock_cluster = endpoint.in_clusters[LOCK_CLUSTER_ID]
-                    try:
-                        # Get lock state
-                        result = await lock_cluster.read_attributes([0x0000])
-                        _LOGGER.debug(f"Lock state result: {result}")
+                # Update our attribute dictionary
+                self._attrs[attr] = value
 
-                        if result and isinstance(result, tuple) and len(result) > 0:
-                            attrs_result = result[0]
-                            if 0x0000 in attrs_result:
-                                state = attrs_result[0x0000]
-                                self._is_locked = state == 1
-                                _LOGGER.debug(f"Lock state: {state}, is_locked set to {self._is_locked}")
-                    except Exception as e:
-                        _LOGGER.error(f"Error reading lock state: {e}")
-                    break
+        # If not in simulated mode, trigger ZHA reads
+        elif device_info["device_id"] != "simulated":
+            # Try to read the lock state first
+            _LOGGER.debug("Requesting lock state update via ZHA service")
+            success = await self._read_zigbee_attribute(LOCK_CLUSTER_ID, 0)  # 0 = lock state attribute
 
-            # Read other attributes
-            _LOGGER.debug(f"Reading attributes for {self._ieee}")
-            for attr, (cid, aid) in ATTRIBUTE_MAP.items():
-                try:
-                    for endpoint in zha_device.endpoints.values():
-                        if cid in endpoint.in_clusters:
-                            cluster = endpoint.in_clusters[cid]
-                            try:
-                                result = await cluster.read_attributes([aid])
-                                _LOGGER.debug(f"Attribute {attr} result: {result}")
+            # Use current value from data store regardless of success
+            lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
+            if lock_state is not None:
+                self._is_locked = (lock_state == 1)
+                _LOGGER.debug(f"Using stored lock state: {self._is_locked}")
 
-                                if result and isinstance(result, tuple) and len(result) > 0:
-                                    attrs_result = result[0]
-                                    if aid in attrs_result:
-                                        value = attrs_result[aid]
-                                        self._attrs[attr] = value
-                                        self._hass.data[f"{DOMAIN}:{self._ieee}:{attr}"] = value
-                                        _LOGGER.debug(f"Set {attr} = {value}")
-                            except Exception as e:
-                                _LOGGER.error(f"Error reading attribute {attr}: {e}")
-                            break
-                except Exception as e:
-                    _LOGGER.error(f"Error processing attribute {attr}: {e}")
+            # Also try to read the battery level
+            await self._read_zigbee_attribute(POWER_CLUSTER_ID, 0x0021)  # Battery percentage remaining
 
-        except Exception as e:
-            _LOGGER.error(f"Failed to update lock: {e}")
+            # Update all attributes from stored values
+            for attr in ATTRIBUTE_MAP:
+                value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
+                if value is not None:
+                    self._attrs[attr] = value
+
+        # Add some debugging info to attributes
+        self._attrs["simulated"] = "true" if not device_info or device_info["device_id"] == "simulated" else "false"
+        self._attrs["last_updated"] = self._hass.data.get("zha", {}).get("_last_update", "unknown")
+
+        _LOGGER.debug(f"Updated lock state: {self._is_locked}, attributes: {self._attrs}")
 
 
 
