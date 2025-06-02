@@ -4,8 +4,10 @@
     "step": {
       "user": {
         "title": "Configure Nimly Lock",
+        "description": "Found {device_count} ZigBee devices. Select your Nimly lock from the dropdown or enter the IEEE address manually.",
         "data": {
-          "ieee": "IEEE Address",
+          "device_selection": "Select ZigBee Device",
+          "ieee": "IEEE Address (manual entry)",
           "name": "Lock Name"
         }
       },
@@ -16,6 +18,9 @@
           "sound_volume": "Sound Volume"
         }
       }
+    },
+    "error": {
+      "invalid_ieee_length": "Invalid IEEE address format. Must be 16 hex characters (with or without colons)."
     }
   }
 }

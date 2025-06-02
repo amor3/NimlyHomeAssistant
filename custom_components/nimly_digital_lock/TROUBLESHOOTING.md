@@ -1,5 +1,28 @@
 # Nimly Digital Lock Troubleshooting Guide
 
+## Finding Your Lock's ZigBee Address
+
+When adding a new lock, the integration now provides a dropdown list of all ZigBee devices discovered in your Home Assistant system. This makes it easier to identify your lock without having to manually find the IEEE address.
+
+1. Go to **Settings** > **Devices & Services** > **Add Integration**
+2. Search for and select **Nimly Digital Lock**
+3. Select your lock from the dropdown of available ZigBee devices
+4. If your lock doesn't appear in the list, you can still enter its IEEE address manually
+
+<details>
+<summary><b>Where to find the IEEE address manually</b></summary>
+
+If your lock doesn't appear in the dropdown, you can find its IEEE address by:
+
+1. Go to **Settings** > **Devices & Services**
+2. Find your ZigBee integration (ZHA or Zigbee)
+3. Click on **Devices**
+4. Look for your lock in the device list
+5. The IEEE address will be shown in the device details or as part of the device identifier
+
+Alternatively, check your ZigBee coordinator's web interface or logs for the list of paired devices.
+</details>
+
 ## Nordic Semiconductor ZBT-1 Command Format
 
 The Nimly digital lock uses the Nordic Semiconductor ZBT-1 module, which requires a specific command format to communicate properly. If you're experiencing issues with your lock, this guide will help you troubleshoot.
