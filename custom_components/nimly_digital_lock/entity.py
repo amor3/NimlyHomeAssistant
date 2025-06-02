@@ -61,28 +61,59 @@ class NimlyDigitalLock(LockEntity):
         try:
             # Try to access ZHA gateway - the structure may vary by HA version
             zha_data = self._hass.data.get("zha")
+            if not zha_data:
+                _LOGGER.warning("ZHA data not found")
+                self._is_locked = True
+                self.async_write_ha_state()
+                return True
+
+            _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
             zha_gateway = None
+            gateway_found = False
 
-            # Different ways to access ZHA gateway depending on HA version
+            # Method 1: Direct gateway attribute
             if hasattr(zha_data, "gateway"):
+                _LOGGER.debug("Found gateway via attribute")
                 zha_gateway = zha_data.gateway
+                gateway_found = True
+            # Method 2: Gateway in dict
             elif isinstance(zha_data, dict) and "gateway" in zha_data:
+                _LOGGER.debug("Found gateway via dictionary key")
                 zha_gateway = zha_data["gateway"]
+                gateway_found = True
+            # Method 3: For newer ZHA versions using application_controller
+            elif hasattr(zha_data, "application_controller") and zha_data.application_controller:
+                _LOGGER.debug("Found application_controller")
+                zha_gateway = zha_data.application_controller
+                gateway_found = True
+            # Method 4: Try direct device access if we have a get_device method at the top level
+            elif hasattr(zha_data, "get_device"):
+                _LOGGER.debug("Using ZHA data get_device method directly")
+                zha_device = zha_data.get_device(self._ieee)
+                if zha_device:
+                    _LOGGER.debug(f"Found device directly: {self._ieee}")
+                    gateway_found = True  # Skip the next steps
 
-            if not zha_gateway:
+            if not gateway_found:
                 _LOGGER.warning("ZHA gateway not found, simulating lock operation")
                 self._is_locked = True
                 self.async_write_ha_state()
                 return True
 
-            # Different ZHA versions might have different methods
-            if hasattr(zha_gateway, "get_device"):
-                zha_device = zha_gateway.get_device(self._ieee)
-            else:
-                _LOGGER.warning("ZHA gateway does not have get_device method")
-                self._is_locked = True
-                self.async_write_ha_state()
-                return True
+            # If we didn't get the device directly in Method 4
+            if 'zha_device' not in locals():
+                # Try different methods to get the device
+                if hasattr(zha_gateway, "get_device"):
+                    _LOGGER.debug("Using gateway.get_device method")
+                    zha_device = zha_gateway.get_device(self._ieee)
+                elif hasattr(zha_gateway, "devices") and isinstance(zha_gateway.devices, dict):
+                    _LOGGER.debug("Accessing gateway.devices dictionary")
+                    zha_device = zha_gateway.devices.get(self._ieee)
+                else:
+                    _LOGGER.warning("Could not find a way to access ZHA devices")
+                    self._is_locked = True
+                    self.async_write_ha_state()
+                    return True
 
             if not zha_device:
                 _LOGGER.warning(f"ZHA device not found for {self._ieee}")
@@ -137,28 +168,59 @@ class NimlyDigitalLock(LockEntity):
         try:
             # Try to access ZHA gateway - the structure may vary by HA version
             zha_data = self._hass.data.get("zha")
+            if not zha_data:
+                _LOGGER.warning("ZHA data not found")
+                self._is_locked = False
+                self.async_write_ha_state()
+                return True
+
+            _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
             zha_gateway = None
+            gateway_found = False
 
-            # Different ways to access ZHA gateway depending on HA version
+            # Method 1: Direct gateway attribute
             if hasattr(zha_data, "gateway"):
+                _LOGGER.debug("Found gateway via attribute")
                 zha_gateway = zha_data.gateway
+                gateway_found = True
+            # Method 2: Gateway in dict
             elif isinstance(zha_data, dict) and "gateway" in zha_data:
+                _LOGGER.debug("Found gateway via dictionary key")
                 zha_gateway = zha_data["gateway"]
+                gateway_found = True
+            # Method 3: For newer ZHA versions using application_controller
+            elif hasattr(zha_data, "application_controller") and zha_data.application_controller:
+                _LOGGER.debug("Found application_controller")
+                zha_gateway = zha_data.application_controller
+                gateway_found = True
+            # Method 4: Try direct device access if we have a get_device method at the top level
+            elif hasattr(zha_data, "get_device"):
+                _LOGGER.debug("Using ZHA data get_device method directly")
+                zha_device = zha_data.get_device(self._ieee)
+                if zha_device:
+                    _LOGGER.debug(f"Found device directly: {self._ieee}")
+                    gateway_found = True  # Skip the next steps
 
-            if not zha_gateway:
+            if not gateway_found:
                 _LOGGER.warning("ZHA gateway not found, simulating unlock operation")
                 self._is_locked = False
                 self.async_write_ha_state()
                 return True
 
-            # Different ZHA versions might have different methods
-            if hasattr(zha_gateway, "get_device"):
-                zha_device = zha_gateway.get_device(self._ieee)
-            else:
-                _LOGGER.warning("ZHA gateway does not have get_device method")
-                self._is_locked = False
-                self.async_write_ha_state()
-                return True
+            # If we didn't get the device directly in Method 4
+            if 'zha_device' not in locals():
+                # Try different methods to get the device
+                if hasattr(zha_gateway, "get_device"):
+                    _LOGGER.debug("Using gateway.get_device method")
+                    zha_device = zha_gateway.get_device(self._ieee)
+                elif hasattr(zha_gateway, "devices") and isinstance(zha_gateway.devices, dict):
+                    _LOGGER.debug("Accessing gateway.devices dictionary")
+                    zha_device = zha_gateway.devices.get(self._ieee)
+                else:
+                    _LOGGER.warning("Could not find a way to access ZHA devices")
+                    self._is_locked = False
+                    self.async_write_ha_state()
+                    return True
 
             if not zha_device:
                 _LOGGER.warning(f"ZHA device not found for {self._ieee}")
@@ -234,24 +296,53 @@ class NimlyDigitalLock(LockEntity):
         try:
             # Try to access ZHA gateway - the structure may vary by HA version
             zha_data = self._hass.data.get("zha")
+            if not zha_data:
+                _LOGGER.warning("ZHA data not found")
+                return
+
+            _LOGGER.debug(f"ZHA data type: {type(zha_data)}")
             zha_gateway = None
+            gateway_found = False
 
-            # Different ways to access ZHA gateway depending on HA version
+            # Method 1: Direct gateway attribute
             if hasattr(zha_data, "gateway"):
+                _LOGGER.debug("Found gateway via attribute")
                 zha_gateway = zha_data.gateway
+                gateway_found = True
+            # Method 2: Gateway in dict
             elif isinstance(zha_data, dict) and "gateway" in zha_data:
+                _LOGGER.debug("Found gateway via dictionary key")
                 zha_gateway = zha_data["gateway"]
+                gateway_found = True
+            # Method 3: For newer ZHA versions using application_controller
+            elif hasattr(zha_data, "application_controller") and zha_data.application_controller:
+                _LOGGER.debug("Found application_controller")
+                zha_gateway = zha_data.application_controller
+                gateway_found = True
+            # Method 4: Try direct device access if we have a get_device method at the top level
+            elif hasattr(zha_data, "get_device"):
+                _LOGGER.debug("Using ZHA data get_device method directly")
+                zha_device = zha_data.get_device(self._ieee)
+                if zha_device:
+                    _LOGGER.debug(f"Found device directly: {self._ieee}")
+                    gateway_found = True  # Skip the next steps
 
-            if not zha_gateway:
+            if not gateway_found:
                 _LOGGER.warning("ZHA gateway not found, using cached values")
                 return
 
-            # Different ZHA versions might have different methods
-            if hasattr(zha_gateway, "get_device"):
-                zha_device = zha_gateway.get_device(self._ieee)
-            else:
-                _LOGGER.warning("ZHA gateway does not have get_device method")
-                return
+            # If we didn't get the device directly in Method 4
+            if 'zha_device' not in locals():
+                # Try different methods to get the device
+                if hasattr(zha_gateway, "get_device"):
+                    _LOGGER.debug("Using gateway.get_device method")
+                    zha_device = zha_gateway.get_device(self._ieee)
+                elif hasattr(zha_gateway, "devices") and isinstance(zha_gateway.devices, dict):
+                    _LOGGER.debug("Accessing gateway.devices dictionary")
+                    zha_device = zha_gateway.devices.get(self._ieee)
+                else:
+                    _LOGGER.warning("Could not find a way to access ZHA devices")
+                    return
 
             if not zha_device:
                 _LOGGER.warning(f"ZHA device not found for {self._ieee}")
