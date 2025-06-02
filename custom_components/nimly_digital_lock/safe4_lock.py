@@ -113,7 +113,7 @@ async def _send_lock_command(hass, ieee_address, command):
 
                         # Add parameters based on the service domain and method
                         if service_domain == "zha":
-                            service_data["args"] = []
+                            service_data["params"] = {"pin_code": ""}
                         else:
                             service_data["params"] = {}
 
@@ -246,7 +246,7 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
 
                         # Add required empty parameters based on service domain
                         if service_domain == "zha" and "get_zigbee_cluster_attribute" in service_method:
-                            service_data["args"] = []
+                            service_data["params"] = {"pin_code": ""}
 
                         # Call the service
                         await hass.services.async_call(

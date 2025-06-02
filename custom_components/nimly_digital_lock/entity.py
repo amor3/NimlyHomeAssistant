@@ -422,7 +422,8 @@ class NimlyDigitalLock(LockEntity):
                             "command": SAFE4_LOCK_COMMAND,
                             "command_type": "server",
                             "cluster_id": 0x0101,  # Door Lock cluster
-                            "endpoint_id": 11
+                            "endpoint_id": 11,
+                            "params": {"pin_code": ""}
                         }
 
                         await self._hass.services.async_call(
@@ -569,7 +570,8 @@ class NimlyDigitalLock(LockEntity):
                             "command": SAFE4_UNLOCK_COMMAND,
                             "command_type": "server",
                             "cluster_id": 0x0101,  # Door Lock cluster
-                            "endpoint_id": 11
+                            "endpoint_id": 11,
+                            "params": {"pin_code": ""}
                         }
 
                         await self._hass.services.async_call(
