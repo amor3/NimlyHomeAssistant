@@ -5,7 +5,8 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 # Common endpoints for ZBT-1 locks
-ZBT1_ENDPOINTS = [1, 11, 242, 2, 3]
+# NOTE: For Nordic ZBT-1 locks, endpoint MUST be 11 per specification
+ZBT1_ENDPOINTS = [11, 1, 242, 2, 3]
 
 async def get_zbt1_endpoints(hass, ieee_address):
     """Get the list of endpoints for a ZBT-1 device."""

@@ -14,7 +14,9 @@ SAFE4_LOCK_COMMAND = 0x00  # Lock Door Command
 SAFE4_UNLOCK_COMMAND = 0x01  # Unlock Door Command
 
 # Common endpoint IDs for locks
-COMMON_ENDPOINTS = [1, 11, 242, 2, 3]
+# NOTE: For Nordic ZBT-1 locks, endpoint MUST be 11 per specification
+# Prioritize endpoint 11 for Safe4 locks
+COMMON_ENDPOINTS = [11, 1, 242, 2, 3]
 
 # Helper function to discover available zigbee services
 def discover_available_services(hass):

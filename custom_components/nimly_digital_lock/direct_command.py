@@ -5,7 +5,7 @@ import asyncio
 
 _LOGGER = logging.getLogger(__name__)
 
-async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x0101, retry_count=3, retry_delay=1.0, profile=0x0104):
+async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x0101, retry_count=5, retry_delay=1.0, profile=0x0104):
     """Send a direct command to the lock using multiple methods.
 
     This function attempts to send the command in various formats to maximize

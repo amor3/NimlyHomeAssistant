@@ -128,7 +128,98 @@ The integration uses endpoint 11 as the primary endpoint for Nordic ZBT-1 device
 
 If you continue to have issues, please collect your Home Assistant logs with debug enabled and report them to the project maintainers.
 ## Finding Your Lock's ZigBee Address
+# Nimly Digital Lock Troubleshooting Guide
 
+## Nordic ZBT-1 Door Lock Issues
+
+If you're experiencing issues with your Nimly lock that uses the Nordic ZBT-1 implementation, follow these steps:
+
+### 1. Verify Lock Requirements
+
+The Nordic ZBT-1 Door Lock module requires EXACT command format:
+
+```
+zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+```
+
+Where:
+- Endpoint MUST be exactly 11
+- Cluster ID must be exactly 0x0101 (Door Lock cluster)
+- Profile ID must be exactly 0x0104 (Home Automation)
+- Command ID must be exactly 0x00 for lock, 0x01 for unlock
+- NO parameters can be passed
+
+### 2. Check Your Zigbee Services
+
+Verify which Zigbee services you have available:
+
+1. Go to Developer Tools > Services
+2. Look for either:
+   - `zigbee.issue_zigbee_cluster_command` (Nabu Casa Yellow)
+   - `zha.issue_zigbee_cluster_command` (ZHA integration)
+
+### 3. Try The Direct Command Service
+
+This integration provides a direct command service that bypasses the normal Home Assistant flow:
+
+```yaml
+service: nimly_digital_lock.send_direct_command
+data:
+  ieee: "00:11:22:33:44:55:66:77"  # Your lock's IEEE address
+  command: 1  # 0=lock, 1=unlock
+  endpoint: 11  # MUST be 11 for Nordic ZBT-1
+  retry_count: 5
+```
+
+### 4. Try All Methods At Once
+
+If you're still having trouble, the integration provides a service that tries all possible methods:
+
+```yaml
+service: nimly_digital_lock.try_all_methods
+data:
+  ieee: "00:11:22:33:44:55:66:77"  # Your lock's IEEE address
+  command: 1  # 0=lock, 1=unlock
+```
+
+### 5. Common Issues and Solutions
+
+#### "Failed to send request: device did not respond"
+
+This usually means:
+- Your lock is out of range or has network connectivity issues
+- The batteries are low in your lock
+- The wrong endpoint is being used (must be 11 for Nordic ZBT-1)
+
+Solutions:
+1. Replace the batteries in your lock
+2. Move your Zigbee coordinator closer to the lock
+3. Use the `send_direct_command` service with endpoint 11
+4. Restart your Zigbee coordinator and try again
+
+#### "Cannot connect to coordinator"
+
+This indicates an issue with your Zigbee network rather than the lock itself.
+
+Solutions:
+1. Restart your Zigbee coordinator
+2. Restart Home Assistant
+3. Check if your coordinator's firmware is up to date
+
+### 6. Still Having Issues?
+
+If you're still experiencing problems after trying all of the above:
+
+1. Run the diagnostics service and check your Home Assistant logs
+2. Run the following commands in Developer Tools > Services:
+
+```yaml
+service: nimly_digital_lock.run_diagnostics
+target:
+  entity_id: lock.nimly_front_door
+```
+
+3. Look for error messages in your Home Assistant logs with "nimly" in them
 When adding a new lock, the integration now provides a dropdown list of all ZigBee devices discovered in your Home Assistant system, with Nordic ZBT-1 devices prioritized at the top. This makes it easier to identify your lock without having to manually find the IEEE address.
 
 1. Go to **Settings** > **Devices & Services** > **Add Integration**

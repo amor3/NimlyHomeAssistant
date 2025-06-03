@@ -230,10 +230,17 @@ ZBT1_LOCK_COMMANDS = {
 
 # Export individual command constants for direct use
 ZBT1_LOCK_COMMAND = 0x00    # Lock command
-
-# Define endpoints for ZBT-1 device according to Nordic Semiconductor specs
-ZBT1_ENDPOINTS = [11, 1, 2, 3, 242]  # Primary endpoint is 11 per Safe4 spec
 ZBT1_UNLOCK_COMMAND = 0x01  # Unlock command
+
+# Zigbee profile ID used by ZBT-1 devices
+COMMAND_PROFILE = 0x0104  # Home Automation profile
+
+# Safe4 ZigBee Door Lock specific constants
+ZBT1_ENDPOINTS = [11]  # Safe4 spec requires endpoint 11 only
+
+# Safe4 ZigBee Door Lock command constants per specification
+SAFE4_LOCK_COMMAND = 0x00
+SAFE4_UNLOCK_COMMAND = 0x01
 
 # Lock attributes - Defined at module level to avoid duplicate declarations
 LOCK_ATTRIBUTES = {
@@ -354,13 +361,3 @@ def get_cluster_handler_name(gateway_type="zha"):
         return "zigbee_cluster_handler"  # For Nabu Casa Zigbee integration
     else:
         return "zha_cluster_handler"  # For standard ZHA
-
-# Zigbee profile ID used by ZBT-1 devices
-COMMAND_PROFILE = 0x0104  # Home Automation profile
-
-# Safe4 ZigBee Door Lock specific constants
-ZBT1_ENDPOINTS = [11]  # Safe4 spec requires endpoint 11 only
-
-# Safe4 ZigBee Door Lock command constants per specification
-SAFE4_LOCK_COMMAND = 0x00
-SAFE4_UNLOCK_COMMAND = 0x01

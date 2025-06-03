@@ -491,6 +491,26 @@ class NimlyDigitalLock(LockEntity):
         # First try with the direct command module (most reliable method)
         from .direct_command import unlock_door
         _LOGGER.info(f"Attempting unlock with direct command module")
+
+        # Ensure we're using the correct constants from zha_mapping for ZBT-1
+        from .zha_mapping import ZBT1_UNLOCK_COMMAND
+
+        # Try first with the most specific format for Nordic ZBT-1
+        try:
+            # Import the Nordic-specific command module
+            from .nordic import unlock_door as nordic_unlock_door
+            _LOGGER.info(f"Attempting unlock with Nordic-specific command module")
+            nordic_success = await nordic_unlock_door(self._hass, self._ieee_with_colons)
+            if nordic_success:
+                _LOGGER.info(f"Successfully unlocked using Nordic-specific format")
+                self._is_locked = False
+                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+                self.async_write_ha_state()
+                return True
+        except Exception as e:
+            _LOGGER.warning(f"Nordic-specific unlock failed: {e}")
+
+        # If Nordic-specific method failed, try the direct command module
         success = await unlock_door(self._hass, self._ieee_with_colons)
 
         # If direct command succeeds, update state and return
