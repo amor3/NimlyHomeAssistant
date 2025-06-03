@@ -236,14 +236,13 @@ ZBT1_ENDPOINTS = [11, 1, 2, 3, 242]  # Primary endpoint is 11 per Safe4 spec
 ZBT1_UNLOCK_COMMAND = 0x01  # Unlock command
 
 # Lock attributes - Defined at module level to avoid duplicate declarations
-if 'LOCK_ATTRIBUTES' not in globals():
-    LOCK_ATTRIBUTES = {
-        "lock_state": 0x0000,  # Lock State
-        "lock_type": 0x0001,  # Lock Type
-        "actuator_enabled": 0x0002,  # Actuator Enabled
-        "door_state": 0x0003,  # Door State
-        "door_open_events": 0x0004,  # Door Open Events
-        "door_closed_events": 0x0005,  # Door Closed Events
+LOCK_ATTRIBUTES = {
+    "lock_state": 0x0000,  # Lock State
+    "lock_type": 0x0001,  # Lock Type
+    "actuator_enabled": 0x0002,  # Actuator Enabled
+    "door_state": 0x0003,  # Door State
+    "door_open_events": 0x0004,  # Door Open Events
+    "door_closed_events": 0x0005,  # Door Closed Events
     "open_period": 0x0006,  # Open Period
     "num_lock_records_supported": 0x0010,  # Number of Log Records Supported
     "num_total_users_supported": 0x0011,  # Number of Total Users Supported

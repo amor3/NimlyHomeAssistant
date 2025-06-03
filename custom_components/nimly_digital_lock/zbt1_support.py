@@ -9,8 +9,6 @@ ZBT1_ENDPOINTS = [1, 11, 242, 2, 3]
 
 async def get_zbt1_endpoints(hass, ieee_address):
     """Get the list of endpoints for a ZBT-1 device."""
-    import logging
-    _LOGGER = logging.getLogger(__name__)
 
     try:
         # Import constants from zha_mapping module

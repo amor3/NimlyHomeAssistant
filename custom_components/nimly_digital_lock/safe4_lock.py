@@ -40,9 +40,20 @@ async def send_safe4_unlock_command(hass, ieee_address):
     return await _send_lock_command(hass, ieee_address, SAFE4_UNLOCK_COMMAND)
 
 async def _send_lock_command(hass, ieee_address, command):
-    """Send a lock or unlock command to the Safe4 lock device."""
+    """Send a lock or unlock command to the Safe4 lock device.
+
+    For Nordic ZBT-1, the command format must follow exactly:
+    zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+
+    Where:
+    - endpoint MUST be 11
+    - cluster MUST be 0x0101 (Door Lock)
+    - profile MUST be 0x0104 (Home Automation)
+    - command MUST be 0x00 (lock) or 0x01 (unlock)
+    - NO parameters are allowed
+    """
     command_name = "lock" if command == SAFE4_LOCK_COMMAND else "unlock"
-    _LOGGER.info(f"Sending {command_name} command to Safe4 lock {ieee_address}")
+    _LOGGER.info(f"Sending {command_name} command to Safe4 lock {ieee_address} using Nordic ZBT-1 format")
 
     # First, discover available services in Home Assistant
     available_services = discover_available_services(hass)
@@ -102,20 +113,23 @@ async def _send_lock_command(hass, ieee_address, command):
 
                         _LOGGER.debug(f"Trying endpoint {endpoint_id} with {command_name} command using {service_domain}.{service_method} and IEEE {ieee}")
 
-                        # Prepare service data for the direct command
+                        # Prepare service data exactly per Nordic ZBT-1 specification
+                        # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
                         service_data = {
                             "ieee": ieee,
-                            "endpoint_id": endpoint_id,
-                            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
-                            "command": command,
+                            "endpoint_id": endpoint_id,  # Must be 11 for ZBT-1
+                            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,  # 0x0101
+                            "command": command,  # 0x00 (lock) or 0x01 (unlock)
                             "command_type": "server"
                         }
 
-                        # Add parameters based on the service domain and method
-                        if service_domain == "zha":
-                            service_data["params"] = {"pin_code": ""}
-                        else:
-                            service_data["params"] = {}
+                        # Try with profile parameter for Nabu Casa
+                        if service_domain == "zigbee":
+                            service_data["profile"] = 0x0104  # Home Automation profile
+
+                        # For ZBT-1 per Nordic spec, NO parameters allowed for lock/unlock
+                        # Different from standard Zigbee where PIN is sometimes needed
+                        service_data["params"] = {}
 
                         # Call the service
                         await hass.services.async_call(
