@@ -1,0 +1,71 @@
+{
+  "title": { "en": "Nimly Zigbee Door Lock" },
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Nimly Zigbee Door Lock",
+        "data": {
+          "ieee": "Lock IEEE Address",
+          "name": "Lock Name"
+        }
+      },
+      "options": {
+        "title": "Options",
+        "data": {
+          "auto_relock_time": "Auto Relock (seconds)",
+          "sound_volume": "Sound Volume (0=Off, 1=Low, 2=Normal)"
+        }
+      }
+    }
+  },
+  "entity": {
+    "lock": { "name": "Nimly Door Lock" },
+    "sensor": {
+      "battery": "Battery Level",
+      "battery_voltage": "Battery Voltage",
+      "diagnostics_data": "Diagnostics (RSSI)",
+      "battery_percent_remaining": "Battery % Remaining"
+    },
+    "binary_sensor": {
+      "battery_low": "Battery Low"
+    }
+  },
+  "service": {
+    "set_pin_code": {
+      "name": "Set PIN Code",
+      "description": "Set a new PIN in a given slot"
+    },
+    "clear_pin_code": {
+      "name": "Clear PIN Code",
+      "description": "Remove the PIN from a given slot"
+    },
+    "set_rfid_code": {
+      "name": "Set RFID Code",
+      "description": "Set a new RFID code in a given slot"
+    },
+    "clear_rfid_code": {
+      "name": "Clear RFID Code",
+      "description": "Remove the RFID code from a given slot"
+    },
+    "scan_rfid": {
+      "name": "Scan RFID Code",
+      "description": "Enable RFID scanning for a given slot"
+    },
+    "scan_fingerprint": {
+      "name": "Scan Fingerprint",
+      "description": "Enable fingerprint scanning for a given slot"
+    },
+    "clear_fingerprint": {
+      "name": "Clear Fingerprint",
+      "description": "Clear a fingerprint from a given slot"
+    },
+    "local_program_disable": {
+      "name": "Disable Local Programming",
+      "description": "Disable adding PIN/RFID/Fingerprint at the keypad"
+    },
+    "local_program_enable": {
+      "name": "Enable Local Programming",
+      "description": "Enable adding PIN/RFID/Fingerprint at the keypad"
+    }
+  }
+}

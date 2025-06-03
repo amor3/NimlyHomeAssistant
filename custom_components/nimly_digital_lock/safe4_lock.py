@@ -2,7 +2,6 @@
 
 import logging
 import asyncio
-
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -244,120 +243,12 @@ async def _send_lock_command(hass, ieee_address, command):
     _LOGGER.error(f"All endpoints failed for {command_name} command")
     return False
 
-async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
-    """Read an attribute from the Safe4 lock device."""
-
-    # First, discover available services in Home Assistant
-    available_services = discover_available_services(hass)
-    _LOGGER.debug(f"Available Zigbee attribute services: {available_services}")
-
-    # Always use ZHA domain only
-    service_domains = ["zha"]
-    service_methods = []
-
-    # Add discovered ZHA services to our list
-    if "zha" in available_services:
-        service_methods.extend(available_services["zha"])
-
-    # If no ZHA services were discovered, use default ZHA methods
-    if not service_methods:
-        service_methods = [
-            "get_zigbee_cluster_attribute",
-            "read_zigbee_cluster_attribute",
-            "read_attribute",
-            "get_attribute",
-            "cluster_attribute",
-            "attribute_read"
-        ]
-
-    # Use a cleaner import of normalize_ieee
-    from .zha_mapping import normalize_ieee
-    ieee_formats = normalize_ieee(ieee_address)
-    ieee_no_colons = ieee_formats["no_colons"]
-    ieee_with_colons = ieee_formats["with_colons"]
-
-    # Prepare all IEEE formats to try
-    ieee_formats = [
-        ieee_address,
-        ieee_no_colons,
-        ieee_with_colons
-    ]
-
-    # For ZBT-1 devices, use the default cluster type
-    cluster_type = "in"
-
-    # Try with the recommended endpoint 11 first, then others if that fails
-    endpoints = [11, 1, 242, 2, 3]
-
-    # Track whether any service calls were attempted
-    service_calls_attempted = False
-
-    for endpoint_id in endpoints:
-        for ieee in ieee_formats:
-            for service_domain in service_domains:
-                for service_method in service_methods:
-                    try:
-                        # Check if the service exists before trying to call it
-                        if not hass.services.has_service(service_domain, service_method):
-                            continue
-
-                        service_calls_attempted = True
-                        _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id} endpoint {endpoint_id} using {service_domain}.{service_method}")
-
-                        # Prepare service data
-                        service_data = {
-                            "ieee": ieee,
-                            "endpoint_id": endpoint_id,
-                            "cluster_id": cluster_id,
-                            "cluster_type": cluster_type,
-                            "attribute": attribute_id
-                        }
-
-                        # Handle optional parameters based on service domain
-                        if service_domain == "zha" and "get_zigbee_cluster_attribute" in service_method:
-                            # Only add params if service supports it
-                            try:
-                                service_data["params"] = {"pin_code": ""}
-                            except Exception:
-                                # If params not supported, continue without it
-                                pass
-
-                        # Call the service with a shorter timeout
-                        await hass.services.async_call(
-                            service_domain,
-                            service_method,
-                            service_data,
-                            blocking=True
-                        )
-
-                        # If we reach here, the call succeeded without exception
-                        # Check if a result was stored in the data store
-                        for check_ieee in [ieee, ieee_address]:
-                            attr_key = f"{DOMAIN}:{check_ieee}:{attribute_id}"
-                            if attr_key in hass.data:
-                                result = hass.data.get(attr_key)
-                                if result is not None:
-                                    _LOGGER.info(f"Successfully read attribute {attribute_id} from endpoint {endpoint_id}: {result}")
-                                    return result
-
-                    except Exception as e:
-                        # Continue silently to try next method
-                        pass
-
-    # If no service calls were attempted, log a more helpful message
-    if not service_calls_attempted:
-        _LOGGER.error("No compatible Zigbee services found for reading attributes - please check your Zigbee integration")
-    else:
-        _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
-        return None
-
 # Import constants from dedicated constants file
 from .const_zbt1 import (
     SAFE4_DOOR_LOCK_CLUSTER,
     SAFE4_POWER_CLUSTER,
     SAFE4_LOCK_COMMAND,
-    SAFE4_UNLOCK_COMMAND,
-    SAFE4_ZBT1_ENDPOINT
+    SAFE4_UNLOCK_COMMAND
 )
 
 # Import helper functions from zha_mapping
@@ -480,61 +371,6 @@ async def send_safe4_unlock_command(hass, ieee):
 
     return success
 
-async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id):
-    """Read an attribute from a Safe4 ZigBee Door Lock Module device.
-
-    Args:
-        hass: Home Assistant instance
-        ieee: IEEE address of the device
-        cluster_id: Cluster ID
-        attribute_id: Attribute ID
-
-    Returns:
-        Attribute value or None if not available
-    """
-    _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id}")
-
-    # Format IEEE address with colons
-    ieee_with_colons = format_ieee_with_colons(ieee)
-
-    # Try each endpoint in order of priority
-    # Safe4 spec requires endpoint 11, but try others for compatibility
-    for endpoint in COMMON_ENDPOINTS:
-        # Service data for reading attribute
-        service_data = {
-            "ieee": ieee_with_colons,
-            "endpoint_id": endpoint,
-            "cluster_id": cluster_id,
-            "cluster_type": "in",
-            "attribute": attribute_id
-        }
-
-        # Try both service domains
-        service_domains = ["zigbee", "zha"]
-        service_methods = ["get_zigbee_cluster_attribute", "read_zigbee_cluster_attribute"]
-
-        # Try each service domain and method
-        for domain in service_domains:
-            for method in service_methods:
-                if not hass.services.has_service(domain, method):
-                    continue
-
-                try:
-                    _LOGGER.debug(f"Trying to read attribute using {domain}.{method} on endpoint {endpoint}")
-
-                    # Send the command
-                    result = await hass.services.async_call(
-                        domain, method, service_data, blocking=True, return_response=True
-                    )
-
-                    if result is not None:
-                        _LOGGER.info(f"Successfully read attribute {attribute_id} on endpoint {endpoint}: {result}")
-                        return result
-                except Exception as e:
-                    _LOGGER.debug(f"Failed to read attribute {attribute_id} using {domain}.{method} on endpoint {endpoint}: {e}")
-
-    _LOGGER.warning(f"Failed to read attribute {attribute_id} with all methods and endpoints")
-    return None
 
 async def get_lock_status(hass, ieee):
     """Get the current lock status from a Safe4 ZigBee Door Lock Module device.
@@ -579,6 +415,25 @@ async def get_battery_level(hass, ieee):
 
     _LOGGER.warning("Failed to get battery level")
     return None
+
+async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id, endpoint=11):
+    """Read an attribute from a device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        cluster_id: Cluster ID
+        attribute_id: Attribute ID
+        endpoint: Endpoint ID (default is 11)
+
+    Returns:
+        Attribute value or None if not available
+    """
+    from .zbt1_support import async_read_attribute_zbt1
+
+    # Try using the ZBT1 support module to read the attribute
+    result = await async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoint)
+    return result
 
 async def try_direct_zha_gateway_access(hass, ieee_address, cluster_id, attribute_id, cluster_type, ieee_formats):
     from .const import DOMAIN

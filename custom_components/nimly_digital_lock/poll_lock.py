@@ -31,9 +31,17 @@ async def poll_lock_state(hass, ieee, ieee_with_colons):
     try:
         # Import required constants from zha_mapping
         from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
+        from .safe4_lock import read_safe4_attribute
+        from .const import DOMAIN
 
-        # Try to read the lock state attribute using Safe4 module
-        result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+        # First try using direct ZHA device access (most reliable)
+        from .zbt1_support import async_read_attribute_zbt1
+        result = await async_read_attribute_zbt1(hass, ieee_with_colons, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+
+        # If direct access failed, fall back to service method
+        if result is None:
+            # Try to read the lock state attribute using Safe4 module
+            result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
 
         if result is not None:
             # Update the lock state in hass.data using both IEEE formats for consistency
@@ -62,7 +70,7 @@ async def poll_lock_state(hass, ieee, ieee_with_colons):
                 _LOGGER.warning(f"Received unexpected lock state value: {result}")
         else:
             # If Safe4 method failed, try with ZBT-1 support module
-            from .zbt1_support import async_read_attribute_zbt1
+            # We already imported these modules above, just using them here
             from .const import LOCK_CLUSTER_ID
 
             result = await async_read_attribute_zbt1(hass, ieee_with_colons, LOCK_CLUSTER_ID, 0x0000)
@@ -98,8 +106,15 @@ async def poll_battery_level(hass, ieee, ieee_with_colons):
         # Clean the IEEE for entity IDs
         ieee_clean = ieee.replace(':', '').lower()
 
-        # Try to read the battery percentage attribute
-        result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0021)
+        # First try using direct ZHA device access (most reliable)
+        from .zbt1_support import async_read_attribute_zbt1
+        result = await async_read_attribute_zbt1(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0021)
+
+        # If direct access failed, fall back to service method
+        if result is None:
+            # Try to read the battery percentage attribute
+            from .safe4_lock import read_safe4_attribute
+            result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0021)
 
         if result is not None:
             # Update the battery percentage in hass.data
@@ -167,6 +182,7 @@ async def poll_battery_level(hass, ieee, ieee_with_colons):
                 _LOGGER.debug("Battery percentage poll returned None from all methods")
 
         # Try to read the battery voltage attribute
+        from .safe4_lock import read_safe4_attribute
         voltage_result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0020)
 
         if voltage_result is not None:

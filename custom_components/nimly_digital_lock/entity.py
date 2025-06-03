@@ -495,7 +495,21 @@ class NimlyDigitalLock(LockEntity):
     async def async_unlock(self, **kwargs):
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
 
-        # First try with the direct command module (most reliable method)
+        # First try direct ZHA device access (most reliable method)
+        from .zbt1_support import async_send_command_zbt1
+        _LOGGER.info(f"Attempting unlock with direct ZHA device access")
+        try:
+            success = await async_send_command_zbt1(self._hass, self._ieee_with_colons, 0x01)
+            if success:
+                _LOGGER.info(f"Successfully unlocked using direct ZHA device access")
+                self._is_locked = False
+                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+                self.async_write_ha_state()
+                return True
+        except Exception as e:
+            _LOGGER.warning(f"Direct ZHA unlock failed: {e}")
+
+        # Then try with the direct command module
         from .direct_command import unlock_door
         _LOGGER.info(f"Attempting unlock with direct command module")
 

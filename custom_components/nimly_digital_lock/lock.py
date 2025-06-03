@@ -32,6 +32,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     lock = NimlyDigitalLock(hass, ieee, name)
     async_add_entities([lock])
 
+    # Try polling device directly
+    try:
+        # Use async_add_executor_job to run async code in synchronous method
+        from .zbt1_support import async_read_attribute_zbt1
+        from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
+
+        # Don't wait for result here, just trigger a poll that will update state
+        # and be available next update cycle
+        hass.async_create_task(
+            async_read_attribute_zbt1(hass, ieee, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+        )
+    except Exception as e:
+        _LOGGER.debug(f"Direct polling in update failed (will use cached state): {e}")
+
     # Set up a periodic update every 30 seconds
     import asyncio
 
