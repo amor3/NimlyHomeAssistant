@@ -29,6 +29,11 @@ from .const_zbt1 import (
     SAFE4_UNLOCK_COMMAND
 )
 
+# Pin code related constants
+ZBT1_SET_PIN_CODE = 0x05      # Set PIN Code
+ZBT1_CLEAR_PIN_CODE = 0x07    # Clear PIN Code
+ZBT1_CLEAR_ALL_PIN_CODES = 0x08  # Clear All PIN Codes
+
 # Import helper functions from zha_mapping
 from .zha_mapping import (
     format_ieee_with_colons,
@@ -176,21 +181,150 @@ async def read_attribute(hass, ieee, cluster_id, attribute_id, endpoint=SAFE4_ZB
 
     _LOGGER.warning(f"Failed to read attribute {attribute_id} with all methods")
     return None
-import logging
 
-# Constants as specified in Nordic Semiconductor documentation
-ZBT1_DOOR_LOCK_CLUSTER = 0x0101  # Door Lock cluster
-ZBT1_HOME_AUTOMATION_PROFILE = 0x0104  # Home Automation profile
-ZBT1_ENDPOINT = 11  # MUST be exactly 11 per spec
 
-# Door Lock Command IDs (from ZCL 7.3.2.16 Server Commands)
-ZBT1_LOCK_COMMAND = 0x00    # Lock Door
-ZBT1_UNLOCK_COMMAND = 0x01  # Unlock Door
-ZBT1_SET_PIN_CODE = 0x05    # Set PIN Code
-ZBT1_CLEAR_PIN_CODE = 0x07  # Clear PIN Code
-ZBT1_CLEAR_RFID_CODE = 0x18 # Clear RFID Code
-ZBT1_SCAN_RFID_CODE = 0x70  # Scan RFID Code (Custom)
-ZBT1_SCAN_FINGERPRINT = 0x71 # Scan Fingerprint (Custom)
-ZBT1_CLEAR_FINGERPRINT = 0x72 # Clear Fingerprint (Custom)
-ZBT1_LOCAL_PROGRAMMING_DISABLE = 0x73 # Local Programming Disable (Custom)
-ZBT1_LOCAL_PROGRAMMING_ENABLE = 0x74  # Local Programming Enable (Custom)
+async def set_pin_code(hass, ieee, user_id, pin_code, status=1, user_type=0, endpoint=SAFE4_ZBT1_ENDPOINT):
+    """Set a PIN code for a user on a Nordic ZBT-1 device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        user_id: User ID (1-255)
+        pin_code: PIN code string (4-10 digits)
+        status: User status (1=enabled, 0=disabled)
+        user_type: User type (0=unrestricted, 1=year/day, 2=week/day, 3=master)
+        endpoint: Endpoint ID (default is 11 for ZBT-1)
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Setting PIN code for user {user_id} on device {ieee}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Validate user_id
+    if not 1 <= user_id <= 255:
+        _LOGGER.error(f"Invalid user ID: {user_id}. Must be between 1 and 255.")
+        return False
+
+    # Validate pin_code - must be 4-10 digits
+    if not pin_code.isdigit() or not 4 <= len(pin_code) <= 10:
+        _LOGGER.error(f"Invalid PIN code: {pin_code}. Must be 4-10 digits.")
+        return False
+
+    # Format user ID as string
+    user_id_str = str(user_id)
+
+    # Service data for setting PIN code
+    service_data = {
+        "ieee": ieee_with_colons,
+        "endpoint_id": endpoint,
+        "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+        "command": ZBT1_SET_PIN_CODE,
+        "command_type": "server",
+        "params": {
+            "user_id": user_id,
+            "user_status": status,
+            "user_type": user_type,
+            "pin_code": pin_code
+        }
+    }
+
+    # Try both service domains
+    service_domains = ["zigbee", "zha"]
+    service_methods = ["issue_zigbee_cluster_command", "command"]
+
+    # Track success
+    success = False
+
+    # Try each service domain and method
+    for domain in service_domains:
+        for method in service_methods:
+            if not hass.services.has_service(domain, method):
+                continue
+
+            try:
+                _LOGGER.debug(f"Trying to set PIN code using {domain}.{method}")
+
+                # Send the command
+                await hass.services.async_call(
+                    domain, method, service_data, blocking=True
+                )
+
+                _LOGGER.info(f"Successfully set PIN code for user {user_id} using {domain}.{method}")
+                success = True
+                return True
+            except Exception as e:
+                _LOGGER.warning(f"Failed to set PIN code for user {user_id} using {domain}.{method}: {e}")
+
+    if not success:
+        _LOGGER.error(f"Failed to set PIN code for user {user_id} with all methods")
+
+    return success
+
+
+async def clear_pin_code(hass, ieee, user_id, endpoint=SAFE4_ZBT1_ENDPOINT):
+    """Clear a PIN code for a user on a Nordic ZBT-1 device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        user_id: User ID (1-255) or 0 to clear all PIN codes
+        endpoint: Endpoint ID (default is 11 for ZBT-1)
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Clearing PIN code for user {user_id} on device {ieee}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Determine which command to use based on user_id
+    command_id = ZBT1_CLEAR_ALL_PIN_CODES if user_id == 0 else ZBT1_CLEAR_PIN_CODE
+
+    # Service data for clearing PIN code
+    service_data = {
+        "ieee": ieee_with_colons,
+        "endpoint_id": endpoint,
+        "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+        "command": command_id,
+        "command_type": "server"
+    }
+
+    # Add user_id parameter if clearing a specific user
+    if user_id != 0:
+        service_data["params"] = {"user_id": user_id}
+
+    # Try both service domains
+    service_domains = ["zigbee", "zha"]
+    service_methods = ["issue_zigbee_cluster_command", "command"]
+
+    # Track success
+    success = False
+
+    # Try each service domain and method
+    for domain in service_domains:
+        for method in service_methods:
+            if not hass.services.has_service(domain, method):
+                continue
+
+            try:
+                _LOGGER.debug(f"Trying to clear PIN code using {domain}.{method}")
+
+                # Send the command
+                await hass.services.async_call(
+                    domain, method, service_data, blocking=True
+                )
+
+                _LOGGER.info(f"Successfully cleared PIN code for user {user_id} using {domain}.{method}")
+                success = True
+                return True
+            except Exception as e:
+                _LOGGER.warning(f"Failed to clear PIN code for user {user_id} using {domain}.{method}: {e}")
+
+    if not success:
+        _LOGGER.error(f"Failed to clear PIN code for user {user_id} with all methods")
+
+    return success
