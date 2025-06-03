@@ -383,10 +383,242 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
         _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
         return None
 
+# Import constants from dedicated constants file
+from .const_zbt1 import (
+    SAFE4_DOOR_LOCK_CLUSTER,
+    SAFE4_POWER_CLUSTER,
+    SAFE4_LOCK_COMMAND,
+    SAFE4_UNLOCK_COMMAND,
+    SAFE4_ZBT1_ENDPOINT
+)
+
+# Import helper functions from zha_mapping
+from .zha_mapping import (
+    format_ieee_with_colons,
+    format_safe4_zbt1_command
+)
+
+# Endpoints to try for compatibility
+COMMON_ENDPOINTS = [11, 1, 242, 2, 3]
+
+async def send_safe4_lock_command(hass, ieee):
+    """Send the lock command according to Safe4 ZigBee Door Lock Module specification.
+
+    Command format: `zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00`
+    - Endpoint must be exactly 11
+    - Cluster ID must be 0x0101 (Door Lock)
+    - Profile ID must be 0x0104 (Home Automation)
+    - Command ID must be 0x00 for lock
+    - NO parameters can be passed
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Sending Safe4 lock command to device {ieee}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Get the command parameters in the correct format
+    command_data = format_safe4_zbt1_command(ieee, SAFE4_LOCK_COMMAND)
+
+    # Try both service domains
+    service_domains = ["zigbee", "zha"]
+    service_methods = ["issue_zigbee_cluster_command", "command"]
+
+    # Track success
+    success = False
+
+    # Try each service domain and method
+    for domain in service_domains:
+        for method in service_methods:
+            if not hass.services.has_service(domain, method):
+                continue
+
+            try:
+                _LOGGER.debug(f"Trying {domain}.{method} for Safe4 lock command")
+
+                # Send the command
+                await hass.services.async_call(
+                    domain, method, command_data, blocking=True
+                )
+
+                _LOGGER.info(f"Successfully sent Safe4 lock command using {domain}.{method}")
+                success = True
+                return True
+            except Exception as e:
+                _LOGGER.warning(f"Failed to send Safe4 lock command using {domain}.{method}: {e}")
+
+    if not success:
+        _LOGGER.error("Failed to send Safe4 lock command with all methods")
+
+    return success
+
+async def send_safe4_unlock_command(hass, ieee):
+    """Send the unlock command according to Safe4 ZigBee Door Lock Module specification.
+
+    Command format: `zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01`
+    - Endpoint must be exactly 11
+    - Cluster ID must be 0x0101 (Door Lock)
+    - Profile ID must be 0x0104 (Home Automation)
+    - Command ID must be 0x01 for unlock
+    - NO parameters can be passed
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Sending Safe4 unlock command to device {ieee}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Get the command parameters in the correct format
+    command_data = format_safe4_zbt1_command(ieee, SAFE4_UNLOCK_COMMAND)
+
+    # Try both service domains
+    service_domains = ["zigbee", "zha"]
+    service_methods = ["issue_zigbee_cluster_command", "command"]
+
+    # Track success
+    success = False
+
+    # Try each service domain and method
+    for domain in service_domains:
+        for method in service_methods:
+            if not hass.services.has_service(domain, method):
+                continue
+
+            try:
+                _LOGGER.debug(f"Trying {domain}.{method} for Safe4 unlock command")
+
+                # Send the command
+                await hass.services.async_call(
+                    domain, method, command_data, blocking=True
+                )
+
+                _LOGGER.info(f"Successfully sent Safe4 unlock command using {domain}.{method}")
+                success = True
+                return True
+            except Exception as e:
+                _LOGGER.warning(f"Failed to send Safe4 unlock command using {domain}.{method}: {e}")
+
+    if not success:
+        _LOGGER.error("Failed to send Safe4 unlock command with all methods")
+
+    return success
+
+async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id):
+    """Read an attribute from a Safe4 ZigBee Door Lock Module device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        cluster_id: Cluster ID
+        attribute_id: Attribute ID
+
+    Returns:
+        Attribute value or None if not available
+    """
+    _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Try each endpoint in order of priority
+    # Safe4 spec requires endpoint 11, but try others for compatibility
+    for endpoint in COMMON_ENDPOINTS:
+        # Service data for reading attribute
+        service_data = {
+            "ieee": ieee_with_colons,
+            "endpoint_id": endpoint,
+            "cluster_id": cluster_id,
+            "cluster_type": "in",
+            "attribute": attribute_id
+        }
+
+        # Try both service domains
+        service_domains = ["zigbee", "zha"]
+        service_methods = ["get_zigbee_cluster_attribute", "read_zigbee_cluster_attribute"]
+
+        # Try each service domain and method
+        for domain in service_domains:
+            for method in service_methods:
+                if not hass.services.has_service(domain, method):
+                    continue
+
+                try:
+                    _LOGGER.debug(f"Trying to read attribute using {domain}.{method} on endpoint {endpoint}")
+
+                    # Send the command
+                    result = await hass.services.async_call(
+                        domain, method, service_data, blocking=True, return_response=True
+                    )
+
+                    if result is not None:
+                        _LOGGER.info(f"Successfully read attribute {attribute_id} on endpoint {endpoint}: {result}")
+                        return result
+                except Exception as e:
+                    _LOGGER.debug(f"Failed to read attribute {attribute_id} using {domain}.{method} on endpoint {endpoint}: {e}")
+
+    _LOGGER.warning(f"Failed to read attribute {attribute_id} with all methods and endpoints")
+    return None
+
+async def get_lock_status(hass, ieee):
+    """Get the current lock status from a Safe4 ZigBee Door Lock Module device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+
+    Returns:
+        0 for unlocked, 1 for locked, or None if not available
+    """
+    _LOGGER.debug(f"Getting lock status for device {ieee}")
+
+    # Read the lock state attribute
+    result = await read_safe4_attribute(hass, ieee, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+
+    if result is not None:
+        _LOGGER.info(f"Lock status: {result}")
+        return result
+
+    _LOGGER.warning("Failed to get lock status")
+    return None
+
+async def get_battery_level(hass, ieee):
+    """Get the battery level from a Safe4 ZigBee Door Lock Module device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+
+    Returns:
+        Battery level percentage or None if not available
+    """
+    _LOGGER.debug(f"Getting battery level for device {ieee}")
+
+    # Read the battery percentage remaining attribute
+    result = await read_safe4_attribute(hass, ieee, SAFE4_POWER_CLUSTER, 0x0021)
+
+    if result is not None:
+        _LOGGER.info(f"Battery level: {result}%")
+        return result
+
+    _LOGGER.warning("Failed to get battery level")
+    return None
+
+async def try_direct_zha_gateway_access(hass, ieee_address, cluster_id, attribute_id, cluster_type, ieee_formats):
+    from .const import DOMAIN
+    ZHA_DOMAIN = "zha"
     try:
-        _LOGGER.info("Attempting direct ZHA gateway access as fallback")
-        from homeassistant.components.zha.core.gateway import ZHAGateway
-        from homeassistant.components.zha.core.const import DOMAIN as ZHA_DOMAIN
 
         if ZHA_DOMAIN in hass.data:
             zha_gateway = hass.data[ZHA_DOMAIN].get("gateway")
@@ -428,6 +660,12 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     except Exception as e:
         _LOGGER.debug(f"Failed to use direct ZHA gateway access: {e}")
 
-    # If we reach here, all attempts failed
-    _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
+    # Try to import ZHA_DOMAIN directly if needed
+    try:
+        from homeassistant.components.zha.core.const import DOMAIN as ZHA_DOMAIN
+    except ImportError:
+        ZHA_DOMAIN = "zha"
+
     return None
+
+    # Try direct ZHA gateway access as last resort

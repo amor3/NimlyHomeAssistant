@@ -1,16 +1,14 @@
-"""Service handlers for the Nimly Digital Lock integration."""
-
 import logging
 import voluptuous as vol
-
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity_component import EntityComponent
 
 from .const import DOMAIN
+from .nordic import lock_door, unlock_door, send_nordic_command
 from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command
-from .nordic import send_nordic_command
 from .direct_command import send_direct_command
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,12 +23,10 @@ SEND_COMMAND_SCHEMA = vol.Schema({
 })
 
 @callback
-async def setup_services(hass: HomeAssistant):
-    """Set up the Nimly Digital Lock services."""
+def setup_services(hass: HomeAssistant):
 
     # Service to send a raw command directly to the lock (advanced troubleshooting)
     async def handle_send_raw_command(call: ServiceCall):
-        """Handle sending a raw command to the lock."""
         ieee = call.data["ieee"]
         command = call.data["command"]
         endpoint = call.data.get("endpoint", 11)  # Default to endpoint 11 for ZBT-1
@@ -71,7 +67,6 @@ async def setup_services(hass: HomeAssistant):
 
     # Service to try unlocking with all methods
     async def handle_try_all_methods(call: ServiceCall):
-        """Try all methods to unlock the door."""
         ieee = call.data["ieee"]
         command = call.data["command"]
 
@@ -166,8 +161,7 @@ async def setup_services(hass: HomeAssistant):
     return True
 
 @callback
-async def unload_services(hass: HomeAssistant):
-    """Unload Nimly Digital Lock services."""
+def unload_services(hass: HomeAssistant):
     for service in ["send_direct_command", "try_all_methods"]:
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

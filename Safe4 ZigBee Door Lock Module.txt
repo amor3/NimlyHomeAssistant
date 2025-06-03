@@ -1,0 +1,962 @@
+﻿Safe4 ZigBee Door Lock Module
+Attributes
+Basic Cluster
+Name
+	Type 
+	Id
+	Def. Value
+	Reporting
+	Access
+	Description
+	ZCL Version
+	U8/0x20
+	0x0000
+	0x02
+	NO
+	R
+	
+
+	App Version
+	U8/0x20
+	0x0001
+	10
+	NO
+	R
+	
+
+	Stack Version
+	U8/0x20
+	0x0002
+	10
+	NO
+	R
+	
+
+	HW Version
+	U8/0x20
+	0x0003
+	11
+	
+
+	
+
+	
+
+	Manufacturer Name
+	CHAR STRING/
+0x42
+	0x0004
+	Onesti Products AS 
+	NO
+	R
+	
+
+	Model Id
+	CHAR STRING/
+0x42
+	0x0005
+	easyCodeTouch_v1
+	NO
+	R
+	EasyFingerTouch
+EasyCodeTouch
+
+
+NimlyCode
+NimlyTouch
+NimlyPRO
+NimlyIn
+NimlyShared
+NimlyKeybox
+NimlyTwist
+NimlyPRO24
+	Date Code
+	CHAR STRING/
+0x42
+	0x0006
+	n/a
+	NO
+	R
+	20230530
+	Power Source
+	U8 enum/0x30
+	0x0007
+	0x04
+	NO
+	R
+	ZCL spec, subclauses 3.2.2.2.9
+	Location
+	CHAR STRING/
+0x42
+	0x0010
+	Entrance Door
+	NO
+	R
+	
+
+	BDB Enabled
+	BOOL/0x10
+	0x0012
+	0
+	NO
+	R
+	
+
+	SW Version
+	CHAR STRING/
+0x42
+	0x4000
+	n/a
+	NO
+	R
+	4.6.60
+	
+
+Power Cluster
+Name
+	Type 
+	Id
+	Def. Value
+	Reporting
+	Access
+	Description
+	Battery Voltage
+	U8/0x20
+	0x0020
+	45
+	YES
+	R
+	Range 0x00 - 0xFF, ZCL spec 3.3.2.2.3.1
+	Battery Percent Remaining
+	U8/0x20
+	0x0021
+	0x64
+	YES
+	R
+	Range 0x00 - 0xC4, ZCL spec 3.3.2.2.3.2
+	Battery Low
+	U8/0x20
+	0x9000
+	0
+	YES
+	R
+	Range 0 - 1, custom extension
+	Battery Size
+	U8 enum/0x30
+	0x0031
+	3
+	NO
+	R
+	ZCL spec 3.3.2.2.4.2, AA
+	Battery Quantity 
+	U8/0x20
+	0x0033
+	3
+	NO
+	R
+	ZCL spec 3.3.2.2.4.4
+	Rated Voltage
+	U8/0x20
+	0x0034
+	15
+	NO
+	R
+	ZCL spec 3.3.2.2.4.5,100 mV steps
+	
+
+
+
+Door Lock Cluster
+Name
+	Type 
+	Id
+	Def. Value
+	Reporting
+	Access
+	Description
+	Lock State
+	U8 enum/0x30
+	0x0000
+	1
+	YES
+	R
+	ZCL spec, subclause 7.3.2.2.1
+	Lock Type
+	U8 enum/0x30
+	0x0001
+	0
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2.2
+	Actuator Enabled
+	BOOL/0x10
+	0x0002
+	0x0b1
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2.3
+	Door State
+	U8 enum/0x30
+	0x0003
+	0x04
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2.4
+
+
+Not Applicable, always 0x04
+	Total Users
+	U16/0x21
+	0x0011
+	100
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	PIN Users
+	U16/0x21
+	0x0012
+	50
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	RFID Users
+	U16/0x21
+	0x0013
+	50
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	Max PIN Length
+	U8/0x20
+	0x0017
+	8
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	Min PIN Length
+	U8/0x20
+	0x0018
+	4
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	Max RFID Length
+	U8/0x20
+	0x0019
+	8
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	Min RFID Length
+	U8/0x20
+	0x001A
+	4
+	NO
+	R
+	ZCL spec, subclause 7.3.2.2
+	Auto Relock Time
+	U32/0x23
+	0x0023
+	1
+	YES
+	W
+	ZCL spec, subclause 7.3.2.2, custom value,
+
+
+ 0 = off
+ >=1 = on 
+
+
+The default value is dependent on settings on the lock device, which can not be read by the module.
+	Sound Volume
+	U8/0x20
+	0x0024
+	2
+	YES
+	W
+	ZCL spec, subclause 7.3.2.2, custom value,
+
+
+0 = Off
+1 = Low
+2 = Normal
+
+
+The default value is dependent on settings on the lock device, which can not be read by the module.
+	PIN Used
+	OCTET STRING/0x41
+	0x0101
+	0x00
+	YES
+	R
+	Custom attribute, reports the currently used PIN code. 
+	RFID Used
+	OCTET STRING/0x41
+	0x0102
+	0x00
+	YES
+	R
+	Custom attribute, reports the currently used RFID code. 
+	Event Status
+	U32BITMAP/
+0x1B
+	0x0100
+	0x00
+	YES
+	R
+	Custom attribute, reports the last lock event.
+
+
+32 Bit Structure:
+U16 - User Id (little endian)
+U8 - event (ZCL spec, 7.3.2.2.1)
+        0x01: Locked 
+        0x02: Unlocked 
+U8 - method
+        0 = Key
+        1 = Button
+        2 = Code Panel
+        3 = Finger Print
+        4 = RFID
+        5 = Other
+	Diagnostics Data
+	U32BITMAP/
+0x1B
+	0x0103
+	0
+	YES
+	R
+	Custom attribute, reports device data
+
+
+32 Bit Structure:
+U16 - Parent NWK address
+U8 - RSSI 
+U8 - RSSI dBm
+	
+
+
+
+Server Commands
+Overview
+
+
+ID
+	Command
+	Spec.
+	0x00
+	Look Door
+	ZCL 7.3.2.16.1
+	0x01
+	Unlock Door
+	ZCL 7.3.2.16.2
+	0x05
+	Set PIN Code
+	ZCL 7.3.2.16.7
+	0x07
+	Clear PIN Code
+	ZCL 7.3.2.16.9
+	0x18
+	Clear RFID Code
+	ZCL 7.3.2.16.26
+	0x70
+	Scan RFID Code
+	Custom
+	0x71
+	Scan Fingerprint
+	Custom
+	0x72
+	Clear Fingerprint
+	Custom
+	0x73
+	Local Programming Disable
+	Custom
+	0x74
+	Local Programming Enable
+	Custom
+	
+
+Examples
+Zigbee examples are based on Nordic Semiconductor Zigbee CLI sample included in BLE-Zigbee SDK 4.1.0 or higher. 
+
+
+https://infocenter.nordicsemi.com/index.jsp?topic=%2Fsdk_tz_v4.1.0%2Fzigbee_example_cli_agent.html
+
+
+
+
+Command Structure:
+
+
+        Cluster:        Door Lock: 0x0101
+        Profile:                Home Automation (0x0104)
+        Endpoint:        11
+        Address:        Both IEEE address or Network address can be used (but not at the same time).
+        
+Command With Payload:
+
+
+zcl cmd <IEEE Addr/NWK Addr> 11 0x0101 -p 0x0104 
+<command id> -l <command payload>
+
+
+Command Without Payload:
+ 
+zcl cmd <IEEE Addr/NWK Addr> 11 0x0101 -p 0x0104 
+<command id>
+
+
+ZCL 7.3.2.16 Server Commands
+Lock Door
+Set the device in locked state.
+
+
+Command:                0x00
+
+
+Parameters:                None
+
+
+Note:                         The Lock Door command does not support the parameters described in ZCL 
+Specification 7.3.2.16.1 
+
+
+Example:                zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x00
+
+
+Unlock Door
+Set the device in unlocked state.
+
+
+Command:                0x01
+
+
+Parameters:                None
+
+
+Note:                         The Lock Door command does not support the parameters described in ZCL 
+Specification 7.3.2.16.2 
+
+
+Example:                zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01
+
+
+Set PIN Code
+Set a PIN code on the device in a specific slot. 
+
+
+Command:                0x05
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	User Id
+	uint16
+	2
+	Little endian (Zigbee Default)
+
+Slot number on lock. Valid values are 2 - max (the first two slots are reserved for master code). 
+	User Status
+	uint8
+	1
+	n/a, always 0.
+	User Type
+	enum8
+	1
+	n/a, always 0.
+	PIN Code
+	octstr
+	Variable
+	Byte 0 = PIN Code Length
+Byte 1 - Pin Code, Ascii Characters 0x30 - 0x39.
+	
+
+Note:                         The max number of users are limited by the device type and application. Some 
+applications have restrictions on slot numbers in order to avoid collision with other 
+applications usage of the same device. 
+
+
+The User Status and User Type is not in use. 
+
+
+Example:                 Set 6 digit PIN code 123456 in slot number 6.
+
+
+                 zcl cmd f4ce36ca69d72f85 11 0x0101 -p 0x0104 0x05 -l 
+0600000006313233343536
+
+
+Clear PIN Code
+Remove a PIN code in a specific slot from the device. 
+
+
+Command:                0x07
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	User Id
+	uint16
+	2
+	Little endian (Zigbee Default)
+
+Slot number on lock. Valid values are 2 - max (the first two slots are reserved for master code). 
+	
+
+Note:                         
+
+
+Example:                 Clear PIN Code in slot number 6.
+
+
+                 zcl cmd f4ce36ca69d72f85 11 0x0101 -p 0x0104 0x07 -l 
+0600
+
+
+Clear RFID Code
+Remove a RFID code in a specific slot from the device.
+
+
+Command:                0x18
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	User Id
+	uint16
+	2
+	Little endian (Zigbee Default).
+
+Slot number on lock. Valid values are 2 - max (the first two slots are reserved for master code). 
+	
+
+Note:                         
+
+
+Example:                 Clear RFID Code in slot number 6.
+
+
+                 zcl cmd f4ce36ca69d72f85 11 0x0101 -p 0x0104 0x18 -l 
+0600
+Custom Server Commands
+Scan RFID code
+Enable RFID scan on the device (see device manual for details).
+
+
+Command:                0x70
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	User Id
+	uint16
+	2
+	Little endian (Zigbee Default).
+
+Slot number on lock. Valid values are 2 - max (the first two slots are reserved for master code). 
+	
+
+Note:                         
+
+
+Example:         Scan RFID code for slot number 6
+                
+zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x70 -l 
+0600
+Scan Fingerprint
+Enable Fingerprint scan on the device (see device manual for details).
+
+
+Command:                0x71
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	User Id
+	uint16
+	2
+	Little endian (Zigbee Default).
+
+Slot number on lock. Valid values are 2 - max (the first two slots are reserved for master code). 
+	
+
+Note:                         
+
+
+Example:         Scan fingerprint code for slot number 6
+                
+zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x71 -l 
+0600
+
+
+Clear Fingerprint Code
+Remove a fingerprint in a specific slot from the device.
+
+
+Command:                0x72
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	User Id
+	uint16
+	2
+	Little endian (Zigbee Default).
+
+Slot number on lock. Valid values are 2 - max (the first two slots are reserved for master code). 
+	
+
+Note:                         
+
+
+Example:                 Clear fingerprint in slot number 6.
+
+
+                 zcl cmd f4ce36ca69d72f85 11 0x0101 -p 0x0104 0x72 -l 
+0600
+
+
+Local Programming Disable
+Disable the option of adding PIN/RFID/Fingerprint using the keypad on the device.
+
+
+Command:                0x00
+
+
+Parameters:                None
+
+
+Note:                         The Lock Door command does not support the parameters described in ZCL 
+Specification 7.3.2.16.1 
+
+
+Example:                zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x73
+
+
+Local Programming Enable
+Enable the option of adding PIN/RFID/Fingerprint using the keypad on the device.
+
+
+Command:                0x00
+
+
+Parameters:                None
+
+
+Note:                         The Lock Door command does not support the parameters described in ZCL 
+Specification 7.3.2.16.1 
+
+
+Example:                zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x74
+
+
+
+
+Server Commands Generated
+Overview
+
+
+ID
+	Command
+	Spec.
+	0x00
+	Look Door Response
+	ZCL 7.3.2.17.1
+	0x01
+	Unlock Door Response
+	ZCL 7.3.2.17.2
+	0x05
+	Set PIN Code Response
+	ZCL 7.3.2.17.7
+	0x07
+	Clear PIN Code Response
+	ZCL 7.3.2.17.9
+	0x18
+	Clear RFID Code Response
+	ZCL 7.3.2.17.26
+	0x70
+	Scan RFID Code Response
+	Custom
+	0x71
+	Scan Fingerprint Response
+	Custom
+	0x72
+	Clear Fingerprint Response
+	Custom
+	0x73
+	Local Programming Disable Response
+	Custom
+	0x74
+	Local Programming Enable Response
+	Custom
+	
+
+ZCL 7.3.2.17 Server Commands Generated
+Lock Door Response
+Reports new device locked state.
+
+
+Command:                0x00
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+
+
+Note:                         Response to a ZCL Command specified in 7.3.2.16.1. 
+Unlock Door Response
+Reports new device locked state.
+
+
+Command:                0x01
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         Response to a ZCL Command specified in 7.3.2.16.2. 
+
+
+Set PIN Code Response
+Reports set PIN code status.
+
+
+Command:                0x05
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         Response to a ZCL Command specified in 7.3.2.17.6. The statuses (MEMORY 
+FULL and DUPLICATE CODE is not applicable)
+
+
+Clear PIN Code Response
+Reports clear PIN code status.
+
+
+Command:                0x07
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         Response to a ZCL Command specified in 7.3.2.17.8.
+
+
+Clear RFID Code Response
+Reports clear RFID code status.
+
+
+Command:                0x18
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         Response to a ZCL Command specified in 7.3.2.17.26.
+
+
+
+
+Custom Server Commands Generated
+Scan RFID Code Response
+Reports scan RFID code status.
+
+
+Command:                0x70
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         
+
+
+Scan Fingerprint Response
+Reports scan fingerprint status.
+
+
+Command:                0x71
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         
+
+
+Clear Fingerprint Response
+Reports clear fingerprint status.
+
+
+Command:                0x72
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         
+
+
+Local Programming Disable Response
+
+
+Command:                0x73
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:                         
+Local Programming Enable Response
+
+
+Command:                0x73
+
+
+Parameters:                
+
+
+Name
+	Type
+	Octets
+	Description
+	Status
+	enum8
+	1
+	SUCCESS
+FAILURE
+	
+
+Note:

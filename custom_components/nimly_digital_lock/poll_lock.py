@@ -1,14 +1,12 @@
-"""Polling service for Nimly digital locks."""
-
 import logging
 import asyncio
 from .const import DOMAIN, LOCK_CLUSTER_ID, POWER_CLUSTER_ID
 from .safe4_lock import read_safe4_attribute
+from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER, ZBT1_ENDPOINTS
 
 _LOGGER = logging.getLogger(__name__)
 
 async def start_polling_service(hass, ieee, poll_interval=60):
-    """Start a polling service to periodically check lock state and battery."""
     _LOGGER.info(f"Starting polling service for lock with IEEE {ieee} (interval: {poll_interval}s)")
 
     # Format IEEE with colons for consistency
@@ -30,7 +28,6 @@ async def start_polling_service(hass, ieee, poll_interval=60):
         await asyncio.sleep(poll_interval)
 
 async def poll_lock_state(hass, ieee, ieee_with_colons):
-    """Poll the lock state and update the entity."""
     try:
         # Import required constants from zha_mapping
         from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
@@ -94,7 +91,6 @@ async def poll_lock_state(hass, ieee, ieee_with_colons):
         _LOGGER.error(f"Error polling lock state: {e}")
 
 async def poll_battery_level(hass, ieee, ieee_with_colons):
-    """Poll the battery level and update the entity."""
     try:
         # Import required constants from zha_mapping
         from .zha_mapping import SAFE4_POWER_CLUSTER

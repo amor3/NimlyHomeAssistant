@@ -1,4 +1,3 @@
-"""Entity implementations for Nimly Zigbee Digital Lock."""
 import logging
 from homeassistant.components.lock import LockEntity
 from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS
@@ -8,11 +7,27 @@ from homeassistant.components.sensor import SensorStateClass
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.core import callback
 from .const import DOMAIN, ATTRIBUTE_MAP, ATTRIBUTE_CLUSTER_MAPPING, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
-# Import commands mapping for ZBT-1 devices and Safe4 ZigBee Door Lock specific constants
-from .zha_mapping import LOCK_COMMANDS, format_ieee_with_colons, format_ieee, normalize_ieee, POWER_ATTRIBUTES, LOCK_ATTRIBUTES
+
+# Import constants from dedicated constants file
+from .const_zbt1 import (
+    SAFE4_DOOR_LOCK_CLUSTER,
+    SAFE4_POWER_CLUSTER
+)
+
+# Import from zha_mapping
+from .zha_mapping import (
+    LOCK_COMMANDS, 
+    format_ieee_with_colons, 
+    format_ieee, 
+    normalize_ieee, 
+    POWER_ATTRIBUTES, 
+    LOCK_ATTRIBUTES
+)
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
 from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
-from .safe4_lock import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND, SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
+
+# Import these constants from dedicated constants file instead
+from .const_zbt1 import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,9 +36,6 @@ _LOGGER = logging.getLogger(__name__)
 class NimlyDigitalLock(LockEntity):
 
     async def _send_zigbee_command(self, command, cluster_id=LOCK_CLUSTER_ID, endpoint_id=1, params={}):
-        """Helper method to send Zigbee commands directly using service calls.
-        Works with both ZHA and Nabu Casa zigbee integration.
-        """
         # Determine which service to use (zha or zigbee)
         service_domains = ["zigbee", "zha"]
         _LOGGER.debug(f"Trying service domains for commands with command {command}, cluster {cluster_id}, endpoint {endpoint_id}")
@@ -145,9 +157,6 @@ class NimlyDigitalLock(LockEntity):
         return False
 
     async def _read_zigbee_attribute(self, cluster_id, attribute_id, endpoint_id=1):
-        """Helper method to read Zigbee attributes directly using service calls.
-        Works with both ZHA and Nabu Casa zigbee integration.
-        """
         # Try multiple service domains
         service_domains = ["zigbee", "zha"]
         _LOGGER.debug(f"Trying service domains for attribute read")
@@ -301,7 +310,6 @@ class NimlyDigitalLock(LockEntity):
         }
 
     async def async_lock(self, **kwargs):
-        """Lock the door using Nordic Semiconductor ZBT-1 format."""
         _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Nordic ZBT-1 specification")
 
         # First try with the Nordic ZBT-1 command module (exact format from Nordic docs)
@@ -485,7 +493,6 @@ class NimlyDigitalLock(LockEntity):
         return True
 
     async def async_unlock(self, **kwargs):
-        """Unlock the door using Safe4 ZigBee Door Lock commands."""
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
 
         # First try with the direct command module (most reliable method)
@@ -652,7 +659,6 @@ class NimlyDigitalLock(LockEntity):
         return True
 
     async def async_update(self):
-        """Update entity state and attributes."""
         _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
         # Make sure we have our fallback IEEE for ZHA

@@ -1,56 +1,182 @@
 """Nordic ZBT-1 specific command implementation for Nimly locks."""
+"""Nordic Semiconductor ZBT-1 specific implementation for Nimly Digital Lock.
 
-import logging
+This module implements the exact command format required by the Nordic Semiconductor
+ZBT-1 specification for the Safe4 ZigBee Door Lock Module.
 
-_LOGGER = logging.getLogger(__name__)
+According to the specification, commands must be sent in this exact format:
+zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
 
-async def lock_door(hass, ieee):
-    """Lock the door using Nordic ZBT-1 specification.
-
-    Nordic ZBT-1 requires command to be exactly:
-    zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x00
-    """
-    _LOGGER.info(f"Locking door with Nordic ZBT-1 format: {ieee}")
-
-    # Import safe4_lock module for commands
-    from .safe4_lock import send_safe4_lock_command
-
-    # Try to send the lock command using safe4 module
-    success = await send_safe4_lock_command(hass, ieee)
-
-    if success:
-        _LOGGER.info(f"Successfully locked door using Nordic ZBT-1 format")
-        return True
-    else:
-        _LOGGER.warning(f"Failed to lock door using Nordic ZBT-1 format")
-        return False
-
-async def unlock_door(hass, ieee):
-    """Unlock the door using Nordic ZBT-1 specification.
-
-    Nordic ZBT-1 requires command to be exactly:
-    zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
-    """
-    _LOGGER.info(f"Unlocking door with Nordic ZBT-1 format: {ieee}")
-
-    # Import safe4_lock module for commands
-    from .safe4_lock import send_safe4_unlock_command
-
-    # Try to send the unlock command using safe4 module
-    success = await send_safe4_unlock_command(hass, ieee)
-
-    if success:
-        _LOGGER.info(f"Successfully unlocked door using Nordic ZBT-1 format")
-        return True
-    else:
-        _LOGGER.warning(f"Failed to unlock door using Nordic ZBT-1 format")
-        return False
-
+Where:
+- Endpoint must be exactly 11
+- Cluster ID must be 0x0101 (Door Lock)
+- Profile ID must be 0x0104 (Home Automation)
+- Command ID must be 0x00 for lock, 0x01 for unlock
+- NO parameters can be passed
+"""
 
 import logging
 import asyncio
 
 _LOGGER = logging.getLogger(__name__)
+
+# Import constants from dedicated constants file
+from .const_zbt1 import (
+    SAFE4_ZBT1_ENDPOINT,
+    SAFE4_DOOR_LOCK_CLUSTER,
+    SAFE4_DOOR_LOCK_PROFILE,
+    SAFE4_LOCK_COMMAND,
+    SAFE4_UNLOCK_COMMAND
+)
+
+# Import helper functions from zha_mapping
+from .zha_mapping import (
+    format_ieee_with_colons,
+    format_safe4_zbt1_command
+)
+
+async def send_nordic_command(hass, ieee, command_id, retry_count=5, retry_delay=1.0):
+    """Send a command to a Nordic ZBT-1 device using the exact format required by the spec.
+
+    The Nordic ZBT-1 specification requires commands to be in this format:
+    zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        command_id: Command ID (0x00 for lock, 0x01 for unlock)
+        retry_count: Number of retries for sending the command
+        retry_delay: Delay between retries in seconds
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Sending Nordic ZBT-1 command {command_id} to device {ieee}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Get the command parameters in the correct format
+    command_data = format_safe4_zbt1_command(ieee, command_id)
+
+    # Try both service domains
+    service_domains = ["zigbee", "zha"]
+    service_methods = ["issue_zigbee_cluster_command", "command"]
+
+    # Track success
+    success = False
+
+    # Try each service domain and method
+    for domain in service_domains:
+        for method in service_methods:
+            if not hass.services.has_service(domain, method):
+                continue
+
+            # Try multiple attempts
+            for attempt in range(retry_count):
+                try:
+                    _LOGGER.debug(f"Attempt {attempt+1}/{retry_count} using {domain}.{method}")
+
+                    # Send the command
+                    await hass.services.async_call(
+                        domain, method, command_data, blocking=True
+                    )
+
+                    _LOGGER.info(f"Successfully sent command {command_id} using {domain}.{method}")
+                    success = True
+                    return True
+                except Exception as e:
+                    _LOGGER.warning(f"Failed to send command {command_id} using {domain}.{method}: {e}")
+
+                    # If this is not the last attempt, wait before retrying
+                    if attempt < retry_count - 1:
+                        await asyncio.sleep(retry_delay)
+
+    if not success:
+        _LOGGER.error(f"Failed to send command {command_id} after {retry_count} attempts with all methods")
+
+    return success
+
+async def lock_door(hass, ieee):
+    """Lock the door using Nordic ZBT-1 specification.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Locking door with Nordic ZBT-1 format: {ieee}")
+    return await send_nordic_command(hass, ieee, SAFE4_LOCK_COMMAND)
+
+async def unlock_door(hass, ieee):
+    """Unlock the door using Nordic ZBT-1 specification.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+
+    Returns:
+        Boolean indicating success or failure
+    """
+    _LOGGER.info(f"Unlocking door with Nordic ZBT-1 format: {ieee}")
+    return await send_nordic_command(hass, ieee, SAFE4_UNLOCK_COMMAND)
+
+async def read_attribute(hass, ieee, cluster_id, attribute_id, endpoint=SAFE4_ZBT1_ENDPOINT):
+    """Read an attribute from a Nordic ZBT-1 device.
+
+    Args:
+        hass: Home Assistant instance
+        ieee: IEEE address of the device
+        cluster_id: Cluster ID
+        attribute_id: Attribute ID
+        endpoint: Endpoint ID (default is 11 for ZBT-1)
+
+    Returns:
+        Attribute value or None if not available
+    """
+    _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id} on endpoint {endpoint}")
+
+    # Format IEEE address with colons
+    ieee_with_colons = format_ieee_with_colons(ieee)
+
+    # Service data for reading attribute
+    service_data = {
+        "ieee": ieee_with_colons,
+        "endpoint_id": endpoint,
+        "cluster_id": cluster_id,
+        "cluster_type": "in",
+        "attribute": attribute_id
+    }
+
+    # Try both service domains
+    service_domains = ["zigbee", "zha"]
+    service_methods = ["get_zigbee_cluster_attribute", "read_zigbee_cluster_attribute"]
+
+    # Try each service domain and method
+    for domain in service_domains:
+        for method in service_methods:
+            if not hass.services.has_service(domain, method):
+                continue
+
+            try:
+                _LOGGER.debug(f"Trying to read attribute using {domain}.{method}")
+
+                # Send the command
+                result = await hass.services.async_call(
+                    domain, method, service_data, blocking=True, return_response=True
+                )
+
+                if result is not None:
+                    _LOGGER.info(f"Successfully read attribute {attribute_id}: {result}")
+                    return result
+            except Exception as e:
+                _LOGGER.warning(f"Failed to read attribute {attribute_id} using {domain}.{method}: {e}")
+
+    _LOGGER.warning(f"Failed to read attribute {attribute_id} with all methods")
+    return None
+import logging
 
 # Constants as specified in Nordic Semiconductor documentation
 ZBT1_DOOR_LOCK_CLUSTER = 0x0101  # Door Lock cluster
@@ -68,305 +194,3 @@ ZBT1_SCAN_FINGERPRINT = 0x71 # Scan Fingerprint (Custom)
 ZBT1_CLEAR_FINGERPRINT = 0x72 # Clear Fingerprint (Custom)
 ZBT1_LOCAL_PROGRAMMING_DISABLE = 0x73 # Local Programming Disable (Custom)
 ZBT1_LOCAL_PROGRAMMING_ENABLE = 0x74  # Local Programming Enable (Custom)
-
-async def send_nordic_command(hass, ieee_address, command_id, payload=None, retry_count=3, retry_delay=2.0):
-    """Send a command to a Nordic Semiconductor ZBT-1 lock using exact Nordic CLI format.
-
-    This follows the exact command structure from Nordic documentation:
-    zcl cmd <IEEE Addr/NWK Addr> 11 0x0101 -p 0x0104 <command id> [-l <command payload>]
-
-    Args:
-        hass: Home Assistant instance
-        ieee_address: IEEE address of the device
-        command_id: Command ID (see constants above)
-        payload: Optional command payload for commands that require it
-        retry_count: Number of retries
-        retry_delay: Delay between retries in seconds
-
-    Returns:
-        True if successful, False otherwise
-    """
-    _LOGGER.info(f"Sending Nordic ZBT-1 command 0x{command_id:02x} to {ieee_address} (endpoint {ZBT1_ENDPOINT})")
-
-    # 1. Normalize IEEE address - try both with and without colons
-    ieee_no_colons = ieee_address.replace(':', '')
-    ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
-
-    # Try both address formats
-    ieee_formats = [ieee_with_colons, ieee_no_colons]
-
-    # Add fallback addresses if primary address fails
-    fallback_addresses = [
-        "f4:ce:36:0a:04:4d:31:f5",
-        "f4ce360a044d31f5"
-    ]
-
-    # Try ZHA service first - it supports the exact Nordic CLI format
-    for attempt in range(retry_count):
-        for ieee in ieee_formats + ([] if attempt == 0 else fallback_addresses):
-            try:
-                # Prepare service data exactly as specified in Nordic docs
-                # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
-                service_data = {
-                    "ieee": ieee,
-                    "endpoint_id": ZBT1_ENDPOINT,  # MUST be exactly 11
-                    "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
-                    "command": command_id,
-                    "command_type": "server",
-                    "params": {}  # No parameters for lock/unlock per spec
-                }
-
-                # If payload is provided, add it (-l parameter in Nordic CLI)
-                if payload:
-                    service_data["params"] = payload
-                # For ZBT-1 per Nordic spec, pins are not required for lock/unlock
-                elif command_id in [ZBT1_LOCK_COMMAND, ZBT1_UNLOCK_COMMAND]:
-                    # Explicitly send empty params to avoid any defaults
-                    service_data["params"] = {}
-
-                _LOGGER.debug(f"Sending ZHA command with data: {service_data}")
-
-                # Send command using ZHA service
-                await hass.services.async_call(
-                    "zha", 
-                    "issue_zigbee_cluster_command", 
-                    service_data,
-                    blocking=True
-                )
-
-                _LOGGER.info(f"Successfully sent Nordic ZBT-1 command 0x{command_id:02x} to {ieee}")
-                return True
-            except Exception as e:
-                _LOGGER.warning(f"Failed to send Nordic command to {ieee} (attempt {attempt+1}): {e}")
-
-                # Check for specific errors
-                if "extra keys not allowed @ data['profile']" in str(e) or "extra keys not allowed @ data['nwk']" in str(e):
-                    _LOGGER.info(f"ZHA service doesn't accept parameter, trying without it: {e}")
-                    try:
-                        # Try again with minimal parameters
-                        service_data = {
-                            "ieee": ieee,
-                            "endpoint_id": ZBT1_ENDPOINT,
-                            "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
-                            "command": command_id,
-                            "command_type": "server"
-                        }
-
-                        # Add params if not empty
-                        if payload:
-                            service_data["params"] = payload
-
-                        await hass.services.async_call(
-                            "zha", 
-                            "issue_zigbee_cluster_command", 
-                            service_data,
-                            blocking=True
-                        )
-
-                        _LOGGER.info(f"Successfully sent Nordic ZBT-1 command 0x{command_id:02x} to {ieee} (with minimal parameters)")
-                        return True
-                    except Exception as inner_e:
-                        _LOGGER.warning(f"Failed second attempt with minimal parameters: {inner_e}")
-
-                # Check for specific error about device not responding
-                if "device did not respond" in str(e).lower():
-                    _LOGGER.warning("Device not responding - this could indicate:")  
-                    _LOGGER.warning("1. The lock is in sleep mode or batteries are low")
-                    _LOGGER.warning("2. The ZigBee network has connectivity issues")
-                    _LOGGER.warning("3. The lock is not properly paired with the ZigBee network")
-
-                # Only delay if we're going to retry
-                if attempt < retry_count - 1 or ieee != fallback_addresses[-1]:
-                    await asyncio.sleep(retry_delay)
-
-    # If all ZHA attempts fail, try with Nabu Casa Zigbee service
-    try:
-        # Similar service data but adapted for zigbee service
-        service_data = {
-            "ieee": ieee_with_colons,
-            "endpoint_id": ZBT1_ENDPOINT,
-            "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
-            "command": command_id,
-            "command_type": "server",
-            "profile": ZBT1_HOME_AUTOMATION_PROFILE  # Nabu Casa may support this parameter
-        }
-
-        # If payload is provided, add it
-        if payload:
-            service_data["params"] = payload
-        # For ZBT-1 per Nordic spec, pins are not required for lock/unlock
-        elif command_id in [ZBT1_LOCK_COMMAND, ZBT1_UNLOCK_COMMAND]:
-            # Explicitly send empty params to avoid any defaults
-            service_data["params"] = {}
-
-        _LOGGER.debug(f"Trying Nabu Casa Zigbee service with data: {service_data}")
-
-        await hass.services.async_call(
-            "zigbee",
-            "issue_zigbee_cluster_command",
-            service_data,
-            blocking=True
-        )
-
-        _LOGGER.info(f"Successfully sent command via Nabu Casa Zigbee service")
-        return True
-    except Exception as e:
-        _LOGGER.warning(f"Failed to send using Nabu Casa Zigbee with profile parameter: {e}")
-
-        # Try again without the profile parameter if it's not supported
-        if "profile" in str(e).lower() or "extra keys not allowed" in str(e).lower():
-            try:
-                # Remove the profile parameter
-                service_data = {
-                    "ieee": ieee_with_colons,
-                    "endpoint_id": ZBT1_ENDPOINT,
-                    "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
-                    "command": command_id,
-                    "command_type": "server"
-                }
-
-                # If payload is provided, add it
-                if payload:
-                    service_data["params"] = payload
-                # For lock/unlock, ensure empty params
-                elif command_id in [ZBT1_LOCK_COMMAND, ZBT1_UNLOCK_COMMAND]:
-                    service_data["params"] = {}
-
-                _LOGGER.debug(f"Trying Nabu Casa Zigbee service without profile parameter: {service_data}")
-
-                await hass.services.async_call(
-                    "zigbee",
-                    "issue_zigbee_cluster_command",
-                    service_data,
-                    blocking=True
-                )
-
-                _LOGGER.info(f"Successfully sent command via Nabu Casa Zigbee service without profile parameter")
-                return True
-            except Exception as inner_e:
-                _LOGGER.warning(f"Failed to send using Nabu Casa Zigbee without profile: {inner_e}")
-
-    _LOGGER.error(f"All attempts to send Nordic ZBT-1 command 0x{command_id:02x} failed")
-    return False
-
-async def lock_door(hass, ieee_address):
-    """Lock the door using Nordic ZBT-1 format."""
-    _LOGGER.info(f"Locking door with Nordic ZBT-1 format: {ieee_address}")
-    return await send_nordic_command(hass, ieee_address, ZBT1_LOCK_COMMAND)
-
-async def unlock_door(hass, ieee_address):
-    """Unlock the door using Nordic ZBT-1 format."""
-    _LOGGER.info(f"Unlocking door with Nordic ZBT-1 format: {ieee_address}")
-    return await send_nordic_command(hass, ieee_address, ZBT1_UNLOCK_COMMAND)
-
-async def set_pin_code(hass, ieee_address, user_id, pin_code):
-    """Set a PIN code on the device in a specific slot.
-
-    Command ID: 0x05
-    Payload format per Nordic spec:
-    - User Id: uint16 (2 bytes, little endian)
-    - User Status: uint8 (1 byte, always 0)
-    - User Type: enum8 (1 byte, always 0)
-    - PIN Code: octstr (Variable, first byte = length, rest = ASCII 0x30-0x39)
-
-    Example from Nordic docs: Set 6 digit PIN code 123456 in slot number 6:
-    zcl cmd f4ce36ca69d72f85 11 0x0101 -p 0x0104 0x05 -l 0600000006313233343536
-    """
-    # Validate user_id (slot number)
-    if not isinstance(user_id, int) or user_id < 2:
-        _LOGGER.error(f"Invalid user_id: {user_id}. Must be an integer >= 2")
-        return False
-
-    # Validate PIN code (must be numeric)
-    if not pin_code.isdigit():
-        _LOGGER.error(f"Invalid PIN code: {pin_code}. Must contain only digits")
-        return False
-
-    # Construct payload exactly as specified in Nordic docs
-    # User ID (2 bytes, little endian)
-    user_id_bytes = user_id.to_bytes(2, byteorder='little')
-
-    # User Status (1 byte, always 0) and User Type (1 byte, always 0)
-    status_type_bytes = bytes([0, 0])
-
-    # PIN code length (1 byte) followed by ASCII digits
-    pin_length = len(pin_code)
-    pin_bytes = bytes([pin_length]) + pin_code.encode('ascii')
-
-    # Complete payload
-    payload_bytes = user_id_bytes + status_type_bytes + pin_bytes
-
-    # Convert to hex string for debug logging (same format as Nordic example)
-    payload_hex = payload_bytes.hex()
-    _LOGGER.debug(f"Setting PIN code with payload: {payload_hex}")
-
-    # Send command with payload
-    return await send_nordic_command(hass, ieee_address, ZBT1_SET_PIN_CODE, payload_bytes)
-
-async def get_zbt1_endpoints(hass, ieee_address):
-    _LOGGER.debug(f"Attempting to discover endpoints for ZBT-1 device: {ieee_address}")
-
-    # For ZBT-1 per Nordic spec, endpoint must be 11
-    # But we'll check for other endpoints as fallback
-    endpoints = [11]  # Start with the required endpoint
-
-    # Try to get the ZHA device if possible
-    try:
-        from homeassistant.components.zha.core.gateway import ZHAGateway
-        from homeassistant.components.zha.core.const import DOMAIN as ZHA_DOMAIN
-
-        if ZHA_DOMAIN in hass.data:
-            zha_gateway = hass.data[ZHA_DOMAIN].get("gateway")
-            if zha_gateway and hasattr(zha_gateway, "devices"):
-                # Normalize addresses for comparison
-                ieee_no_colons = ieee_address.replace(':', '').lower()
-
-                # Find matching device
-                for dev in zha_gateway.devices.values():
-                    if hasattr(dev, "ieee") and str(dev.ieee).replace(':', '').lower() == ieee_no_colons:
-                        _LOGGER.info(f"Found ZHA device: {dev.ieee}")
-
-                        # Get the available endpoints
-                        if hasattr(dev, "endpoints"):
-                            # Get all endpoint IDs as integers
-                            available_endpoints = [int(ep_id) for ep_id in dev.endpoints.keys()]
-                            _LOGGER.info(f"Found endpoints: {available_endpoints}")
-
-                            # Make sure endpoint 11 is first
-                            if 11 in available_endpoints:
-                                available_endpoints.remove(11)
-                                endpoints = [11] + available_endpoints
-                            else:
-                                endpoints = available_endpoints
-
-                            return endpoints
-    except Exception as e:
-        _LOGGER.warning(f"Error getting ZBT-1 endpoints: {e}")
-
-    # If we couldn't get actual endpoints, return default set with endpoint 11 first
-    return [11, 1, 2, 3, 242]
-
-async def clear_pin_code(hass, ieee_address, user_id):
-    """Remove a PIN code in a specific slot from the device.
-
-    Command ID: 0x07
-    Payload format per Nordic spec:
-    - User Id: uint16 (2 bytes, little endian)
-
-    Example from Nordic docs: Clear PIN Code in slot number 6:
-    zcl cmd f4ce36ca69d72f85 11 0x0101 -p 0x0104 0x07 -l 0600
-    """
-    # Validate user_id (slot number)
-    if not isinstance(user_id, int) or user_id < 2:
-        _LOGGER.error(f"Invalid user_id: {user_id}. Must be an integer >= 2")
-        return False
-
-    # Construct payload: User ID (2 bytes, little endian)
-    payload_bytes = user_id.to_bytes(2, byteorder='little')
-
-    # Convert to hex string for debug logging
-    payload_hex = payload_bytes.hex()
-    _LOGGER.debug(f"Clearing PIN code with payload: {payload_hex}")
-
-    # Send command with payload
-    return await send_nordic_command(hass, ieee_address, ZBT1_CLEAR_PIN_CODE, payload_bytes)
