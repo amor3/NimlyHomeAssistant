@@ -3,6 +3,8 @@
 import logging
 import asyncio
 
+from custom_components.nimly_digital_lock.zha_mapping import validate_ieee
+
 _LOGGER = logging.getLogger(__name__)
 
 async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x0101, retry_count=5, retry_delay=1.0, profile=0x0104):
@@ -19,7 +21,7 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
     - Cluster ID must be 0x0101 (Door Lock)
     - Profile ID must be 0x0104 (Home Automation) 
     - Command ID must be 0x00 for lock, 0x01 for unlock
-    - NO parameters can be passed
+    - Home Assistant requires at least empty params or args
 
     Args:
         hass: Home Assistant instance
@@ -32,6 +34,15 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
         profile: ZigBee profile ID (0x0104 for Home Automation)
     """
     _LOGGER.info(f"Sending direct command {command} to endpoint {endpoint}")
+
+    # Validate the IEEE address first
+    is_valid, ieee_formatted, error_message = validate_ieee(ieee)
+    if not is_valid:
+        _LOGGER.error(f"Invalid IEEE address: {error_message}")
+        return False
+
+    # Use the validated and correctly formatted IEEE address
+    ieee = ieee_formatted
 
     # Diagnostics - store command info for debugging
     if f"NIMLY_LAST_COMMAND" not in hass.data:
@@ -59,8 +70,8 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
                 "cluster_id": cluster_id, # 0x0101 for Door Lock
                 "command": command,       # 0x00=lock, 0x01=unlock
                 "command_type": "server", 
-                "profile": profile        # 0x0104 for Home Automation
-                # NO params field - the spec requires NO parameters to be passed
+                "profile": profile,       # 0x0104 for Home Automation
+                "params": {}             # Empty params required by Home Assistant
             }
 
             # Send using Nabu Casa Zigbee service
@@ -82,8 +93,8 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
                         "endpoint_id": endpoint,
                         "cluster_id": cluster_id,
                         "command": command,
-                        "command_type": "server"
-                        # NO params field - the spec requires NO parameters to be passed
+                        "command_type": "server",
+                        "params": {}  # Empty params required by Home Assistant
                     }
 
                     await hass.services.async_call(
@@ -94,31 +105,75 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
                 except Exception as inner_e:
                     _LOGGER.warning(f"Failed without profile parameter: {inner_e}")
 
+                    # If we're still getting args/params error, try with args instead
+                    if "must contain at least one of args, params" in str(inner_e).lower():
+                        try:
+                            # Try with args instead of params
+                            args_data = {
+                                "ieee": ieee,
+                                "endpoint_id": endpoint,
+                                "cluster_id": cluster_id,
+                                "command": command,
+                                "command_type": "server",
+                                "args": {}  # Empty args as an alternative to params
+                            }
+
+                            await hass.services.async_call(
+                                "zigbee", "issue_zigbee_cluster_command", args_data, blocking=True
+                            )
+                            _LOGGER.info(f"Successfully sent command using args format")
+                            return True
+                        except Exception as args_e:
+                            _LOGGER.warning(f"Failed with args format: {args_e}")
+
             if attempt < retry_count - 1:
                 await asyncio.sleep(retry_delay)
 
     # 2. Try ZHA service as fallback
     for attempt in range(retry_count):
         try:
-            # ZHA service - must follow Safe4 ZBT-1 spec exactly
-            # Note: ZHA format must NOT include params field for lock/unlock
+            # ZHA service - Home Assistant requires at least one of args or params
+            # Try both formats to maximize chance of success
             service_data = {
                 "ieee": ieee,
                 "endpoint_id": endpoint,  # Must be 11 for ZBT-1
                 "cluster_id": cluster_id, # 0x0101 for Door Lock
                 "command": command,       # 0x00=lock, 0x01=unlock
-                "command_type": "server"  # No params or profile
+                "command_type": "server", # Must be server
+                "params": {}             # Empty params required by Home Assistant
             }
 
             # Send using ZHA service
-            _LOGGER.debug(f"ZHA attempt {attempt+1}/{retry_count}")
+            _LOGGER.debug(f"ZHA attempt {attempt+1}/{retry_count} with params")
             await hass.services.async_call(
                 "zha", "issue_zigbee_cluster_command", service_data, blocking=True
             )
             _LOGGER.info(f"Successfully sent command using ZHA service on attempt {attempt+1}")
             return True
         except Exception as e:
-            _LOGGER.warning(f"Failed to send using ZHA (attempt {attempt+1}): {e}")
+            _LOGGER.warning(f"Failed to send using ZHA with params (attempt {attempt+1}): {e}")
+
+            # If we're getting a specific error about args/params, try with args instead
+            if "must contain at least one of args, params" in str(e).lower():
+                try:
+                    # Try with args instead of params
+                    args_data = {
+                        "ieee": ieee,
+                        "endpoint_id": endpoint,  # Must be 11 for ZBT-1
+                        "cluster_id": cluster_id, # 0x0101 for Door Lock
+                        "command": command,       # 0x00=lock, 0x01=unlock
+                        "command_type": "server", # Must be server
+                        "args": {}              # Empty args as an alternative to params
+                    }
+
+                    _LOGGER.debug(f"ZHA attempt {attempt+1}/{retry_count} with args")
+                    await hass.services.async_call(
+                        "zha", "issue_zigbee_cluster_command", args_data, blocking=True
+                    )
+                    _LOGGER.info(f"Successfully sent command using ZHA service with args format")
+                    return True
+                except Exception as args_e:
+                    _LOGGER.warning(f"Failed to send using ZHA with args (attempt {attempt+1}): {args_e}")
             if attempt < retry_count - 1:
                 await asyncio.sleep(retry_delay)
 
@@ -144,12 +199,14 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
         try:
             # Must follow Safe4 ZBT-1 specification exactly
             # Example: zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01
+            # Home Assistant requires at least one of args or params to be present
             service_data = {
                 "ieee": ieee_format,
                 "endpoint_id": 11,         # MUST be 11 per spec
                 "cluster_id": 0x0101,      # Door Lock cluster
                 "command": command,        # 0x00=lock, 0x01=unlock
-                "command_type": "server"   # No params per spec
+                "command_type": "server",  # Must be server
+                "params": {}              # Empty params required by Home Assistant
             }
 
             # Try both services with each format
@@ -174,7 +231,8 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
             "endpoint_id": endpoint,
             "cluster_id": cluster_id,
             "command": command,
-            "command_type": "server"
+            "command_type": "server",
+            "params": {}  # Empty params required by Home Assistant
         }
 
         await hass.services.async_call(

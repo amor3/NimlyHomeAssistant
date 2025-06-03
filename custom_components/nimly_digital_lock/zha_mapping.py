@@ -58,10 +58,43 @@ def format_ieee(ieee):
     return ieee_with_colons.lower()
 
 def format_ieee_with_colons(ieee):
+    """Format IEEE address with colons in the correct format.
+
+    This function can handle IEEE in various formats:
+    - With colons: aa:bb:cc:dd:ee:ff:00:11
+    - Without colons: aabbccddeeff0011
+    - With 0x prefix: 0xaabbccddeeff0011
+
+    Returns properly formatted IEEE address with colons.
+    """
+    # Handle None or empty string
+    if not ieee:
+        return ""
+
+    # If already has colons, validate format
     if ':' in ieee:
-        return ieee
+        # Check if format is correct (8 hex pairs separated by colons)
+        parts = ieee.split(':')
+        if len(parts) == 8 and all(len(part) == 2 and all(c.lower() in '0123456789abcdef' for c in part) for part in parts):
+            return ieee.lower()
+
+    # Remove 0x prefix if present
+    if ieee.lower().startswith('0x'):
+        ieee = ieee[2:]
+
+    # Clean the string to only contain hex characters
     ieee_clean = ''.join(c for c in ieee if c.lower() in '0123456789abcdef')
-    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)])
+
+    # Check if we have a valid length after cleaning
+    if len(ieee_clean) != 16:
+        # Handle special case where network address might be used instead
+        if len(ieee_clean) <= 4:
+            # This is likely a network address, not IEEE
+            raise ValueError(f"The provided value '{ieee}' appears to be a network address, not a valid IEEE address")
+        raise ValueError(f"Invalid IEEE address length: {len(ieee_clean)} (expected 16 hex characters)")
+
+    # Format with colons
+    return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)]).lower()
 
 LOCK_CLUSTER_ID = 0x0101
 POWER_CLUSTER_ID = 0x0001
@@ -195,32 +228,44 @@ def format_safe4_zbt1_command(ieee, command_id):
     - Endpoint must be exactly 11
     - Cluster ID must be 0x0101 (Door Lock)
     - Profile ID must be 0x0104 (Home Automation)
-    - NO parameters can be passed
+    - Command ID must be 0x00 for lock, 0x01 for unlock
+    - At least one of args or params must be present (even if empty)
     """
-    ieee_with_colons = format_ieee_with_colons(ieee)
-    # For unlock/lock commands, params field must be omitted entirely according to spec
-    if command_id in [0x00, 0x01]:  # Lock/Unlock commands
+    try:
+        # Validate and format IEEE address
+        is_valid, ieee_with_colons, error_message = validate_ieee(ieee)
+        if not is_valid:
+            _LOGGER.error(f"Invalid IEEE address for command: {error_message}")
+            raise ValueError(f"Invalid IEEE address: {error_message}")
+
+        # Log the exact command we're about to send for debugging
+        _LOGGER.debug(f"Formatting ZBT-1 command: IEEE={ieee_with_colons}, command_id={command_id}, "
+                     f"endpoint={SAFE4_ZBT1_ENDPOINT}, cluster={SAFE4_DOOR_LOCK_CLUSTER}")
+
+        # Home Assistant requires at least one of args or params to be present
         command_data = {
             "ieee": ieee_with_colons,
             "endpoint_id": SAFE4_ZBT1_ENDPOINT,  # Must be 11 per spec
             "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,  # 0x0101 per spec
             "command": command_id,  # 0x00=lock, 0x01=unlock per spec
             "command_type": COMMAND_TYPE,  # server
-            "profile": SAFE4_DOOR_LOCK_PROFILE  # 0x0104 per spec
-            # NO params field - the spec requires NO parameters for lock/unlock
+            "profile": SAFE4_DOOR_LOCK_PROFILE,  # 0x0104 per spec
+            "params": {}  # Empty params required by Home Assistant
         }
-    else:
-        # For other commands, include empty params dict
-        command_data = {
-            "ieee": ieee_with_colons,
-            "endpoint_id": SAFE4_ZBT1_ENDPOINT, 
+
+        _LOGGER.debug(f"Formatted command data: {command_data}")
+        return command_data
+    except Exception as e:
+        _LOGGER.error(f"Error formatting ZBT-1 command: {e}")
+        # Return a basic command data structure as fallback
+        return {
+            "ieee": format_ieee_with_colons(ieee),
+            "endpoint_id": SAFE4_ZBT1_ENDPOINT,
             "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
             "command": command_id,
             "command_type": COMMAND_TYPE,
-            "profile": SAFE4_DOOR_LOCK_PROFILE,
-            "params": {}  # Empty params for non-lock/unlock commands
+            "params": {}
         }
-    return command_data
 
 def get_ieee_no_colons(ieee):
     return normalize_ieee(ieee)["no_colons"]
@@ -230,3 +275,27 @@ def get_cluster_handler_name(gateway_type="zha"):
         return "zigbee_cluster_handler"
     else:
         return "zha_cluster_handler"
+
+
+def validate_ieee(ieee):
+
+    if not ieee:
+        return False, "", "IEEE address cannot be empty"
+
+    try:
+        # Try to format the IEEE address with colons
+        formatted_ieee = format_ieee_with_colons(ieee)
+
+        # Check if the formatted address is valid
+        parts = formatted_ieee.split(':')
+        if len(parts) != 8:
+            return False, formatted_ieee, f"IEEE address must have 8 parts, found {len(parts)}"
+
+        if not all(len(part) == 2 and all(c.lower() in '0123456789abcdef' for c in part) for part in parts):
+            return False, formatted_ieee, "IEEE address parts must be valid hexadecimal values"
+
+        return True, formatted_ieee, ""
+    except ValueError as e:
+        return False, "", str(e)
+    except Exception as e:
+        return False, "", f"Error validating IEEE address: {str(e)}"

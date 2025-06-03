@@ -37,7 +37,8 @@ ZBT1_CLEAR_ALL_PIN_CODES = 0x08  # Clear All PIN Codes
 # Import helper functions from zha_mapping
 from .zha_mapping import (
     format_ieee_with_colons,
-    format_safe4_zbt1_command
+    format_safe4_zbt1_command,
+    validate_ieee
 )
 
 async def send_nordic_command(hass, ieee, command_id, retry_count=5, retry_delay=1.0):
@@ -58,12 +59,17 @@ async def send_nordic_command(hass, ieee, command_id, retry_count=5, retry_delay
     """
     _LOGGER.info(f"Sending Nordic ZBT-1 command {command_id} to device {ieee}")
 
-    # Format IEEE address with colons
-    ieee_with_colons = format_ieee_with_colons(ieee)
+    # Validate IEEE address
+    is_valid, ieee_with_colons, error_message = validate_ieee(ieee)
+    if not is_valid:
+        _LOGGER.error(f"Invalid IEEE address: {error_message}")
+        return False
+
+    _LOGGER.debug(f"Using formatted IEEE address: {ieee_with_colons}")
 
     # According to Safe4 spec, command must be in format:
     # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
-    # with NO parameters passed
+    # Home Assistant requires at least empty params or args
     command_data = format_safe4_zbt1_command(ieee, command_id)
 
     # Try both service domains
@@ -77,27 +83,50 @@ async def send_nordic_command(hass, ieee, command_id, retry_count=5, retry_delay
     for domain in service_domains:
         for method in service_methods:
             if not hass.services.has_service(domain, method):
+                _LOGGER.debug(f"Service {domain}.{method} not available")
                 continue
 
             # Try multiple attempts
             for attempt in range(retry_count):
-                try:
-                    _LOGGER.debug(f"Attempt {attempt+1}/{retry_count} using {domain}.{method}")
+                # Try with both params and args formats
+                command_formats = [
+                    # First try with params (most common)
+                    {**command_data},
+                    # Then try with args instead of params
+                    {key: value for key, value in command_data.items() if key != "params"}
+                ]
 
-                    # Send the command
-                    await hass.services.async_call(
-                        domain, method, command_data, blocking=True
-                    )
+                if "params" in command_data:
+                    # Add empty args as a fallback format
+                    args_format = {key: value for key, value in command_data.items() if key != "params"}
+                    args_format["args"] = {}
+                    command_formats.append(args_format)
 
-                    _LOGGER.info(f"Successfully sent command {command_id} using {domain}.{method}")
-                    success = True
-                    return True
-                except Exception as e:
-                    _LOGGER.warning(f"Failed to send command {command_id} using {domain}.{method}: {e}")
+                for cmd_format in command_formats:
+                    try:
+                        _LOGGER.debug(f"Attempt {attempt+1}/{retry_count} using {domain}.{method} with format: {cmd_format}")
 
-                    # If this is not the last attempt, wait before retrying
-                    if attempt < retry_count - 1:
-                        await asyncio.sleep(retry_delay)
+                        # Send the command
+                        await hass.services.async_call(
+                            domain, method, cmd_format, blocking=True
+                        )
+
+                        _LOGGER.info(f"Successfully sent command {command_id} using {domain}.{method}")
+                        success = True
+                        return True
+                    except Exception as e:
+                        _LOGGER.debug(f"Failed format {cmd_format} on attempt {attempt+1} using {domain}.{method}: {e}")
+
+                        # Check for specific error message about missing args/params
+                        error_msg = str(e).lower()
+                        if "must contain at least one of args, params" in error_msg:
+                            _LOGGER.warning("Service requires either args or params to be present")
+                        elif "not a valid value for dictionary value @ data['ieee']" in error_msg:
+                            _LOGGER.warning("IEEE address format is not valid for this service")
+
+                # If we tried all formats and none worked, wait before the next attempt
+                if attempt < retry_count - 1:
+                    await asyncio.sleep(retry_delay)
 
     if not success:
         _LOGGER.error(f"Failed to send command {command_id} after {retry_count} attempts with all methods")
