@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Configure Nimly Lock",
-        "description": "Found {device_count} ZigBee devices. Select yourNimly lock from the dropdown or enter the IEEE address manually.",
+        "description": "Found {device_count} ZigBee devices. Select your Nimly lock from the dropdown or enter the IEEE address manually.",
         "data": {
           "device_selection": "Select Nimly Device",
           "ieee": "IEEE Address (manual entry)",
