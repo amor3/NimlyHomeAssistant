@@ -29,19 +29,20 @@ async def start_polling_service(hass, ieee, poll_interval=60):
 
 async def poll_lock_state(hass, ieee, ieee_with_colons):
     try:
-        # Import required constants from zha_mapping
-        from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
-        from .safe4_lock import read_safe4_attribute
         from .const import DOMAIN
 
-        # First try using direct ZHA device access (most reliable)
-        from .zbt1_support import async_read_attribute_zbt1
-        result = await async_read_attribute_zbt1(hass, ieee_with_colons, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+        # Read lock state (0x0000) from Door Lock cluster (0x0101) using ZHA service
+        service_data = {
+            "ieee": ieee_with_colons,
+            "endpoint_id": 11,  # ZBT-1 uses endpoint 11
+            "cluster_id": 0x0101,  # Door Lock cluster
+            "cluster_type": "in",
+            "attribute": 0x0000  # Lock State attribute
+        }
 
-        # If direct access failed, fall back to service method
-        if result is None:
-            # Try to read the lock state attribute using Safe4 module
-            result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+        result = await hass.services.async_call(
+            "zha", "get_zigbee_cluster_attribute", service_data, blocking=True, return_response=True
+        )
 
         if result is not None:
             # Update the lock state in hass.data using both IEEE formats for consistency
@@ -100,21 +101,23 @@ async def poll_lock_state(hass, ieee, ieee_with_colons):
 
 async def poll_battery_level(hass, ieee, ieee_with_colons):
     try:
-        # Import required constants from zha_mapping
-        from .zha_mapping import SAFE4_POWER_CLUSTER
+        from .const import DOMAIN
 
         # Clean the IEEE for entity IDs
         ieee_clean = ieee.replace(':', '').lower()
 
-        # First try using direct ZHA device access (most reliable)
-        from .zbt1_support import async_read_attribute_zbt1
-        result = await async_read_attribute_zbt1(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0021)
+        # Read battery percentage (0x0021) from Power cluster (0x0001) using ZHA service
+        service_data = {
+            "ieee": ieee_with_colons,
+            "endpoint_id": 11,  # ZBT-1 uses endpoint 11
+            "cluster_id": 0x0001,  # Power Configuration cluster
+            "cluster_type": "in",
+            "attribute": 0x0021  # Battery percentage remaining
+        }
 
-        # If direct access failed, fall back to service method
-        if result is None:
-            # Try to read the battery percentage attribute
-            from .safe4_lock import read_safe4_attribute
-            result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0021)
+        result = await hass.services.async_call(
+            "zha", "get_zigbee_cluster_attribute", service_data, blocking=True, return_response=True
+        )
 
         if result is not None:
             # Update the battery percentage in hass.data

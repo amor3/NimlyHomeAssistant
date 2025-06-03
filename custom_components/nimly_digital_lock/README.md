@@ -1,6 +1,46 @@
 # Nimly Digital Lock Integration for Home Assistant
 # Nimly Digital Lock for Home Assistant
+# Nimly Digital Lock Integration for Home Assistant
 
+## Overview
+This integration provides support for Nimly Digital Lock devices in Home Assistant via ZHA (Zigbee Home Automation).
+
+## Requirements
+- Home Assistant with ZHA integration set up
+- Nimly Digital Lock (ZBT-1 model)
+
+## ZHA Implementation Details
+
+This integration communicates with the lock using standard ZHA commands with these specifics:
+
+### Door Lock Cluster (0x0101)
+
+| Name | Type | ID | Default | Access | Description |
+|------|------|-----|---------|--------|-------------|
+| Lock State | U8 enum | 0x0000 | 1 | R | 0 = Unlocked, 1 = Locked |
+| Lock Type | U8 enum | 0x0001 | 0 | R | Lock type |
+| Actuator Enabled | BOOL | 0x0002 | true | R | Whether actuator is enabled |
+| Door State | U8 enum | 0x0003 | 0x04 | R | Door state (always 0x04) |
+
+### Lock/Unlock Commands
+
+| Operation | Command ID | Cluster | Endpoint |
+|-----------|------------|---------|----------|
+| Lock | 0x00 | 0x0101 | 11 |
+| Unlock | 0x01 | 0x0101 | 11 |
+
+### Battery Information
+
+Battery level is read from Power Configuration cluster (0x0001) using attribute 0x0021 (Battery percentage remaining).
+
+## Troubleshooting
+
+If you have issues with lock control:
+
+1. Make sure your lock is properly paired with ZHA
+2. Verify the correct IEEE address is being used
+3. Check the ZHA logs for any command errors
+4. The lock requires endpoint 11 for commands
 This integration provides support for Nimly Digital Lock devices, with specific support for Safe4 ZigBee Door Lock Module used with Nabu Casa ZBT-1.
 
 ## Safe4 ZigBee Door Lock Module

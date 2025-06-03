@@ -493,21 +493,31 @@ class NimlyDigitalLock(LockEntity):
         return True
 
     async def async_unlock(self, **kwargs):
-        _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] using Safe4 ZigBee specification")
+        _LOGGER.info(f"Unlocking {self._name} [{self._ieee}]")
 
-        # First try direct ZHA device access (most reliable method)
-        from .zbt1_support import async_send_command_zbt1
-        _LOGGER.info(f"Attempting unlock with direct ZHA device access")
+        # Standard ZHA unlock command
         try:
-            success = await async_send_command_zbt1(self._hass, self._ieee_with_colons, 0x01)
-            if success:
-                _LOGGER.info(f"Successfully unlocked using direct ZHA device access")
-                self._is_locked = False
-                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-                self.async_write_ha_state()
-                return True
+            # Use ZHA service with Door Lock cluster (0x0101) and unlock command (0x01)
+            service_data = {
+                "ieee": self._ieee_with_colons,
+                "endpoint_id": 11,  # ZBT-1 uses endpoint 11
+                "cluster_id": 0x0101,  # Door Lock cluster
+                "command": 0x01,  # Unlock command
+                "command_type": "server",
+                "params": {}  # Empty params required by HA
+            }
+
+            await self._hass.services.async_call(
+                "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+            )
+
+            _LOGGER.info(f"Successfully sent unlock command")
+            self._is_locked = False
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+            self.async_write_ha_state()
+            return True
         except Exception as e:
-            _LOGGER.warning(f"Direct ZHA unlock failed: {e}")
+            _LOGGER.error(f"Failed to unlock: {e}")
 
         # Then try with the direct command module
         from .direct_command import unlock_door
@@ -675,12 +685,51 @@ class NimlyDigitalLock(LockEntity):
     async def async_update(self):
         _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
-        # Make sure we have our fallback IEEE for ZHA
-        if not hasattr(self, '_zha_ieee') or not self._zha_ieee:
-            self._zha_ieee = "f4:ce:36:0a:04:4d:31:f5"  # Fallback to the known device
+        # Read lock state (0x0000) from Door Lock cluster (0x0101)
+        try:
+            service_data = {
+                "ieee": self._ieee_with_colons,
+                "endpoint_id": 11,  # ZBT-1 uses endpoint 11
+                "cluster_id": 0x0101,  # Door Lock cluster
+                "cluster_type": "in",
+                "attribute": 0x0000  # Lock State attribute
+            }
 
-        # Import required constants
-        from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER, ZBT1_ENDPOINTS
+            result = await self._hass.services.async_call(
+                "zha", "get_zigbee_cluster_attribute", service_data, blocking=True, return_response=True
+            )
+
+            if result is not None:
+                _LOGGER.debug(f"Lock state read result: {result}")
+                self._is_locked = result == 1
+                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = result
+        except Exception as e:
+            _LOGGER.warning(f"Failed to read lock state: {e}")
+
+        # Read battery percentage (0x0021) from Power cluster (0x0001)
+        try:
+            service_data = {
+                "ieee": self._ieee_with_colons,
+                "endpoint_id": 11,  # ZBT-1 uses endpoint 11 
+                "cluster_id": 0x0001,  # Power Configuration cluster
+                "cluster_type": "in",
+                "attribute": 0x0021  # Battery percentage remaining
+            }
+
+            result = await self._hass.services.async_call(
+                "zha", "get_zigbee_cluster_attribute", service_data, blocking=True, return_response=True
+            )
+
+            if result is not None and 0 <= result <= 100:
+                _LOGGER.debug(f"Battery percentage read result: {result}%")
+                self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = result
+
+                # Set battery_low status if below 15%
+                battery_low = result < 15
+                battery_low_value = 1 if battery_low else 0
+                self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = battery_low_value
+        except Exception as e:
+            _LOGGER.warning(f"Failed to read battery percentage: {e}")
 
         # Try to read attributes using the Safe4 module with multiple endpoints
         # The Safe4 module already handles multiple endpoints and IEEE formats
