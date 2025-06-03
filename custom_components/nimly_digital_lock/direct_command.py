@@ -36,13 +36,18 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
     _LOGGER.info(f"Sending direct command {command} to endpoint {endpoint}")
 
     # Validate the IEEE address first
-    is_valid, ieee_formatted, error_message = validate_ieee(ieee)
-    if not is_valid:
-        _LOGGER.error(f"Invalid IEEE address: {error_message}")
-        return False
+    try:
+        is_valid, ieee_formatted, error_message = validate_ieee(ieee)
+        if not is_valid:
+            _LOGGER.error(f"Invalid IEEE address: {error_message}")
+            return False
 
-    # Use the validated and correctly formatted IEEE address
-    ieee = ieee_formatted
+        # Use the validated and correctly formatted IEEE address
+        ieee = ieee_formatted
+    except Exception as e:
+        _LOGGER.error(f"Error validating IEEE address: {str(e)}")
+        # Continue with original address as fallback
+        _LOGGER.warning(f"Using original IEEE address as fallback: {ieee}")
 
     # Diagnostics - store command info for debugging
     if f"NIMLY_LAST_COMMAND" not in hass.data:
@@ -151,10 +156,11 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
             _LOGGER.info(f"Successfully sent command using ZHA service on attempt {attempt+1}")
             return True
         except Exception as e:
-            _LOGGER.warning(f"Failed to send using ZHA with params (attempt {attempt+1}): {e}")
+            error_msg = str(e)
+            _LOGGER.warning(f"Failed to send using ZHA with params (attempt {attempt+1}): {error_msg}")
 
             # If we're getting a specific error about args/params, try with args instead
-            if "must contain at least one of args, params" in str(e).lower():
+            if "must contain at least one of args, params" in error_msg.lower():
                 try:
                     # Try with args instead of params
                     args_data = {
@@ -184,8 +190,21 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
                 _LOGGER.error("SUGGESTION: Try restarting your ZigBee coordinator or moving the lock closer to the hub")
 
     # 3. Try alternate IEEE formats
-    ieee_no_colons = ieee.replace(':', '')
-    ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
+    try:
+        ieee_no_colons = ieee.replace(':', '')
+        # Check if we have a valid length after cleaning
+        if len(ieee_no_colons) % 2 != 0 or len(ieee_no_colons) < 16:
+            _LOGGER.warning(f"IEEE address has unusual length: {len(ieee_no_colons)} characters")
+            # Ensure even length for the join operation
+            if len(ieee_no_colons) % 2 != 0:
+                ieee_no_colons = ieee_no_colons + '0'
+                _LOGGER.warning(f"Added padding to ensure even length: {ieee_no_colons}")
+        ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
+    except Exception as e:
+        _LOGGER.warning(f"Error formatting IEEE address: {e}")
+        # Set fallback values
+        ieee_no_colons = ieee
+        ieee_with_colons = ieee
 
     # According to Safe4 ZigBee Door Lock Module, the format must be exact
     # Example from spec: zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01

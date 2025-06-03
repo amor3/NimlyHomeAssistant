@@ -87,13 +87,21 @@ def format_ieee_with_colons(ieee):
 
     # Check if we have a valid length after cleaning
     if len(ieee_clean) != 16:
-        # Handle special case where network address might be used instead
-        if len(ieee_clean) <= 4:
-            # This is likely a network address, not IEEE
-            raise ValueError(f"The provided value '{ieee}' appears to be a network address, not a valid IEEE address")
-        raise ValueError(f"Invalid IEEE address length: {len(ieee_clean)} (expected 16 hex characters)")
+        # If length is odd, pad with a zero to make it even (allows join to work)
+        if len(ieee_clean) % 2 != 0:
+            _LOGGER.warning(f"IEEE address has odd length ({len(ieee_clean)}), padding with 0")
+            ieee_clean = ieee_clean + '0'
 
-    # Format with colons
+        # Still handle special case for very short values (likely network addresses)
+        if len(ieee_clean) <= 4:
+            _LOGGER.warning(f"The provided value '{ieee}' appears to be a network address, not a valid IEEE address")
+            # Don't raise exception, just return the best formatted version we can
+            return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)]).lower()
+
+        # For other unusual lengths, warn but try to format anyway
+        _LOGGER.warning(f"Unusual IEEE address length: {len(ieee_clean)} (expected 16 hex characters)")
+
+    # Format with colons - this should work for any even-length string of hex characters
     return ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)]).lower()
 
 LOCK_CLUSTER_ID = 0x0101
@@ -298,4 +306,7 @@ def validate_ieee(ieee):
     except ValueError as e:
         return False, "", str(e)
     except Exception as e:
-        return False, "", f"Error validating IEEE address: {str(e)}"
+        # Make sure we return a proper tuple
+        _LOGGER.error(f"Error validating IEEE address: {str(e)}")
+        # If we get here, return proper values with the error message
+        return False, ieee, f"Error validating IEEE address: {str(e)}"

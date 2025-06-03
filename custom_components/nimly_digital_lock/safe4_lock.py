@@ -33,13 +33,6 @@ def discover_available_services(hass):
 
     return available_services
 
-async def send_safe4_lock_command(hass, ieee_address):
-    """Send lock command to a Safe4 ZigBee door lock."""
-    return await _send_lock_command(hass, ieee_address, SAFE4_LOCK_COMMAND)
-
-async def send_safe4_unlock_command(hass, ieee_address):
-    """Send unlock command to a Safe4 ZigBee door lock."""
-    return await _send_lock_command(hass, ieee_address, SAFE4_UNLOCK_COMMAND)
 
 async def _send_lock_command(hass, ieee_address, command):
     """Send a lock or unlock command to the Safe4 lock device.
@@ -288,7 +281,7 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
         service_domains = ["zigbee", "zha"]
     if not service_methods:
         service_methods = [
-            "get_zigbee_cluster_attribute", 
+            "get_zigbee_cluster_attribute",
             "read_zigbee_cluster_attribute",
             "read_attribute",
             "get_attribute",
@@ -308,7 +301,7 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     # Prepare all IEEE formats to try
     ieee_formats = [
         ieee_address,
-        ieee_no_colons, 
+        ieee_no_colons,
         ieee_with_colons,
         # Add the known ZHA device IEEE as a fallback
         "f4:ce:36:0a:04:4d:31:f5",
@@ -397,9 +390,6 @@ from .zha_mapping import (
     format_ieee_with_colons,
     format_safe4_zbt1_command
 )
-
-# Endpoints to try for compatibility
-COMMON_ENDPOINTS = [11, 1, 242, 2, 3]
 
 async def send_safe4_lock_command(hass, ieee):
     """Send the lock command according to Safe4 ZigBee Door Lock Module specification.
@@ -618,6 +608,16 @@ async def get_battery_level(hass, ieee):
 async def try_direct_zha_gateway_access(hass, ieee_address, cluster_id, attribute_id, cluster_type, ieee_formats):
     from .const import DOMAIN
     ZHA_DOMAIN = "zha"
+
+    # Validate inputs to prevent errors
+    if not ieee_address or not ieee_formats:
+        _LOGGER.warning("Missing IEEE address or formats in try_direct_zha_gateway_access")
+        return None
+
+    # Ensure we have a list of formats
+    if not isinstance(ieee_formats, list):
+        ieee_formats = [ieee_formats]
+
     try:
 
         if ZHA_DOMAIN in hass.data:

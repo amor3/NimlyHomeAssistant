@@ -59,13 +59,21 @@ async def send_nordic_command(hass, ieee, command_id, retry_count=5, retry_delay
     """
     _LOGGER.info(f"Sending Nordic ZBT-1 command {command_id} to device {ieee}")
 
-    # Validate IEEE address
-    is_valid, ieee_with_colons, error_message = validate_ieee(ieee)
-    if not is_valid:
-        _LOGGER.error(f"Invalid IEEE address: {error_message}")
-        return False
+    # Validate IEEE address with error handling
+    try:
+        is_valid, ieee_with_colons, error_message = validate_ieee(ieee)
+        if not is_valid:
+            _LOGGER.error(f"Invalid IEEE address: {error_message}")
+            # Continue with original address as fallback instead of returning
+            _LOGGER.warning(f"Attempting to continue with original IEEE address: {ieee}")
+            ieee_with_colons = ieee
 
-    _LOGGER.debug(f"Using formatted IEEE address: {ieee_with_colons}")
+        _LOGGER.debug(f"Using formatted IEEE address: {ieee_with_colons}")
+    except Exception as e:
+        _LOGGER.error(f"Error validating IEEE address: {e}")
+        # Use original address as fallback
+        ieee_with_colons = ieee
+        _LOGGER.warning(f"Using original IEEE address as fallback: {ieee_with_colons}")
 
     # According to Safe4 spec, command must be in format:
     # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
