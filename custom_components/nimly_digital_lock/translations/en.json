@@ -1,12 +1,12 @@
 {
-  "title": "Nordic ZBT-1 Safe4 Door Lock",
+  "title": "Nimly Lock",
   "config": {
     "step": {
       "user": {
-        "title": "Configure Nordic ZBT-1 Lock",
-        "description": "Found {device_count} ZigBee devices. Select your Nordic ZBT-1 Safe4 lock from the dropdown or enter the IEEE address manually.",
+        "title": "Configure Nimly Lock",
+        "description": "Found {device_count} ZigBee devices. Select yourNimly lock from the dropdown or enter the IEEE address manually.",
         "data": {
-          "device_selection": "Select Nordic ZBT-1 Device",
+          "device_selection": "Select Nimly Device",
           "ieee": "IEEE Address (manual entry)",
           "name": "Lock Name"
         }
