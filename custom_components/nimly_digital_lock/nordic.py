@@ -93,18 +93,21 @@ async def send_nordic_command(hass, ieee_address, command_id, payload=None, retr
                 _LOGGER.warning(f"Failed to send Nordic command to {ieee} (attempt {attempt+1}): {e}")
 
                 # Check for specific errors
-                if "extra keys not allowed @ data['profile']" in str(e):
-                    _LOGGER.info("ZHA service doesn't accept 'profile' parameter, trying without it")
+                if "extra keys not allowed @ data['profile']" in str(e) or "extra keys not allowed @ data['nwk']" in str(e):
+                    _LOGGER.info(f"ZHA service doesn't accept parameter, trying without it: {e}")
                     try:
-                        # Try again without the profile parameter
+                        # Try again with minimal parameters
                         service_data = {
                             "ieee": ieee,
                             "endpoint_id": ZBT1_ENDPOINT,
                             "cluster_id": ZBT1_DOOR_LOCK_CLUSTER,
                             "command": command_id,
-                            "command_type": "server",
-                            "params": payload if payload else {}
+                            "command_type": "server"
                         }
+
+                        # Add params if not empty
+                        if payload:
+                            service_data["params"] = payload
 
                         await hass.services.async_call(
                             "zha", 
@@ -113,10 +116,10 @@ async def send_nordic_command(hass, ieee_address, command_id, payload=None, retr
                             blocking=True
                         )
 
-                        _LOGGER.info(f"Successfully sent Nordic ZBT-1 command 0x{command_id:02x} to {ieee} (without profile)")
+                        _LOGGER.info(f"Successfully sent Nordic ZBT-1 command 0x{command_id:02x} to {ieee} (with minimal parameters)")
                         return True
                     except Exception as inner_e:
-                        _LOGGER.warning(f"Failed second attempt without profile parameter: {inner_e}")
+                        _LOGGER.warning(f"Failed second attempt with minimal parameters: {inner_e}")
 
                 # Check for specific error about device not responding
                 if "device did not respond" in str(e).lower():
@@ -164,8 +167,6 @@ async def send_nordic_command(hass, ieee_address, command_id, payload=None, retr
 async def lock_door(hass, ieee_address):
     """Lock the door using Nordic ZBT-1 format."""
     _LOGGER.info(f"Locking door with Nordic ZBT-1 format: {ieee_address}")
-    # ZBT-1 lock command is 0x00
-    ZBT1_LOCK_COMMAND = 0x00
     return await send_nordic_command(hass, ieee_address, ZBT1_LOCK_COMMAND)
 
 async def unlock_door(hass, ieee_address):

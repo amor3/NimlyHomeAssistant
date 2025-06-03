@@ -134,8 +134,9 @@ async def _send_lock_command(hass, ieee_address, command):
         for service_method in service_methods:
             try:
                 # Try with network address (only works with ZHA)
+                # Use ieee key with nwk format for ZHA
                 service_data = {
-                    "nwk": "0x7FDB",  # The known network address
+                    "ieee": "0x7FDB",  # The known network address used as ieee
                     "endpoint_id": endpoint_id,
                     "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
                     "command": command,

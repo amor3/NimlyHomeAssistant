@@ -54,7 +54,7 @@ class NimlyDigitalLock(LockEntity):
         # Use the first available service that was found
         _LOGGER.info(f"Using {service_domain}.{service_method} for sending Zigbee commands")
 
-        # Try with different address formats, including IEEE and network addresses
+        # Try with different address formats, only using IEEE format (nwk not supported directly)
         formats_to_try = [
             # Original device formats
             {"ieee": self._ieee},
@@ -63,8 +63,8 @@ class NimlyDigitalLock(LockEntity):
             # ZHA device formats
             {"ieee": self._zha_ieee},
             {"ieee": self._zha_ieee_no_colons},
-            # Try with network address (nwk) - many ZHA commands support this
-            {"nwk": self._zha_nwk}
+            # Try with network address as ieee parameter
+            {"ieee": self._zha_nwk}
         ]
 
         for address_format in formats_to_try:
@@ -413,12 +413,11 @@ class NimlyDigitalLock(LockEntity):
                     if not success:
                         # If IEEE address fails, try with network address
                         _LOGGER.info(f"Attempting to send lock command using network address {self._zha_nwk}")
-                        # Some ZHA implementations support using nwk instead of ieee
-                        from homeassistant.components.zha.core.const import ATTR_NWK
+                        # ZHA doesn't directly support nwk parameter, use ieee instead
 
-                        # Try direct ZHA service call with nwk
+                        # Try direct ZHA service call with network address as ieee
                         service_data = {
-                            ATTR_NWK: self._zha_nwk,  # Use network address
+                            "ieee": self._zha_nwk,  # Use network address as ieee parameter
                             "command": SAFE4_LOCK_COMMAND,
                             "command_type": "server",
                             "cluster_id": 0x0101,  # Door Lock cluster
@@ -561,12 +560,11 @@ class NimlyDigitalLock(LockEntity):
                     if not success:
                         # If IEEE address fails, try with network address
                         _LOGGER.info(f"Attempting to send unlock command using network address {self._zha_nwk}")
-                        # Some ZHA implementations support using nwk instead of ieee
-                        from homeassistant.components.zha.core.const import ATTR_NWK
+                        # ZHA doesn't directly support nwk parameter, use ieee instead
 
-                        # Try direct ZHA service call with nwk
+                        # Try direct ZHA service call with network address as ieee
                         service_data = {
-                            ATTR_NWK: self._zha_nwk,  # Use network address
+                            "ieee": self._zha_nwk,  # Use network address as ieee parameter
                             "command": SAFE4_UNLOCK_COMMAND,
                             "command_type": "server",
                             "cluster_id": 0x0101,  # Door Lock cluster
