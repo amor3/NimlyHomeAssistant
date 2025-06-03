@@ -32,27 +32,63 @@ async def start_polling_service(hass, ieee, poll_interval=60):
 async def poll_lock_state(hass, ieee, ieee_with_colons):
     """Poll the lock state and update the entity."""
     try:
-        # Try to read the lock state attribute
-        result = await read_safe4_attribute(hass, ieee_with_colons, LOCK_CLUSTER_ID, 0x0000)
+        # Import required constants from zha_mapping
+        from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
+
+        # Try to read the lock state attribute using Safe4 module
+        result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
 
         if result is not None:
-            # Update the lock state in hass.data
+            # Update the lock state in hass.data using both IEEE formats for consistency
             _LOGGER.debug(f"Lock state poll result: {result}")
 
             # Lock state is 0 for unlocked, 1 for locked, 2 for error
             if result in [0, 1, 2]:
+                # Store in both IEEE formats to ensure consistency
                 hass.data[f"{DOMAIN}:{ieee}:lock_state"] = result
-                _LOGGER.info(f"Updated lock state to {result} ('unlocked' if 0, 'locked' if 1, 'error' if 2)")
+                ieee_no_colons = ieee.replace(':', '').lower()
+                hass.data[f"{DOMAIN}:{ieee_no_colons}:lock_state"] = result
+
+                # Make the state human-readable for logs
+                state_text = "unlocked" if result == 0 else "locked" if result == 1 else "error"
+                _LOGGER.info(f"Updated lock state to {result} ({state_text})")
 
                 # Force entity update
                 entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
-                await hass.services.async_call(
-                    "homeassistant", "update_entity", {"entity_id": entity_id}
-                )
+                try:
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", {"entity_id": entity_id}
+                    )
+                except Exception as update_error:
+                    _LOGGER.warning(f"Failed to update entity {entity_id}: {update_error}")
             else:
                 _LOGGER.warning(f"Received unexpected lock state value: {result}")
         else:
-            _LOGGER.debug("Lock state poll returned None")
+            # If Safe4 method failed, try with ZBT-1 support module
+            from .zbt1_support import async_read_attribute_zbt1
+            from .const import LOCK_CLUSTER_ID
+
+            result = await async_read_attribute_zbt1(hass, ieee_with_colons, LOCK_CLUSTER_ID, 0x0000)
+            if result is not None:
+                # Store in both IEEE formats for consistency
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = result
+                ieee_no_colons = ieee.replace(':', '').lower()
+                hass.data[f"{DOMAIN}:{ieee_no_colons}:lock_state"] = result
+
+                # Make the state human-readable for logs
+                state_text = "unlocked" if result == 0 else "locked" if result == 1 else "error"
+                _LOGGER.info(f"Updated lock state to {result} ({state_text}) using ZBT-1 method")
+
+                # Force entity update
+                entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
+                try:
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", {"entity_id": entity_id}
+                    )
+                except Exception as update_error:
+                    _LOGGER.warning(f"Failed to update entity {entity_id}: {update_error}")
+            else:
+                _LOGGER.debug("Lock state poll returned None from all methods")
 
     except Exception as e:
         _LOGGER.error(f"Error polling lock state: {e}")
@@ -60,54 +96,122 @@ async def poll_lock_state(hass, ieee, ieee_with_colons):
 async def poll_battery_level(hass, ieee, ieee_with_colons):
     """Poll the battery level and update the entity."""
     try:
+        # Import required constants from zha_mapping
+        from .zha_mapping import SAFE4_POWER_CLUSTER
+
+        # Clean the IEEE for entity IDs
+        ieee_clean = ieee.replace(':', '').lower()
+
         # Try to read the battery percentage attribute
-        result = await read_safe4_attribute(hass, ieee_with_colons, POWER_CLUSTER_ID, 0x0021)
+        result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0021)
 
         if result is not None:
             # Update the battery percentage in hass.data
             _LOGGER.debug(f"Battery percentage poll result: {result}")
 
             # Make sure the value is between 0 and 100
-            if 0 <= result <= 100:
+            if isinstance(result, (int, float)) and 0 <= result <= 100:
+                # Store in both IEEE formats for consistency
                 hass.data[f"{DOMAIN}:{ieee}:battery"] = result
+                hass.data[f"{DOMAIN}:{ieee_clean}:battery"] = result
                 _LOGGER.info(f"Updated battery percentage to {result}%")
 
                 # Also set battery_low status if below 15%
                 battery_low = result < 15
-                hass.data[f"{DOMAIN}:{ieee}:battery_low"] = battery_low
+                battery_low_value = 1 if battery_low else 0
+                hass.data[f"{DOMAIN}:{ieee}:battery_low"] = battery_low_value
+                hass.data[f"{DOMAIN}:{ieee_clean}:battery_low"] = battery_low_value
                 _LOGGER.debug(f"Battery low status set to {battery_low}")
 
                 # Force entity updates
-                await hass.services.async_call(
-                    "homeassistant", "update_entity", 
-                    {"entity_id": f"sensor.{DOMAIN}_{ieee.replace(':', '').lower()}_battery"}
-                )
-                await hass.services.async_call(
-                    "homeassistant", "update_entity", 
-                    {"entity_id": f"binary_sensor.{DOMAIN}_{ieee.replace(':', '').lower()}_battery_low"}
-                )
+                try:
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", 
+                        {"entity_id": f"sensor.{DOMAIN}_{ieee_clean}_battery"}
+                    )
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", 
+                        {"entity_id": f"binary_sensor.{DOMAIN}_{ieee_clean}_battery_low"}
+                    )
+                except Exception as update_error:
+                    _LOGGER.warning(f"Failed to update battery entities: {update_error}")
             else:
                 _LOGGER.warning(f"Received unexpected battery percentage value: {result}")
         else:
-            _LOGGER.debug("Battery percentage poll returned None")
+            # If Safe4 method failed, try with ZBT-1 support module
+            from .zbt1_support import async_read_attribute_zbt1
+            from .const import POWER_CLUSTER_ID
+
+            result = await async_read_attribute_zbt1(hass, ieee_with_colons, POWER_CLUSTER_ID, 0x0021)
+            if isinstance(result, (int, float)) and 0 <= result <= 100:
+                # Store in both IEEE formats for consistency
+                hass.data[f"{DOMAIN}:{ieee}:battery"] = result
+                hass.data[f"{DOMAIN}:{ieee_clean}:battery"] = result
+                _LOGGER.info(f"Updated battery percentage to {result}% using ZBT-1 method")
+
+                # Also set battery_low status if below 15%
+                battery_low = result < 15
+                battery_low_value = 1 if battery_low else 0
+                hass.data[f"{DOMAIN}:{ieee}:battery_low"] = battery_low_value
+                hass.data[f"{DOMAIN}:{ieee_clean}:battery_low"] = battery_low_value
+
+                # Force entity updates
+                try:
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", 
+                        {"entity_id": f"sensor.{DOMAIN}_{ieee_clean}_battery"}
+                    )
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", 
+                        {"entity_id": f"binary_sensor.{DOMAIN}_{ieee_clean}_battery_low"}
+                    )
+                except Exception as update_error:
+                    _LOGGER.warning(f"Failed to update battery entities: {update_error}")
+            else:
+                _LOGGER.debug("Battery percentage poll returned None from all methods")
 
         # Try to read the battery voltage attribute
-        voltage_result = await read_safe4_attribute(hass, ieee_with_colons, POWER_CLUSTER_ID, 0x0020)
+        voltage_result = await read_safe4_attribute(hass, ieee_with_colons, SAFE4_POWER_CLUSTER, 0x0020)
 
         if voltage_result is not None:
             # Convert from millivolts to volts if needed
-            if voltage_result > 100:
+            if isinstance(voltage_result, (int, float)) and voltage_result > 100:
                 voltage_result = voltage_result / 1000.0
 
             # Update the battery voltage in hass.data
             hass.data[f"{DOMAIN}:{ieee}:battery_voltage"] = voltage_result
+            hass.data[f"{DOMAIN}:{ieee_clean}:battery_voltage"] = voltage_result
             _LOGGER.info(f"Updated battery voltage to {voltage_result}V")
 
             # Force entity update
-            await hass.services.async_call(
-                "homeassistant", "update_entity", 
-                {"entity_id": f"sensor.{DOMAIN}_{ieee.replace(':', '').lower()}_battery_voltage"}
-            )
+            try:
+                await hass.services.async_call(
+                    "homeassistant", "update_entity", 
+                    {"entity_id": f"sensor.{DOMAIN}_{ieee_clean}_battery_voltage"}
+                )
+            except Exception as update_error:
+                _LOGGER.warning(f"Failed to update battery voltage entity: {update_error}")
+        else:
+            # If Safe4 method failed, try with ZBT-1 support module
+            voltage_result = await async_read_attribute_zbt1(hass, ieee_with_colons, POWER_CLUSTER_ID, 0x0020)
+            if voltage_result is not None:
+                # Convert from millivolts to volts if needed
+                if isinstance(voltage_result, (int, float)) and voltage_result > 100:
+                    voltage_result = voltage_result / 1000.0
+
+                # Update the battery voltage in hass.data
+                hass.data[f"{DOMAIN}:{ieee}:battery_voltage"] = voltage_result
+                hass.data[f"{DOMAIN}:{ieee_clean}:battery_voltage"] = voltage_result
+                _LOGGER.info(f"Updated battery voltage to {voltage_result}V using ZBT-1 method")
+
+                # Force entity update
+                try:
+                    await hass.services.async_call(
+                        "homeassistant", "update_entity", 
+                        {"entity_id": f"sensor.{DOMAIN}_{ieee_clean}_battery_voltage"}
+                    )
+                except Exception as update_error:
+                    _LOGGER.warning(f"Failed to update battery voltage entity: {update_error}")
 
     except Exception as e:
         _LOGGER.error(f"Error polling battery level: {e}")

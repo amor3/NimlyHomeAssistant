@@ -59,7 +59,7 @@ async def _send_lock_command(hass, ieee_address, command):
 
     # First, discover available services in Home Assistant
     available_services = discover_available_services(hass)
-    _LOGGER.info(f"Available Zigbee services: {available_services}")
+    _LOGGER.debug(f"Available Zigbee services: {available_services}")
 
     # If we found services, use them directly
     service_domains = []
@@ -84,9 +84,11 @@ async def _send_lock_command(hass, ieee_address, command):
             "command_server"
         ]
 
-    # Normalize IEEE address - try with and without colons
-    ieee_no_colons = ieee_address.replace(':', '')
-    ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
+    # Use a cleaner implementation for IEEE normalization
+    from .zha_mapping import normalize_ieee
+    ieee_formats = normalize_ieee(ieee_address)
+    ieee_no_colons = ieee_formats["no_colons"]
+    ieee_with_colons = ieee_formats["with_colons"]
 
     # Prepare all IEEE formats to try
     ieee_formats = [
@@ -99,52 +101,133 @@ async def _send_lock_command(hass, ieee_address, command):
     ]
 
     # Log what we're going to try
-    _LOGGER.info(f"Will try service domains: {service_domains}")
-    _LOGGER.info(f"Will try service methods: {service_methods}")
+    _LOGGER.debug(f"Will try service domains: {service_domains}")
+    _LOGGER.debug(f"Will try service methods: {service_methods}")
 
-    # Try each common endpoint with each address format and service domain
-    for endpoint_id in COMMON_ENDPOINTS:
+    # Try the exact Nordic ZBT-1 format first (endpoint 11 ONLY first)
+    # This is critical - the Nordic docs specify endpoint MUST be 11
+    for ieee in ieee_formats:
+        for service_domain in service_domains:
+            for service_method in service_methods:
+                if not hass.services.has_service(service_domain, service_method):
+                    continue
+
+                _LOGGER.debug(f"Trying exact Nordic ZBT-1 format with endpoint 11, {service_domain}.{service_method} and IEEE {ieee}")
+
+                # EXACT format per Nordic ZBT-1 specification
+                # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+                service_data = {
+                    "ieee": ieee,
+                    "endpoint_id": 11,      # MUST be 11 for ZBT-1
+                    "cluster_id": 0x0101,   # Door Lock cluster
+                    "command": command,     # 0x00 (lock) or 0x01 (unlock)
+                    "command_type": "server"
+                }
+
+                # Try with profile parameter for Nabu Casa
+                if service_domain == "zigbee":
+                    try:
+                        service_data["profile"] = 0x0104  # Home Automation profile
+                    except Exception:
+                        # If profile not supported, continue without it
+                        pass
+
+                # CRITICAL: For ZBT-1 per Nordic spec, NO parameters allowed
+                # Different from standard Zigbee where PIN is sometimes needed
+                try:
+                    # Try both with empty params and without params key
+                    # Some implementations don't support params at all
+                    service_data_with_params = {**service_data, "params": {}}
+
+                    try:
+                        # First try with empty params
+                        await hass.services.async_call(
+                            service_domain,
+                            service_method,
+                            service_data_with_params,
+                            blocking=True
+                        )
+                        _LOGGER.info(f"Successfully sent {command_name} command using endpoint 11 with empty params")
+                        return True
+                    except Exception as e:
+                        if "extra keys not allowed" in str(e).lower() or "params" in str(e).lower():
+                            # Try without params key at all
+                            await hass.services.async_call(
+                                service_domain,
+                                service_method,
+                                service_data,  # Original without params
+                                blocking=True
+                            )
+                            _LOGGER.info(f"Successfully sent {command_name} command using endpoint 11 without params key")
+                            return True
+                        else:
+                            # Some other error, continue to next method
+                            pass
+
+                except Exception as e:
+                    # Continue to next method
+                    pass
+
+    # If the exact Nordic format failed, try with other endpoints as fallback
+    # Use a prioritized list with endpoint 11 first
+    endpoints = [11, 1, 242, 2, 3]
+
+    # Try each endpoint with each address format and service domain
+    for endpoint_id in endpoints:
         for ieee in ieee_formats:
             for service_domain in service_domains:
                 for service_method in service_methods:
                     try:
                         # Check if the service exists before trying
                         if not hass.services.has_service(service_domain, service_method):
-                            _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
                             continue
 
                         _LOGGER.debug(f"Trying endpoint {endpoint_id} with {command_name} command using {service_domain}.{service_method} and IEEE {ieee}")
 
-                        # Prepare service data exactly per Nordic ZBT-1 specification
-                        # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+                        # Prepare service data
                         service_data = {
                             "ieee": ieee,
-                            "endpoint_id": endpoint_id,  # Must be 11 for ZBT-1
-                            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,  # 0x0101
-                            "command": command,  # 0x00 (lock) or 0x01 (unlock)
+                            "endpoint_id": endpoint_id,
+                            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+                            "command": command,
                             "command_type": "server"
                         }
 
-                        # Try with profile parameter for Nabu Casa
+                        # Try with and without profile parameter
                         if service_domain == "zigbee":
-                            service_data["profile"] = 0x0104  # Home Automation profile
+                            try:
+                                service_data["profile"] = 0x0104
+                            except Exception:
+                                # If profile not supported, continue without it
+                                pass
 
-                        # For ZBT-1 per Nordic spec, NO parameters allowed for lock/unlock
-                        # Different from standard Zigbee where PIN is sometimes needed
-                        service_data["params"] = {}
+                        # Try both with empty params and without params
+                        try:
+                            # First try with empty params
+                            service_data_with_params = {**service_data, "params": {}}
+                            await hass.services.async_call(
+                                service_domain,
+                                service_method,
+                                service_data_with_params,
+                                blocking=True
+                            )
+                            _LOGGER.info(f"Successfully sent {command_name} command to endpoint {endpoint_id}")
+                            return True
+                        except Exception as e:
+                            # If failed with params, try without
+                            if "extra keys not allowed" in str(e).lower() or "params" in str(e).lower():
+                                await hass.services.async_call(
+                                    service_domain,
+                                    service_method,
+                                    service_data,  # Without params
+                                    blocking=True
+                                )
+                                _LOGGER.info(f"Successfully sent {command_name} command to endpoint {endpoint_id} without params")
+                                return True
 
-                        # Call the service
-                        await hass.services.async_call(
-                            service_domain,
-                            service_method,
-                            service_data,
-                            blocking=True
-                        )
-
-                        _LOGGER.info(f"Successfully sent {command_name} command to endpoint {endpoint_id} using {service_domain}.{service_method}")
-                        return True
                     except Exception as e:
-                        _LOGGER.debug(f"Failed to send {command_name} command to endpoint {endpoint_id} with IEEE {ieee} using {service_domain}.{service_method}: {e}")
+                        # Continue to next method
+                        pass
 
         # If we get this far, try with network address
         for service_method in service_methods:
@@ -189,7 +272,7 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
 
     # First, discover available services in Home Assistant
     available_services = discover_available_services(hass)
-    _LOGGER.info(f"Available Zigbee attribute services: {available_services}")
+    _LOGGER.debug(f"Available Zigbee attribute services: {available_services}")
 
     # If we found services, use them directly
     service_domains = []
@@ -216,13 +299,11 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
             "attribute_read"
         ]
 
-    # Log what we're going to try
-    _LOGGER.info(f"Will try service domains for attributes: {service_domains}")
-    _LOGGER.info(f"Will try service methods for attributes: {service_methods}")
-
-    # Normalize IEEE address - try with and without colons
-    ieee_no_colons = ieee_address.replace(':', '')
-    ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
+    # Use a cleaner import of normalize_ieee
+    from .zha_mapping import normalize_ieee
+    ieee_formats = normalize_ieee(ieee_address)
+    ieee_no_colons = ieee_formats["no_colons"]
+    ieee_with_colons = ieee_formats["with_colons"]
 
     # Prepare all IEEE formats to try
     ieee_formats = [
@@ -238,7 +319,10 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     cluster_type = "in"
 
     # Try with the recommended endpoint 11 first, then others if that fails
-    endpoints = [11, 1, 2, 3, 242]
+    endpoints = [11, 1, 242, 2, 3]
+
+    # Track whether any service calls were attempted
+    service_calls_attempted = False
 
     for endpoint_id in endpoints:
         for ieee in ieee_formats:
@@ -247,9 +331,9 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
                     try:
                         # Check if the service exists before trying to call it
                         if not hass.services.has_service(service_domain, service_method):
-                            _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
                             continue
 
+                        service_calls_attempted = True
                         _LOGGER.debug(f"Reading attribute {attribute_id} from cluster {cluster_id} endpoint {endpoint_id} using {service_domain}.{service_method}")
 
                         # Prepare service data
@@ -261,11 +345,16 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
                             "attribute": attribute_id
                         }
 
-                        # Add required empty parameters based on service domain
+                        # Handle optional parameters based on service domain
                         if service_domain == "zha" and "get_zigbee_cluster_attribute" in service_method:
-                            service_data["params"] = {"pin_code": ""}
+                            # Only add params if service supports it
+                            try:
+                                service_data["params"] = {"pin_code": ""}
+                            except Exception:
+                                # If params not supported, continue without it
+                                pass
 
-                        # Call the service
+                        # Call the service with a shorter timeout
                         await hass.services.async_call(
                             service_domain,
                             service_method,
@@ -273,18 +362,27 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
                             blocking=True
                         )
 
-                        # If we reach here, the call succeeded
-                        _LOGGER.info(f"Successfully read attribute {attribute_id} from cluster {cluster_id} endpoint {endpoint_id}")
-
-                        # Get the value from the data store
-                        if DOMAIN in hass.data:
-                            result = hass.data.get(f"{DOMAIN}:{ieee}:{attribute_id}")
-                            return result
+                        # If we reach here, the call succeeded without exception
+                        # Check if a result was stored in the data store
+                        for check_ieee in [ieee, ieee_address]:
+                            attr_key = f"{DOMAIN}:{check_ieee}:{attribute_id}"
+                            if attr_key in hass.data:
+                                result = hass.data.get(attr_key)
+                                if result is not None:
+                                    _LOGGER.info(f"Successfully read attribute {attribute_id} from endpoint {endpoint_id}: {result}")
+                                    return result
 
                     except Exception as e:
-                        _LOGGER.debug(f"Failed to read attribute with {service_domain}.{service_method}: {e}")
+                        # Continue silently to try next method
+                        pass
 
-    # If all service calls failed, try using a direct ZHA gateway call if available
+    # If no service calls were attempted, log a more helpful message
+    if not service_calls_attempted:
+        _LOGGER.error("No compatible Zigbee services found for reading attributes - please check your Zigbee integration")
+    else:
+        _LOGGER.warning(f"Failed to read attribute {attribute_id} from cluster {cluster_id} with all methods")
+        return None
+
     try:
         _LOGGER.info("Attempting direct ZHA gateway access as fallback")
         from homeassistant.components.zha.core.gateway import ZHAGateway

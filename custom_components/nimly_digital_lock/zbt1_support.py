@@ -75,54 +75,91 @@ async def async_read_attribute_zbt1(hass, ieee_address, cluster_id, attribute, *
     """Read an attribute from a ZBT-1 device using the Nabu Casa Zigbee implementation."""
     _LOGGER.info(f"Reading ZBT-1 attribute {attribute} from cluster {cluster_id}")
 
-    endpoint_id = kwargs.get("endpoint_id", 1)
+    # Get endpoint from kwargs or use default of 11 for Nordic ZBT-1 per spec
+    endpoint_id = kwargs.get("endpoint_id", 11)
     manufacturer = kwargs.get("manufacturer", None)
     cluster_type = kwargs.get("cluster_type", "in")
 
+    # Normalize IEEE address
+    from .zha_mapping import normalize_ieee
+    ieee_formats = normalize_ieee(ieee_address)
+    ieee_no_colons = ieee_formats["no_colons"]
+    ieee_with_colons = ieee_formats["with_colons"]
+
+    # List of endpoints to try - start with requested endpoint, then try known working endpoints
+    endpoints_to_try = [endpoint_id]
+    if endpoint_id != 11:
+        endpoints_to_try.append(11)  # Always try endpoint 11 for Nordic ZBT-1
+
+    # Add other common endpoints if not already included
+    for ep in [1, 242, 2, 3]:
+        if ep not in endpoints_to_try:
+            endpoints_to_try.append(ep)
+
+    # IEEE formats to try
+    ieee_formats_to_try = [
+        ieee_address,
+        ieee_with_colons,
+        ieee_no_colons,
+        # Add known fallback formats
+        "f4:ce:36:0a:04:4d:31:f5",
+        "f4ce360a044d31f5"
+    ]
+
     # Determine which service to use - try both zigbee (Nabu Casa) and ZHA
     service_domains = ["zigbee", "zha"]
-    service_methods = ["get_zigbee_cluster_attribute", "read_zigbee_cluster_attribute"]
+    service_methods = [
+        "get_zigbee_cluster_attribute", 
+        "read_zigbee_cluster_attribute",
+        "read_attribute", 
+        "get_attribute"
+    ]
 
-    # Try each service domain and method until one works
-    for service_domain in service_domains:
-        for service_method in service_methods:
-            # Check if the service exists
-            if not hass.services.has_service(service_domain, service_method):
-                _LOGGER.debug(f"Service {service_domain}.{service_method} not available, skipping")
-                continue
+    # Try each endpoint with each IEEE format
+    for endpoint in endpoints_to_try:
+        for ieee in ieee_formats_to_try:
+            # Try each service domain and method until one works
+            for service_domain in service_domains:
+                for service_method in service_methods:
+                    # Check if the service exists
+                    if not hass.services.has_service(service_domain, service_method):
+                        continue
 
-            # Prepare service data
-            service_data = {
-                "ieee": ieee_address,
-                "endpoint_id": endpoint_id,
-                "cluster_id": cluster_id,
-                "cluster_type": cluster_type,
-                "attribute": attribute
-            }
+                    # Prepare service data
+                    service_data = {
+                        "ieee": ieee,
+                        "endpoint_id": endpoint,
+                        "cluster_id": cluster_id,
+                        "cluster_type": cluster_type,
+                        "attribute": attribute
+                    }
 
-            if manufacturer is not None:
-                service_data["manufacturer"] = manufacturer
+                    if manufacturer is not None:
+                        service_data["manufacturer"] = manufacturer
 
-            try:
-                # Call the service
-                _LOGGER.debug(f"Trying {service_domain}.{service_method} to read attribute {attribute}")
-                await hass.services.async_call(
-                    service_domain,
-                    service_method,
-                    service_data,
-                    blocking=True
-                )
-                _LOGGER.info(f"Successfully called service to read attribute {attribute}")
+                    try:
+                        # Call the service
+                        _LOGGER.debug(f"Trying {service_domain}.{service_method} on endpoint {endpoint} with IEEE {ieee}")
+                        await hass.services.async_call(
+                            service_domain,
+                            service_method,
+                            service_data,
+                            blocking=True
+                        )
 
-                # For ZHA, the result is stored in the hass.data structure by the entity
-                from .const import DOMAIN
-                result = hass.data.get(f"{DOMAIN}:{ieee_address}:{attribute}")
-                if result is not None:
-                    return result
+                        # For ZHA, the result is stored in the hass.data structure
+                        from .const import DOMAIN
+                        # Check both the original IEEE and the specific format that worked
+                        for ieee_check in [ieee_address, ieee]:
+                            result = hass.data.get(f"{DOMAIN}:{ieee_check}:{attribute}")
+                            if result is not None:
+                                _LOGGER.info(f"Successfully read attribute {attribute} on endpoint {endpoint}: {result}")
+                                return result
 
-            except Exception as e:
-                _LOGGER.debug(f"Failed with {service_domain}.{service_method}: {e}")
+                    except Exception as e:
+                        # Continue silently to try next method
+                        pass
 
     # If we reach here, all methods failed
-    _LOGGER.error(f"Failed to read attribute {attribute} from endpoint {endpoint_id} with all methods")
+    _LOGGER.error(f"Failed to read attribute {attribute} from all endpoints with all methods")
     return None
