@@ -20,17 +20,18 @@ COMMON_ENDPOINTS = [11, 1, 242, 2, 3]
 
 # Helper function to discover available zigbee services
 def discover_available_services(hass):
-    """Discover all available Zigbee services in Home Assistant."""
+    """Discover ZHA services in Home Assistant."""
     available_services = {}
-    for domain in ["zigbee", "zha"]:
-        domain_services = []
-        all_services = hass.services.async_services().get(domain, {})
-        for service_name in all_services:
-            if any(keyword in service_name for keyword in ["zigbee", "cluster", "command", "attribute"]):
-                domain_services.append(service_name)
-        if domain_services:
-            available_services[domain] = domain_services
+    domain = "zha"  # Only use ZHA domain
+    domain_services = []
+    all_services = hass.services.async_services().get(domain, {})
+    for service_name in all_services:
+        if any(keyword in service_name for keyword in ["zigbee", "cluster", "command", "attribute"]):
+            domain_services.append(service_name)
+    if domain_services:
+        available_services[domain] = domain_services
 
+    _LOGGER.debug(f"Found ZHA services: {domain_services}")
     return available_services
 
 
@@ -54,22 +55,18 @@ async def _send_lock_command(hass, ieee_address, command):
     available_services = discover_available_services(hass)
     _LOGGER.debug(f"Available Zigbee services: {available_services}")
 
-    # If we found services, use them directly
-    service_domains = []
+    # Always use ZHA domain only
+    service_domains = ["zha"]
     service_methods = []
 
-    # Add discovered services to our list
-    for domain, methods in available_services.items():
-        service_domains.append(domain)
-        service_methods.extend(methods)
+    # Add discovered ZHA services to our list
+    if "zha" in available_services:
+        service_methods.extend(available_services["zha"])
 
-    # If no services were discovered, use our default list
-    if not service_domains:
-        service_domains = ["zigbee", "zha"]
+    # If no ZHA services were discovered, use default ZHA methods
     if not service_methods:
         service_methods = [
             "issue_zigbee_cluster_command", 
-            "send_zigbee_command", 
             "command", 
             "execute_zigbee_command", 
             "issue_command", 
@@ -87,10 +84,7 @@ async def _send_lock_command(hass, ieee_address, command):
     ieee_formats = [
         ieee_address,
         ieee_no_colons, 
-        ieee_with_colons,
-        # Add the known ZHA device IEEE as a fallback
-        "f4:ce:36:0a:04:4d:31:f5",
-        "f4ce360a044d31f5"
+        ieee_with_colons
     ]
 
     # Log what we're going to try
@@ -117,13 +111,8 @@ async def _send_lock_command(hass, ieee_address, command):
                     "command_type": "server"
                 }
 
-                # Try with profile parameter for Nabu Casa
-                if service_domain == "zigbee":
-                    try:
-                        service_data["profile"] = 0x0104  # Home Automation profile
-                    except Exception:
-                        # If profile not supported, continue without it
-                        pass
+                # Profile parameter is not needed for ZHA
+                pass
 
                 # CRITICAL: For ZBT-1 per Nordic spec, NO parameters allowed
                 # Different from standard Zigbee where PIN is sometimes needed
@@ -186,13 +175,8 @@ async def _send_lock_command(hass, ieee_address, command):
                             "command_type": "server"
                         }
 
-                        # Try with and without profile parameter
-                        if service_domain == "zigbee":
-                            try:
-                                service_data["profile"] = 0x0104
-                            except Exception:
-                                # If profile not supported, continue without it
-                                pass
+                        # ZHA doesn't need profile parameter
+                        pass
 
                         # Try both with empty params and without params
                         try:
@@ -267,27 +251,21 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     available_services = discover_available_services(hass)
     _LOGGER.debug(f"Available Zigbee attribute services: {available_services}")
 
-    # If we found services, use them directly
-    service_domains = []
+    # Always use ZHA domain only
+    service_domains = ["zha"]
     service_methods = []
 
-    # Add discovered services to our list
-    for domain, methods in available_services.items():
-        service_domains.append(domain)
-        service_methods.extend(methods)
+    # Add discovered ZHA services to our list
+    if "zha" in available_services:
+        service_methods.extend(available_services["zha"])
 
-    # If no services were discovered, use our default list
-    if not service_domains:
-        service_domains = ["zigbee", "zha"]
+    # If no ZHA services were discovered, use default ZHA methods
     if not service_methods:
         service_methods = [
             "get_zigbee_cluster_attribute",
             "read_zigbee_cluster_attribute",
             "read_attribute",
             "get_attribute",
-            "get_zigbee_attribute",
-            "read_zigbee_attribute",
-            "get_cluster_attribute",
             "cluster_attribute",
             "attribute_read"
         ]
@@ -302,10 +280,7 @@ async def read_safe4_attribute(hass, ieee_address, cluster_id, attribute_id):
     ieee_formats = [
         ieee_address,
         ieee_no_colons,
-        ieee_with_colons,
-        # Add the known ZHA device IEEE as a fallback
-        "f4:ce:36:0a:04:4d:31:f5",
-        "f4ce360a044d31f5"
+        ieee_with_colons
     ]
 
     # For ZBT-1 devices, use the default cluster type
@@ -416,8 +391,8 @@ async def send_safe4_lock_command(hass, ieee):
     # Get the command parameters in the correct format
     command_data = format_safe4_zbt1_command(ieee, SAFE4_LOCK_COMMAND)
 
-    # Try both service domains
-    service_domains = ["zigbee", "zha"]
+    # Only use ZHA service domain
+    service_domains = ["zha"]
     service_methods = ["issue_zigbee_cluster_command", "command"]
 
     # Track success
@@ -473,8 +448,8 @@ async def send_safe4_unlock_command(hass, ieee):
     # Get the command parameters in the correct format
     command_data = format_safe4_zbt1_command(ieee, SAFE4_UNLOCK_COMMAND)
 
-    # Try both service domains
-    service_domains = ["zigbee", "zha"]
+    # Only use ZHA service domain
+    service_domains = ["zha"]
     service_methods = ["issue_zigbee_cluster_command", "command"]
 
     # Track success

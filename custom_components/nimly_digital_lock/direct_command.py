@@ -61,75 +61,54 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
     }
     hass.data["NIMLY_LAST_COMMAND"].append(command_info)
 
-    # 1. Try Nabu Casa Zigbee service first (most reliable for ZBT-1)
+    # Only try ZHA service
     for attempt in range(retry_count):
         try:
             # For Nordic ZBT-1, follow exact specification:
-            # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+            # zcl cmd <IEEE Addr> 11 0x0101 0x00 (for lock command)
             # 
-            # IMPORTANT: According to the Safe4 ZigBee Door Lock Module specification
-            # The command must be sent with NO parameters (NOT even an empty dict)
+            # Modified for ZHA format without profile parameter
             service_data = {
                 "ieee": ieee,
                 "endpoint_id": endpoint,  # Must be 11 for ZBT-1
                 "cluster_id": cluster_id, # 0x0101 for Door Lock
                 "command": command,       # 0x00=lock, 0x01=unlock
-                "command_type": "server", 
-                "profile": profile,       # 0x0104 for Home Automation
+                "command_type": "server",
                 "params": {}             # Empty params required by Home Assistant
             }
 
-            # Send using Nabu Casa Zigbee service
-            _LOGGER.debug(f"Nabu Casa attempt {attempt+1}/{retry_count} with exact Nordic format")
+            # Send using ZHA service
+            _LOGGER.debug(f"ZHA attempt {attempt+1}/{retry_count} with params")
             await hass.services.async_call(
-                "zigbee", "issue_zigbee_cluster_command", service_data, blocking=True
+                "zha", "issue_zigbee_cluster_command", service_data, blocking=True
             )
-            _LOGGER.info(f"Successfully sent command using Nabu Casa Zigbee service on attempt {attempt+1}")
+            _LOGGER.info(f"Successfully sent command using ZHA service on attempt {attempt+1}")
             return True
         except Exception as e:
-            _LOGGER.warning(f"Failed to send using Nabu Casa Zigbee (attempt {attempt+1}): {e}")
+            error_msg = str(e)
+            _LOGGER.warning(f"Failed to send using ZHA with params (attempt {attempt+1}): {error_msg}")
 
-            # If profile parameter not supported, try without it
-            if "profile" in str(e).lower() or "extra keys not allowed" in str(e).lower():
+            # If we're getting a specific error about args/params, try with args instead
+            if "must contain at least one of args, params" in error_msg.lower():
                 try:
-                    # Try without profile parameter
-                    service_data = {
+                    # Try with args instead of params
+                    args_data = {
                         "ieee": ieee,
-                        "endpoint_id": endpoint,
-                        "cluster_id": cluster_id,
-                        "command": command,
-                        "command_type": "server",
-                        "params": {}  # Empty params required by Home Assistant
+                        "endpoint_id": endpoint,  # Must be 11 for ZBT-1
+                        "cluster_id": cluster_id, # 0x0101 for Door Lock
+                        "command": command,       # 0x00=lock, 0x01=unlock
+                        "command_type": "server", # Must be server
+                        "args": {}              # Empty args as an alternative to params
                     }
 
+                    _LOGGER.debug(f"ZHA attempt {attempt+1}/{retry_count} with args")
                     await hass.services.async_call(
-                        "zigbee", "issue_zigbee_cluster_command", service_data, blocking=True
+                        "zha", "issue_zigbee_cluster_command", args_data, blocking=True
                     )
-                    _LOGGER.info(f"Successfully sent command using Nabu Casa Zigbee service without profile parameter")
+                    _LOGGER.info(f"Successfully sent command using ZHA service with args format")
                     return True
-                except Exception as inner_e:
-                    _LOGGER.warning(f"Failed without profile parameter: {inner_e}")
-
-                    # If we're still getting args/params error, try with args instead
-                    if "must contain at least one of args, params" in str(inner_e).lower():
-                        try:
-                            # Try with args instead of params
-                            args_data = {
-                                "ieee": ieee,
-                                "endpoint_id": endpoint,
-                                "cluster_id": cluster_id,
-                                "command": command,
-                                "command_type": "server",
-                                "args": {}  # Empty args as an alternative to params
-                            }
-
-                            await hass.services.async_call(
-                                "zigbee", "issue_zigbee_cluster_command", args_data, blocking=True
-                            )
-                            _LOGGER.info(f"Successfully sent command using args format")
-                            return True
-                        except Exception as args_e:
-                            _LOGGER.warning(f"Failed with args format: {args_e}")
+                except Exception as args_e:
+                    _LOGGER.warning(f"Failed to send using ZHA with args (attempt {attempt+1}): {args_e}")
 
             if attempt < retry_count - 1:
                 await asyncio.sleep(retry_delay)
@@ -207,17 +186,15 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
         ieee_with_colons = ieee
 
     # According to Safe4 ZigBee Door Lock Module, the format must be exact
-    # Example from spec: zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01
+    # Example from spec: zcl cmd f4ce36cc35e703de 11 0x0101 0x01 (for ZHA)
     formats_to_try = [
         ieee_with_colons,  # Try with colons first (standard format) 
         ieee_no_colons     # Try without colons as fallback
-        # Note: Not using hardcoded addresses - must use correct device IEEE
     ]
 
     for ieee_format in formats_to_try:
         try:
-            # Must follow Safe4 ZBT-1 specification exactly
-            # Example: zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01
+            # Must follow Safe4 ZBT-1 specification, modified for ZHA format
             # Home Assistant requires at least one of args or params to be present
             service_data = {
                 "ieee": ieee_format,
@@ -228,25 +205,44 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
                 "params": {}              # Empty params required by Home Assistant
             }
 
-            # Try both services with each format
-            for service_domain in ["zigbee", "zha"]:
-                try:
-                    await hass.services.async_call(
-                        service_domain, "issue_zigbee_cluster_command", service_data, blocking=True
-                    )
-                    _LOGGER.info(f"Successfully sent command using {service_domain} with IEEE {ieee_format}")
-                    return True
-                except Exception as e:
-                    _LOGGER.debug(f"Failed with {service_domain} and IEEE {ieee_format}: {e}")
+            # Only try ZHA service
+            try:
+                await hass.services.async_call(
+                    "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+                )
+                _LOGGER.info(f"Successfully sent command using ZHA with IEEE {ieee_format}")
+                return True
+            except Exception as e:
+                _LOGGER.debug(f"Failed with ZHA and IEEE {ieee_format}: {e}")
+
+                # Try with args instead of params if we get a specific error
+                if "must contain at least one of args, params" in str(e).lower():
+                    try:
+                        service_data = {
+                            "ieee": ieee_format,
+                            "endpoint_id": 11,         # MUST be 11 per spec
+                            "cluster_id": 0x0101,      # Door Lock cluster
+                            "command": command,        # 0x00=lock, 0x01=unlock
+                            "command_type": "server",  # Must be server
+                            "args": {}                # Try with args instead
+                        }
+
+                        await hass.services.async_call(
+                            "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+                        )
+                        _LOGGER.info(f"Successfully sent command using ZHA with IEEE {ieee_format} and args")
+                        return True
+                    except Exception as args_e:
+                        _LOGGER.debug(f"Failed with ZHA, IEEE {ieee_format} and args: {args_e}")
         except Exception as e:
             _LOGGER.debug(f"Error trying IEEE format {ieee_format}: {e}")
 
     # 4. Try with network address (nwk) if that's available
     try:
-        # Use the known network address
+        # Use the known network address - only works with ZHA
         nwk = "0x7FDB"
         service_data = {
-            "nwk": nwk,
+            "nwk": nwk,  # Use network address instead of IEEE
             "endpoint_id": endpoint,
             "cluster_id": cluster_id,
             "command": command,
@@ -254,13 +250,34 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
             "params": {}  # Empty params required by Home Assistant
         }
 
+        # Only try with ZHA service
         await hass.services.async_call(
             "zha", "issue_zigbee_cluster_command", service_data, blocking=True
         )
-        _LOGGER.info(f"Successfully sent command using network address {nwk}")
+        _LOGGER.info(f"Successfully sent command using ZHA with network address {nwk}")
         return True
     except Exception as e:
-        _LOGGER.warning(f"Failed to send using network address: {e}")
+        # Try with args instead of params if needed
+        if "must contain at least one of args, params" in str(e).lower():
+            try:
+                service_data = {
+                    "nwk": nwk,  # Use network address instead of IEEE
+                    "endpoint_id": endpoint,
+                    "cluster_id": cluster_id,
+                    "command": command,
+                    "command_type": "server",
+                    "args": {}  # Try with args instead
+                }
+
+                await hass.services.async_call(
+                    "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+                )
+                _LOGGER.info(f"Successfully sent command using ZHA with network address {nwk} and args")
+                return True
+            except Exception as args_e:
+                _LOGGER.warning(f"Failed to send using network address with args: {args_e}")
+        else:
+            _LOGGER.warning(f"Failed to send using network address: {e}")
 
     _LOGGER.error("All command sending methods failed")
     return False

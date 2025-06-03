@@ -257,7 +257,6 @@ def format_safe4_zbt1_command(ieee, command_id):
             "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,  # 0x0101 per spec
             "command": command_id,  # 0x00=lock, 0x01=unlock per spec
             "command_type": COMMAND_TYPE,  # server
-            "profile": SAFE4_DOOR_LOCK_PROFILE,  # 0x0104 per spec
             "params": {}  # Empty params required by Home Assistant
         }
 
@@ -265,7 +264,7 @@ def format_safe4_zbt1_command(ieee, command_id):
         return command_data
     except Exception as e:
         _LOGGER.error(f"Error formatting ZBT-1 command: {e}")
-        # Return a basic command data structure as fallback
+        # Return a basic command data structure as fallback for ZHA mode
         return {
             "ieee": format_ieee_with_colons(ieee),
             "endpoint_id": SAFE4_ZBT1_ENDPOINT,

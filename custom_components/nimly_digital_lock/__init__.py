@@ -30,8 +30,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         command_type = call.data.get("command_type", "server")
         params = call.data.get("params", {})
 
-        # Determine which service to use
-        service_domain = hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+        # Always use ZHA service domain
+        service_domain = "zha"
 
         # Prepare service data
         service_data = {
@@ -70,8 +70,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         for endpoint in endpoints:
             _LOGGER.info(f"Trying endpoint {endpoint} with command {command}")
             try:
-                # Determine which service to use
-                service_domain = hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zha")
+                # Always use ZHA service domain
+                service_domain = "zha"
 
                 # Prepare service data
                 service_data = {
@@ -269,8 +269,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
             return
 
         # Extract the IEEE from the entity ID
-        from homeassistant.helpers.entity_registry import EntityRegistry
-        entity_registry = EntityRegistry.async_get(hass)
+        entity_registry = er.async_get(hass)
         entity_entry = entity_registry.async_get(entity_id)
 
         if not entity_entry or not entity_entry.unique_id:
@@ -437,38 +436,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         from .poll_lock import start_polling_service
         hass.loop.create_task(start_polling_service(hass, ieee, poll_interval=60))
 
-        # Always use zigbee service for Nabu Casa ZBT-1 devices
-        hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
-        _LOGGER.info("Using 'zigbee' service for Nabu Casa ZBT-1 device")
+        # Always use ZHA service only
+        hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zha"
+        _LOGGER.info("Using 'zha' service exclusively for Nimly lock device")
 
-        # Check for all possible Zigbee service methods
-        zigbee_service_methods = ["issue_zigbee_cluster_command", "send_zigbee_command", "command", "execute_zigbee_command"]
-        has_zha = any(hass.services.has_service("zha", method) for method in zigbee_service_methods)
-        has_zigbee = any(hass.services.has_service("zigbee", method) for method in zigbee_service_methods)
+        # Check for ZHA service methods
+        zha_service_methods = ["issue_zigbee_cluster_command", "command", "execute_zigbee_command"]
+        has_zha = any(hass.services.has_service("zha", method) for method in zha_service_methods)
 
-        # Log all available services to help with debugging
+        # Log available ZHA services to help with debugging
         zigbee_services = {}
         all_services = hass.services.async_services()
 
-        # Scan for ANY services that might be relevant for Zigbee operations
-        if "zigbee" in all_services:
-            zigbee_services["zigbee"] = all_services["zigbee"]
+        # Only track ZHA services
         if "zha" in all_services:
             zigbee_services["zha"] = all_services["zha"]
-        if "mqtt" in all_services:
-            zigbee_services["mqtt"] = all_services["mqtt"]
-        if "zigbee2mqtt" in all_services:
-            zigbee_services["zigbee2mqtt"] = all_services["zigbee2mqtt"]
-        if "z2m" in all_services:
-            zigbee_services["z2m"] = all_services["z2m"]
+
+        # Optionally log ZHA-specific tools for advanced diagnostics
         if "zha_toolkit" in all_services:
             zigbee_services["zha_toolkit"] = all_services["zha_toolkit"]
         if "zha_map" in all_services:
             zigbee_services["zha_map"] = all_services["zha_map"]
 
-        _LOGGER.debug(f"Available Zigbee-related services: {zigbee_services}")
+        _LOGGER.debug(f"Available ZHA services: {zigbee_services}")
 
-        # Check for specific service methods in different domains
+        # Check for specific service methods in ZHA domain
         available_methods = {}
         for domain, services in zigbee_services.items():
             for service in services:
@@ -477,24 +469,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
                         available_methods[domain] = []
                     available_methods[domain].append(service)
 
-        _LOGGER.info(f"Available Zigbee command/attribute methods: {available_methods}")
+        _LOGGER.info(f"Available ZHA command/attribute methods: {available_methods}")
 
-        if has_zigbee:
-            _LOGGER.info("Detected Nabu Casa zigbee integration")
-            # Store which service to use for zigbee commands
-            hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
-        elif has_zha:
+        if has_zha:
             _LOGGER.info("Using standard ZHA integration")
+            # Always use ZHA for zigbee commands
             hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zha"
         else:
-            _LOGGER.warning("No Zigbee service found - defaulting to 'zigbee' for Nabu Casa")
-            hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zigbee"
+            _LOGGER.warning("ZHA service not found - check your ZHA installation")
+            # Still use ZHA even if not found - we're enforcing ZHA mode only
+            hass.data[f"{DOMAIN}_ZIGBEE_SERVICE"] = "zha"
 
         # Log which service we're using
         _LOGGER.info(f"Using {hass.data[f'{DOMAIN}_ZIGBEE_SERVICE']} service for zigbee commands")
 
-            # Use more realistic default values or check from ZHA if possible
-        import asyncio
 
         # Attempt to read actual values from device if possible
         from .safe4_lock import read_safe4_attribute
