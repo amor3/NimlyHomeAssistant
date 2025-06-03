@@ -118,16 +118,23 @@ async def _send_lock_command(hass, ieee_address, command):
                 try:
                     # Try both with empty params and without params key
                     # Some implementations don't support params at all
-                    service_data_with_params = {**service_data, "params": {}}
+                    service_data_with_params = {**service_data, "params": []}
 
                     try:
                         # First try with empty params
-                        await hass.services.async_call(
-                            service_domain,
-                            service_method,
-                            service_data_with_params,
-                            blocking=True
-                        )
+                        for attempt in range(5):
+                            try:
+                                await hass.services.async_call(
+                                    service_domain,
+                                    service_method,
+                                    service_data_with_params,
+                                    blocking=True
+                                )
+                                _LOGGER.info(f"Successfully sent {command_name} command using endpoint 11 with empty params on attempt {attempt+1}")
+                                return True
+                            except Exception as e:
+                                _LOGGER.warning(f"Attempt {attempt+1} failed: {e}")
+                                await asyncio.sleep(1.5 * (2 ** attempt))
                         _LOGGER.info(f"Successfully sent {command_name} command using endpoint 11 with empty params")
                         return True
                     except Exception as e:
@@ -180,7 +187,7 @@ async def _send_lock_command(hass, ieee_address, command):
                         # Try both with empty params and without params
                         try:
                             # First try with empty params
-                            service_data_with_params = {**service_data, "params": {}}
+                            service_data_with_params = {**service_data, "params": []}
                             await hass.services.async_call(
                                 service_domain,
                                 service_method,
@@ -216,7 +223,7 @@ async def _send_lock_command(hass, ieee_address, command):
                     "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
                     "command": command,
                     "command_type": "server",
-                    "params": {}
+                    "params": []
                 }
 
                 # Check if the service exists

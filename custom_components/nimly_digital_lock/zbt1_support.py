@@ -68,7 +68,7 @@ async def get_zha_device(hass, ieee_address):
     _LOGGER.warning(f"Device with IEEE {ieee_address} not found in ZHA gateway")
     return None
 
-async def async_read_attribute_zbt1(hass, ieee_address, cluster_id, attribute_id, retries=3):
+async def async_read_attribute_zbt1(hass, ieee_address, cluster_id, attribute_id, retries=3, delay=1.0):
     """Read an attribute directly from the ZHA device object.
 
     Args:
@@ -99,6 +99,8 @@ async def async_read_attribute_zbt1(hass, ieee_address, cluster_id, attribute_id
         # Try to find the cluster
         cluster = endpoint.in_clusters.get(cluster_id)
         if not cluster:
+            _LOGGER.warning(f"Cluster {cluster_id} not found on endpoint {endpoint_id}")
+            continue
             _LOGGER.debug(f"Cluster {cluster_id} not found on endpoint {endpoint_id}")
             continue
 
