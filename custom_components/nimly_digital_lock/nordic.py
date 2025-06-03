@@ -61,7 +61,9 @@ async def send_nordic_command(hass, ieee, command_id, retry_count=5, retry_delay
     # Format IEEE address with colons
     ieee_with_colons = format_ieee_with_colons(ieee)
 
-    # Get the command parameters in the correct format
+    # According to Safe4 spec, command must be in format:
+    # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+    # with NO parameters passed
     command_data = format_safe4_zbt1_command(ieee, command_id)
 
     # Try both service domains
@@ -118,6 +120,15 @@ async def lock_door(hass, ieee):
 async def unlock_door(hass, ieee):
     """Unlock the door using Nordic ZBT-1 specification.
 
+    According to the Safe4 ZigBee Door Lock Module specification:
+    - Command must be sent in this exact format: 
+      zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
+    - Endpoint must be exactly 11
+    - Cluster ID must be 0x0101 (Door Lock)
+    - Profile ID must be 0x0104 (Home Automation)
+    - Command ID must be 0x01 for unlock
+    - NO parameters can be passed
+
     Args:
         hass: Home Assistant instance
         ieee: IEEE address of the device
@@ -126,7 +137,8 @@ async def unlock_door(hass, ieee):
         Boolean indicating success or failure
     """
     _LOGGER.info(f"Unlocking door with Nordic ZBT-1 format: {ieee}")
-    return await send_nordic_command(hass, ieee, SAFE4_UNLOCK_COMMAND)
+    # Use a higher retry count for unlock since this seems to be problematic
+    return await send_nordic_command(hass, ieee, SAFE4_UNLOCK_COMMAND, retry_count=10)
 
 async def read_attribute(hass, ieee, cluster_id, attribute_id, endpoint=SAFE4_ZBT1_ENDPOINT):
     """Read an attribute from a Nordic ZBT-1 device.

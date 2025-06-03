@@ -186,15 +186,40 @@ async def get_endpoints(hass, ieee):
         return [11, 1, 2, 3, 242]
 
 def format_safe4_zbt1_command(ieee, command_id):
+    """Format command according to Safe4 ZigBee Door Lock Module specification.
+
+    The command format must be exactly:
+    zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+
+    Where:
+    - Endpoint must be exactly 11
+    - Cluster ID must be 0x0101 (Door Lock)
+    - Profile ID must be 0x0104 (Home Automation)
+    - NO parameters can be passed
+    """
     ieee_with_colons = format_ieee_with_colons(ieee)
-    command_data = {
-        "ieee": ieee_with_colons,
-        "endpoint_id": SAFE4_ZBT1_ENDPOINT,
-        "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
-        "command": command_id,
-        "command_type": COMMAND_TYPE,
-        "profile": SAFE4_DOOR_LOCK_PROFILE
-    }
+    # For unlock/lock commands, params field must be omitted entirely according to spec
+    if command_id in [0x00, 0x01]:  # Lock/Unlock commands
+        command_data = {
+            "ieee": ieee_with_colons,
+            "endpoint_id": SAFE4_ZBT1_ENDPOINT,  # Must be 11 per spec
+            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,  # 0x0101 per spec
+            "command": command_id,  # 0x00=lock, 0x01=unlock per spec
+            "command_type": COMMAND_TYPE,  # server
+            "profile": SAFE4_DOOR_LOCK_PROFILE  # 0x0104 per spec
+            # NO params field - the spec requires NO parameters for lock/unlock
+        }
+    else:
+        # For other commands, include empty params dict
+        command_data = {
+            "ieee": ieee_with_colons,
+            "endpoint_id": SAFE4_ZBT1_ENDPOINT, 
+            "cluster_id": SAFE4_DOOR_LOCK_CLUSTER,
+            "command": command_id,
+            "command_type": COMMAND_TYPE,
+            "profile": SAFE4_DOOR_LOCK_PROFILE,
+            "params": {}  # Empty params for non-lock/unlock commands
+        }
     return command_data
 
 def get_ieee_no_colons(ieee):

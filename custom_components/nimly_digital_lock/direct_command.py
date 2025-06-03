@@ -14,6 +14,13 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
     For Nordic ZBT-1 locks, the command format should follow exactly:
     zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
 
+    According to Safe4 ZigBee Door Lock Module specification:
+    - Endpoint must be exactly 11
+    - Cluster ID must be 0x0101 (Door Lock)
+    - Profile ID must be 0x0104 (Home Automation) 
+    - Command ID must be 0x00 for lock, 0x01 for unlock
+    - NO parameters can be passed
+
     Args:
         hass: Home Assistant instance
         ieee: IEEE address of the device
@@ -43,14 +50,17 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
         try:
             # For Nordic ZBT-1, follow exact specification:
             # zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 <command id>
+            # 
+            # IMPORTANT: According to the Safe4 ZigBee Door Lock Module specification
+            # The command must be sent with NO parameters (NOT even an empty dict)
             service_data = {
                 "ieee": ieee,
                 "endpoint_id": endpoint,  # Must be 11 for ZBT-1
                 "cluster_id": cluster_id, # 0x0101 for Door Lock
                 "command": command,       # 0x00=lock, 0x01=unlock
-                "command_type": "server",
-                "profile": profile,       # 0x0104 for Home Automation
-                "params": {}              # MUST be empty for lock/unlock per spec
+                "command_type": "server", 
+                "profile": profile        # 0x0104 for Home Automation
+                # NO params field - the spec requires NO parameters to be passed
             }
 
             # Send using Nabu Casa Zigbee service
@@ -72,8 +82,8 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
                         "endpoint_id": endpoint,
                         "cluster_id": cluster_id,
                         "command": command,
-                        "command_type": "server",
-                        "params": {}
+                        "command_type": "server"
+                        # NO params field - the spec requires NO parameters to be passed
                     }
 
                     await hass.services.async_call(
@@ -90,12 +100,14 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
     # 2. Try ZHA service as fallback
     for attempt in range(retry_count):
         try:
+            # ZHA service - must follow Safe4 ZBT-1 spec exactly
+            # Note: ZHA format must NOT include params field for lock/unlock
             service_data = {
                 "ieee": ieee,
-                "endpoint_id": endpoint,
-                "cluster_id": cluster_id,
-                "command": command,
-                "command_type": "server"
+                "endpoint_id": endpoint,  # Must be 11 for ZBT-1
+                "cluster_id": cluster_id, # 0x0101 for Door Lock
+                "command": command,       # 0x00=lock, 0x01=unlock
+                "command_type": "server"  # No params or profile
             }
 
             # Send using ZHA service
@@ -120,22 +132,24 @@ async def send_direct_command(hass, ieee, command, endpoint=11, cluster_id=0x010
     ieee_no_colons = ieee.replace(':', '')
     ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
 
+    # According to Safe4 ZigBee Door Lock Module, the format must be exact
+    # Example from spec: zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01
     formats_to_try = [
-        ieee_no_colons,
-        ieee_with_colons,
-        # Add the known ZHA device IEEE address as a last resort
-        "f4:ce:36:0a:04:4d:31:f5",
-        "f4ce360a044d31f5"
+        ieee_with_colons,  # Try with colons first (standard format) 
+        ieee_no_colons     # Try without colons as fallback
+        # Note: Not using hardcoded addresses - must use correct device IEEE
     ]
 
     for ieee_format in formats_to_try:
         try:
+            # Must follow Safe4 ZBT-1 specification exactly
+            # Example: zcl cmd f4ce36cc35e703de 11 0x0101 -p 0x0104 0x01
             service_data = {
                 "ieee": ieee_format,
-                "endpoint_id": endpoint,
-                "cluster_id": cluster_id,
-                "command": command,
-                "command_type": "server"
+                "endpoint_id": 11,         # MUST be 11 per spec
+                "cluster_id": 0x0101,      # Door Lock cluster
+                "command": command,        # 0x00=lock, 0x01=unlock
+                "command_type": "server"   # No params per spec
             }
 
             # Try both services with each format
@@ -196,6 +210,13 @@ async def unlock_door(hass, ieee):
 
     Nordic ZBT-1 requires command to be exactly:
     zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
+
+    According to Safe4 ZigBee Door Lock Module specification:
+    - Endpoint must be exactly 11
+    - Cluster ID must be 0x0101 (Door Lock)
+    - Profile ID must be 0x0104 (Home Automation)
+    - Command ID must be 0x01 for unlock
+    - NO parameters can be passed
     """
     _LOGGER.info(f"Unlocking door with Nordic ZBT-1 format on endpoint 11: {ieee}")
     return await send_direct_command(
@@ -204,5 +225,6 @@ async def unlock_door(hass, ieee):
         command=0x01,       # Unlock command ID exactly 0x01
         endpoint=11,       # MUST be endpoint 11 per Nordic spec
         cluster_id=0x0101, # Door Lock cluster
-        profile=0x0104     # Home Automation profile
+        profile=0x0104,    # Home Automation profile
+        retry_count=10     # Increase retry count for unlock command
     )
