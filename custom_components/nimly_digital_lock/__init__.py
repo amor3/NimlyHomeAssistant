@@ -589,7 +589,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Cannot proceed without real ZBT-1 device
         return False
 
-    await hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"])
+    hass.async_create_task(hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"]))
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
