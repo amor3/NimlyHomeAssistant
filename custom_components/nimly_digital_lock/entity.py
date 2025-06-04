@@ -519,8 +519,8 @@ class NimlyDigitalLock(LockEntity):
         except Exception as e:
             _LOGGER.error(f"Failed to unlock: {e}")
 
+
         # Then try with the direct command module
-        from .direct_command import unlock_door
         _LOGGER.info(f"Attempting unlock with direct command module")
 
         # Ensure we're using the correct constants from zha_mapping for ZBT-1
