@@ -493,195 +493,24 @@ class NimlyDigitalLock(LockEntity):
         return True
 
     async def async_unlock(self, **kwargs):
-        _LOGGER.info(f"Unlocking {self._name} [{self._ieee}]")
-
-        # Standard ZHA unlock command
+        _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] via direct command")
         try:
-            # Use ZHA service with Door Lock cluster (0x0101) and unlock command (0x01)
-            service_data = {
-                "ieee": self._ieee_with_colons,
-                "endpoint_id": 11,  # ZBT-1 uses endpoint 11
-                "cluster_id": 0x0101,  # Door Lock cluster
-                "command": 0x01,  # Unlock command
-                "command_type": "server",
-                "params": {}  # Empty params required by HA
-            }
+            from .nordic import unlock_door
 
-            await self._hass.services.async_call(
-                "zha", "issue_zigbee_cluster_command", service_data, blocking=True
-            )
-
-            _LOGGER.info(f"Successfully sent unlock command")
-            self._is_locked = False
-            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-            self.async_write_ha_state()
-            return True
+            success = await unlock_door(self._hass, self._ieee_with_colons)
         except Exception as e:
-            _LOGGER.error(f"Failed to unlock: {e}")
+            _LOGGER.error(f"Error sending direct unlock: {e}")
+            return False
 
-
-        # Then try with the direct command module
-        _LOGGER.info(f"Attempting unlock with direct command module")
-
-        # Ensure we're using the correct constants from zha_mapping for ZBT-1
-        from .zha_mapping import ZBT1_UNLOCK_COMMAND
-
-        # Try first with the most specific format for Nordic ZBT-1
-        try:
-            # Import the Nordic-specific command module
-            from .nordic import unlock_door as nordic_unlock_door
-            _LOGGER.info(f"Attempting unlock with Nordic-specific command module")
-            nordic_success = await nordic_unlock_door(self._hass, self._ieee_with_colons)
-            if nordic_success:
-                _LOGGER.info(f"Successfully unlocked using Nordic-specific format")
-                self._is_locked = False
-                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-                self.async_write_ha_state()
-                return True
-        except Exception as e:
-            _LOGGER.warning(f"Nordic-specific unlock failed: {e}")
-
-        # If Nordic-specific method failed, try the direct command module
-        success = await unlock_door(self._hass, self._ieee_with_colons)
-
-        # If direct command succeeds, update state and return
         if success:
             _LOGGER.info(f"Successfully unlocked {self.name} using direct command")
-            # Update internal state
             self._is_locked = False
             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
             self.async_write_ha_state()
             return True
-
-        # If direct command fails, try the Safe4 lock module
-        _LOGGER.info(f"Direct command failed, trying Safe4 module")
-        success = await send_safe4_unlock_command(
-            self._hass,
-            self._ieee_with_colons  # IEEE address with colons
-        )
-
-        if success:
-            _LOGGER.info(f"Successfully unlocked {self.name} using Safe4 command format")
-            # Update internal state
-            self._is_locked = False
-            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-            self.async_write_ha_state()
-            return True
-
-        # If the Safe4 method failed, try standard methods as fallback
-        _LOGGER.warning("Safe4 unlock command failed, trying standard methods")
-
-        # Check if ZHA services are available
-        service_domain = self._hass.data.get(f"{DOMAIN}_ZIGBEE_SERVICE", "zigbee")
-        has_command_service = self._hass.services.has_service(service_domain, "issue_zigbee_cluster_command")
-
-        if has_command_service:
-            _LOGGER.debug(f"Trying standard service to unlock door: {service_domain}")
-
-            # If that fails, try with numeric command ID directly
-            if not success:
-                try:
-                    if "unlock_door" in LOCK_COMMANDS:
-                        _LOGGER.info("First unlock attempt failed, trying with numeric command ID")
-                        command_id = LOCK_COMMANDS["unlock_door"]
-                        success = await self._send_zigbee_command(command_id)
-                except Exception as e:
-                    _LOGGER.warning(f"Error trying to use LOCK_COMMANDS: {e}")
-
-            # If still unsuccessful, try ZBT-1 specific method
-            if not success:
-                _LOGGER.info("Standard unlock attempts failed, trying ZBT-1 specific method according to Safe4 spec")
-                # Nordic Semiconductor format requires endpoint 11 and specific command format
-                endpoints = [11]  # According to the Safe4 spec, endpoint must be 11
-
-                # First try using the known ZHA device directly with IEEE address
-                _LOGGER.info(f"Attempting to send unlock command to ZHA device with IEEE {self._zha_ieee}")
-                try:
-                    # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
-                    # Command format exactly as specified: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
-                    success = await async_send_command_zbt1(
-                        self._hass,
-                        self._zha_ieee,  # Use the ZHA device's IEEE address
-                        SAFE4_UNLOCK_COMMAND,  # Command ID must be exactly 0x01 for unlock per spec
-                        0x0101,  # Door Lock cluster 0x0101
-                        endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
-                        params=None  # NO parameters allowed per specification
-                    )
-
-                    if not success:
-                        # If IEEE address fails, try with network address
-                        _LOGGER.info(f"Attempting to send unlock command using network address {self._zha_nwk}")
-                        # ZHA doesn't directly support nwk parameter, use ieee instead
-
-                        # Try direct ZHA service call with network address as ieee
-                        service_data = {
-                            "ieee": self._zha_nwk,  # Use network address as ieee parameter
-                            "command": SAFE4_UNLOCK_COMMAND,
-                            "command_type": "server",
-                            "cluster_id": 0x0101,  # Door Lock cluster
-                            "endpoint_id": 11,
-                            "params": {"pin_code": ""}
-                        }
-
-                        await self._hass.services.async_call(
-                            "zha", "issue_zigbee_cluster_command", service_data
-                        )
-                        _LOGGER.info(f"Unlock command sent using network address {self._zha_nwk}")
-                        success = True
-
-                    if success:
-                        _LOGGER.info(f"Successfully sent unlock command to ZHA device {self._zha_ieee}")
-                        self._is_locked = False
-                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-                        self.async_write_ha_state()
-                        return True
-                except Exception as e:
-                    _LOGGER.warning(f"Failed to send unlock command to ZHA device: {e}")
-
-                for endpoint in endpoints:
-                    _LOGGER.info(f"Trying unlock with ZBT-1 method on endpoint {endpoint} per Safe4 specification")
-
-                    # For Safe4 ZigBee Door Lock with Nordic Semiconductor format
-                    # Command format exactly as specified: zcl cmd <IEEE Addr> 11 0x0101 -p 0x0104 0x01
-                    # Command ID must be 0x01 with NO parameters
-                    success = await async_send_command_zbt1(
-                        self._hass,
-                        self._ieee_with_colons,  # IEEE address with colons
-                        SAFE4_UNLOCK_COMMAND,  # Command ID must be exactly 0x01 for unlock per spec
-                        0x0101,  # Door Lock cluster 0x0101
-                        endpoint_id=11,  # Must be endpoint 11 per Safe4 specification
-                        params=None  # NO parameters allowed per specification
-                    )
-
-                    if success:
-                        _LOGGER.info("Successfully sent Safe4 unlock command")
-                        # Update internal state
-                        self._is_locked = False
-                        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-                        return
-                    else:
-                        _LOGGER.error("Failed to send Safe4 unlock command")
-
-                    if success:
-                        _LOGGER.info(f"ZBT-1 unlock successful on endpoint {endpoint}")
-                        break
-
-            if success:
-                _LOGGER.info("Unlock command sent successfully")
-            else:
-                _LOGGER.warning("Failed to send unlock command after multiple attempts. Using simulated state.")
         else:
-            if not has_command_service:
-                _LOGGER.error(f"Service {service_domain}.issue_zigbee_cluster_command not available. Cannot control lock.")
-            else:
-                _LOGGER.info("Operating in simulated mode or device info not found")
-
-        # Update our internal state
-        self._is_locked = False
-        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
-        self.async_write_ha_state()
-        return True
-
+            _LOGGER.error("Direct unlock command failed")
+            return False
     async def async_update(self):
         _LOGGER.debug(f"Updating lock state for {self._name} [{self._ieee}]")
 
