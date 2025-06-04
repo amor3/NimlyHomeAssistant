@@ -74,6 +74,8 @@ async def poll_lock_state(hass, ieee, ieee_with_colons):
             # We already imported these modules above, just using them here
             from .const import LOCK_CLUSTER_ID
 
+            from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
+
             result = await async_read_attribute_zbt1(hass, ieee_with_colons, LOCK_CLUSTER_ID, 0x0000)
             if result is not None:
                 # Store in both IEEE formats for consistency

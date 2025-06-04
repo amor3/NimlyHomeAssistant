@@ -68,18 +68,15 @@ async def get_zha_device(hass, ieee_address):
     _LOGGER.warning(f"Device with IEEE {ieee_address} not found in ZHA gateway")
     return None
 
-async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoint_id=11):
+async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoint_id=None):
     """
-    Try to read a Zigbee attribute from one of the known ZBT1 endpoints.
-    If endpoint_id is given, try it first; otherwise loop through ZBT1_ENDPOINTS.
+    Try to read a Zigbee attribute from known ZBT1 endpoints.
     """
+    from .zha_mapping import format_ieee_with_colons
+    from .const_zbt1 import ZBT1_ENDPOINTS
     ieee_colon = format_ieee_with_colons(ieee)
-
-    # If the caller already told us a preferred endpoint_id (e.g. 11), try it first
     endpoints_to_try = [endpoint_id] + [ep for ep in ZBT1_ENDPOINTS if ep != endpoint_id] \
-                      if endpoint_id is not None \
-                      else ZBT1_ENDPOINTS
-
+                      if endpoint_id is not None else ZBT1_ENDPOINTS
     for ep in endpoints_to_try:
         if ep is None:
             continue
@@ -99,10 +96,10 @@ async def async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoi
                 return_response=True,
             )
             if result is not None:
-                _LOGGER.info(f"ZBT-1 read got {attribute_id=} on ep {ep}: {result}")
+                _LOGGER.info(f"ZBT-1 read got attribute_id={attribute_id} on ep {ep}: {result}")
                 return result
         except Exception as e:
             _LOGGER.debug(f"ZBT-1 read failed on ep={ep} (cluster={hex(cluster_id)}, attr={hex(attribute_id)}): {e}")
-
     _LOGGER.warning(f"ZBT-1 read never succeeded (cluster={hex(cluster_id)}, attr={hex(attribute_id)})")
     return None
+
