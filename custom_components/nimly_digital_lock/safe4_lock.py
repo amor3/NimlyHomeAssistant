@@ -424,23 +424,39 @@ async def get_battery_level(hass, ieee):
     return None
 
 async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id, endpoint=11):
-    """Read an attribute from a device.
-
-    Args:
-        hass: Home Assistant instance
-        ieee: IEEE address of the device
-        cluster_id: Cluster ID
-        attribute_id: Attribute ID
-        endpoint: Endpoint ID (default is 11)
-
-    Returns:
-        Attribute value or None if not available
     """
-    from .zbt1_support import async_read_attribute_zbt1
+    Try to read a single attribute from any of the common endpoints (in order).
+    Calls zha.read_attribute under the hood, and returns the first non-None result.
+    """
+    # Format the IEEE the way ZHA expects (with colons)
+    from .zha_mapping import format_ieee_with_colons
 
-    # Try using the ZBT1 support module to read the attribute
-    result = await async_read_attribute_zbt1(hass, ieee, cluster_id, attribute_id, endpoint)
-    return result
+    ieee_colon = format_ieee_with_colons(ieee)
+
+    for ep_id in COMMON_ENDPOINTS:
+        try:
+            service_data = {
+                "ieee": ieee_colon,
+                "endpoint_id": ep_id,
+                "cluster_id": cluster_id,
+                "attribute": attribute_id,
+            }
+            _LOGGER.debug(f"Trying Safe4 read: cluster={hex(cluster_id)} attr={hex(attribute_id)} on endpoint {ep_id}")
+            result = await hass.services.async_call(
+                "zha",
+                "read_attribute",
+                service_data,
+                blocking=True,
+                return_response=True,
+            )
+            if result is not None:
+                _LOGGER.info(f"Safe4 read got attribute_id={attribute_id} on ep {ep_id}: {result}")
+                return result
+        except Exception as e:
+            _LOGGER.debug(f"Safe4 read failed on ep={ep_id} (cluster={hex(cluster_id)}, attr={hex(attribute_id)}): {e}")
+
+    _LOGGER.warning(f"Safe4 read never succeeded (cluster={hex(cluster_id)}, attr={hex(attribute_id)})")
+    return None
 
 async def try_direct_zha_gateway_access(hass, ieee_address, cluster_id, attribute_id, cluster_type, ieee_formats):
     from .const import DOMAIN
