@@ -425,12 +425,14 @@ async def get_battery_level(hass, ieee):
 
 async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id, endpoint=11):
     """
-    Try to read a single attribute from common endpoints.
-    Calls zha.read_attribute and returns first non-None result.
+    Try to read a single attribute from any of the common endpoints (in order).
+    Calls zha.read_attribute under the hood, and returns the first non-None result.
     """
+    # Format the IEEE the way ZHA expects (with colons)
     from .zha_mapping import format_ieee_with_colons
+
     ieee_colon = format_ieee_with_colons(ieee)
-    COMMON_ENDPOINTS = [11, 1, 242, 2, 3]
+
     for ep_id in COMMON_ENDPOINTS:
         try:
             service_data = {
@@ -452,6 +454,7 @@ async def read_safe4_attribute(hass, ieee, cluster_id, attribute_id, endpoint=11
                 return result
         except Exception as e:
             _LOGGER.debug(f"Safe4 read failed on ep={ep_id} (cluster={hex(cluster_id)}, attr={hex(attribute_id)}): {e}")
+
     _LOGGER.warning(f"Safe4 read never succeeded (cluster={hex(cluster_id)}, attr={hex(attribute_id)})")
     return None
 
