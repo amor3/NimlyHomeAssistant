@@ -43,7 +43,7 @@ class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Validate IEEE address length
             # Use the normalized IEEE functions from zha_mapping
-            from .zha_mapping import normalize_ieee
+            from .protocols import normalize_ieee
             ieee_formats = normalize_ieee(ieee)
             ieee_clean = ieee_formats["no_colons"]
 

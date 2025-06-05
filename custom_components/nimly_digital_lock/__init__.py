@@ -8,7 +8,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 # Define ZHA domain constant directly instead of importing from unavailable path
 ZHA_DOMAIN = "zha"
 from .const import DOMAIN, ATTRIBUTE_MAP
-from .zha_mapping import normalize_ieee, format_ieee
+from .protocols import normalize_ieee, format_ieee
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,8 +107,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Add direct Safe4 lock/unlock service
     async def send_safe4_command(call):
         """Send a direct command to Safe4 ZigBee Door Lock using exact spec format."""
-        from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command
-        from .zha_mapping import format_ieee_with_colons
+        from .protocols import send_safe4_lock_command, send_safe4_unlock_command
+        from .protocols import format_ieee_with_colons
 
         ieee = call.data["ieee"]
         command = call.data["command"].lower()
@@ -259,7 +259,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # Register services for diagnostics and troubleshooting
     from .utils.diagnostic import dump_diagnostics_to_log
     from .direct_command import send_direct_command
-    from .nordic import send_nordic_command, set_pin_code, clear_pin_code
+    from .protocols import send_nordic_command, set_pin_code, clear_pin_code
 
     async def handle_run_diagnostics(call):
         """Handle the run_diagnostics service call."""
@@ -485,8 +485,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 
         # Attempt to read actual values from device if possible
-        from .safe4_lock import read_safe4_attribute
-        from .safe4_lock import SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
+        from .protocols import read_safe4_attribute
+        from .protocols import SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
 
         # Try to read battery level
         try:

@@ -1,0 +1,16 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nimly Digital Lock (ZHA)",
+        "description": "This integration automatically discovers Safe4/Nimly door locks joined under ZHA.",
+        "submit": "Done"
+      }
+    }
+  },
+  "entity_attribute": {
+    "lock_state": "Lock State",
+    "door_state": "Door State",
+    "battery_percent": "Battery %"
+  }
+}

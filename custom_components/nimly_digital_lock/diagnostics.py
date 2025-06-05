@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
-from .safe4_lock import COMMON_ENDPOINTS
+from .protocols import COMMON_ENDPOINTS
 
 _LOGGER = logging.getLogger(__name__)
 

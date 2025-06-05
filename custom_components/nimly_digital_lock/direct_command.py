@@ -3,7 +3,7 @@
 
 import logging
 import asyncio
-from custom_components.nimly_digital_lock.zha_mapping import validate_ieee
+from .protocols import validate_ieee
 
 _LOGGER = logging.getLogger(__name__)
 

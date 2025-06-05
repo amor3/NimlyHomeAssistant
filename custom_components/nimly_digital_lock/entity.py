@@ -15,7 +15,7 @@ from .const_zbt1 import (
 )
 
 # Import from zha_mapping
-from .zha_mapping import (
+from .protocols import (
     LOCK_COMMANDS, 
     format_ieee_with_colons, 
     format_ieee, 
@@ -23,8 +23,8 @@ from .zha_mapping import (
     POWER_ATTRIBUTES, 
     LOCK_ATTRIBUTES
 )
-from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
-from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
+from .protocols import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
+from .protocols import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
 
 # Import these constants from dedicated constants file instead
 from .const_zbt1 import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND
@@ -313,7 +313,7 @@ class NimlyDigitalLock(LockEntity):
         _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Nordic ZBT-1 specification")
 
         # First try with the Nordic ZBT-1 command module (exact format from Nordic docs)
-        from .nordic import lock_door
+        from .protocols import lock_door
         _LOGGER.info(f"Attempting lock with Nordic ZBT-1 command module")
         success = await lock_door(self._hass, self._ieee_with_colons)
 
@@ -327,9 +327,10 @@ class NimlyDigitalLock(LockEntity):
             return True
 
         # If Nordic command fails, try with the direct command module as fallback
-        from .direct_command import lock_door as direct_lock_door
+        from .direct_command import send_direct_command
+        from .protocols import SAFE4_LOCK_COMMAND
         _LOGGER.info(f"Nordic command failed, trying direct command module")
-        success = await direct_lock_door(self._hass, self._ieee_with_colons)
+        success = await send_direct_command(self._hass, self._ieee_with_colons, SAFE4_LOCK_COMMAND)
 
         # If direct command fails, try the Safe4 lock module
         _LOGGER.info(f"Direct command failed, trying Safe4 module")
@@ -495,7 +496,7 @@ class NimlyDigitalLock(LockEntity):
     async def async_unlock(self, **kwargs):
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}] via direct command")
         try:
-            from .nordic import unlock_door
+            from .protocols import unlock_door
 
             success = await unlock_door(self._hass, self._ieee_with_colons)
         except Exception as e:

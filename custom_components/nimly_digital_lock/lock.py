@@ -35,8 +35,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # Try polling device directly
     try:
         # Use async_add_executor_job to run async code in synchronous method
-        from .zbt1_support import async_read_attribute_zbt1
-        from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
+        from .protocols import async_read_attribute_zbt1
+        from .protocols import SAFE4_DOOR_LOCK_CLUSTER
 
         # Don't wait for result here, just trigger a poll that will update state
         # and be available next update cycle

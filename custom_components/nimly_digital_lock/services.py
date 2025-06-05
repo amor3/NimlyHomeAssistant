@@ -7,8 +7,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_component import EntityComponent
 
 from .const import DOMAIN
-from .nordic import lock_door, unlock_door, send_nordic_command
-from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command
+from .protocols import lock_door, unlock_door, send_nordic_command
+from .protocols import send_safe4_lock_command, send_safe4_unlock_command
 from .direct_command import send_direct_command
 
 _LOGGER = logging.getLogger(__name__)
@@ -90,11 +90,11 @@ def setup_services(hass: HomeAssistant):
             # Import the Nordic-specific command module
             command_name = "lock" if command == 0x00 else "unlock"
             if command_name == "lock":
-                from .nordic import lock_door as nordic_lock
+                from .protocols import lock_door as nordic_lock
                 _LOGGER.info(f"Trying Nordic-specific lock command")
                 nordic_success = await nordic_lock(hass, ieee)
             else:
-                from .nordic import unlock_door as nordic_unlock
+                from .protocols import unlock_door as nordic_unlock
                 _LOGGER.info(f"Trying Nordic-specific unlock command")
                 nordic_success = await nordic_unlock(hass, ieee)
 
