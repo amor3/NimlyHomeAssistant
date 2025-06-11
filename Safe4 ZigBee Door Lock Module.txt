@@ -377,7 +377,7 @@ ID
 	
 
 Examples
-Zigbee examples are based on Nordic Semiconductor Zigbee CLI sample included in BLE-Zigbee SDK 4.1.0 or higher. 
+Zigbee examples are based on Nimly  Zigbee CLI sample included in BLE-Zigbee SDK 4.1.0 or higher.
 
 
 https://infocenter.nordicsemi.com/index.jsp?topic=%2Fsdk_tz_v4.1.0%2Fzigbee_example_cli_agent.html

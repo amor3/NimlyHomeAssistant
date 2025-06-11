@@ -1,6 +1,5 @@
 import logging
 from homeassistant.components.lock import LockEntity
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -9,12 +8,26 @@ from zigpy.types import EUI64
 from .const import DOMAIN, ATTRIBUTE_MAP, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
 DATA_ZHA = "zha"
 
+
+# Import constants from dedicated constants file
+from .const_zbt1 import (
+    SAFE4_DOOR_LOCK_CLUSTER,
+    SAFE4_POWER_CLUSTER
+)
+
 # Import from zha_mapping
 from .zha_mapping import (
-    LOCK_COMMANDS
+    LOCK_COMMANDS, 
+    format_ieee_with_colons, 
+    format_ieee, 
+    normalize_ieee, 
+    POWER_ATTRIBUTES, 
+    LOCK_ATTRIBUTES
 )
 from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
+from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command, read_safe4_attribute
 
+from .const_zbt1 import SAFE4_LOCK_COMMAND, SAFE4_UNLOCK_COMMAND
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,102 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class NimlyDigitalLock(LockEntity):
 
-    def attribute_updated(self, attr_id, value):
-        _LOGGER.info(f"Received lock attribute report: {attr_id} = {value}")
-
-        if attr_id == 0x0000:
-            self._is_locked = value == 1
-            _LOGGER.info(f"Lock is now: {'locked' if self._is_locked else 'unlocked'}")
-            self.async_write_ha_state()
-
-    async def async_added_to_hass(self):
-        self._hass = self.hass
-
-        try:
-            ieee = EUI64.convert(self._ieee_with_colons)
-            zha_data = self._hass.data[DATA_ZHA]
-
-            # Loop through all known entities to find the Door Lock cluster
-            for (dev_ieee, ep_id, cluster_id, cluster_type), entity in getattr(zha_data, "entities", {}).items():
-                if (
-                        dev_ieee == ieee
-                        and ep_id == 11
-                        and cluster_id == 0x0101
-                        and cluster_type == "in"
-                ):
-                    cluster = entity.cluster
-                    cluster.add_attribute_listener(self)
-                    _LOGGER.info(f"Subscribed to attribute reports on Door Lock cluster for {self._name}")
-                    return
-
-            _LOGGER.error(f"Could not find ZHA lock cluster entity for IEEE {self._ieee_with_colons}")
-
-        except Exception as e:
-            _LOGGER.error(f"Failed to subscribe to cluster updates: {e}")
-
-
-    """   
-    async def async_added_to_hass(self):
-        self._hass = self.hass
-
-        try:
-
-            ieee = EUI64.convert(self._ieee_with_colons)
-            zha_data = self._hass.data["zha"]
-            _LOGGER.info(f"ANDRE DATA to be zha_data: {zha_data}")
-
-            gateway = zha_data.gateway_proxy
-            _LOGGER.info(f"ANDRE DATA to be gateway: {gateway}")
-
-            # Use async_get_device instead of accessing .devices
-            zha_device = await gateway.async_get_device(ieee)
-            if zha_device is None:
-                _LOGGER.error(f"Could not find ZHA device for IEEE: {self._ieee_with_colons}")
-                return
-
-            # Now access the endpoint and cluster
-            endpoint = zha_device.device.endpoints[11]
-            cluster = endpoint.in_clusters[0x0101]  # Door Lock cluster
-
-            # Add attribute listener
-            cluster.add_attribute_listener(self)
-
-            def attribute_updated(self, attribute, value):
-                _LOGGER.info(f"ANDRE WAS HERE Lock attribute updated: {attribute} = {value}")
-                if attribute == 0x0000:  # Lock State attribute
-                    self._is_locked = value == 1
-                    self.async_write_ha_state()
-
-            # Setup attribute listener (Zigpy level)
-            def handle_report(attribute_id, value):
-                _LOGGER.info(f"ANDRE AM AM Zigbee report: attr={attribute_id}, value={value}")
-                if attribute_id == 0x0100:
-                    val = value.value if hasattr(value, "value") else value
-                    event = (val >> 16) & 0xFF
-                    method = (val >> 24) & 0xFF
-                    user_id = val & 0xFFFF
-                    self._is_locked = event == 0x01
-                    self.async_write_ha_state()
-
-            cluster.add_attribute_listener(handle_report)
-            cluster.add_attribute_listener(attribute_updated)
-            _LOGGER.info("Subscribed to Door Lock cluster attribute reports")
-
-        except Exception as e:
-            _LOGGER.error(f"Failed to subscribe to cluster updates: {e}")
-        """
-
-
-    async def async_will_remove_from_hass(self):
-        if self._remove_listener:
-            self._remove_listener()
-            self._remove_listener = None
-
-
-
-
-
-    async def _send_zigbee_command(self, command, cluster_id=LOCK_CLUSTER_ID, endpoint_id=11, params={}):
+    async def _send_zigbee_command(self, command, cluster_id=LOCK_CLUSTER_ID, endpoint_id=1, params={}):
         # Determine which service to use (zha or zigbee)
         service_domains = ["zigbee", "zha"]
         _LOGGER.debug(f"Trying service domains for commands with command {command}, cluster {cluster_id}, endpoint {endpoint_id}")
@@ -287,6 +205,7 @@ class NimlyDigitalLock(LockEntity):
             _LOGGER.debug(f"Available ZBT-1 endpoints for ZHA device {self._zha_ieee}: {zha_zbt1_endpoints}")
         except Exception as e:
             _LOGGER.warning(f"Error getting ZBT-1 endpoints: {e}")
+            zbt1_endpoints = [11, 1, 2, 3, 242]  # Default endpoints to try
 
         for ieee_format in formats_to_try:
             try:
@@ -323,7 +242,6 @@ class NimlyDigitalLock(LockEntity):
         return False
 
     def __init__(self, hass, ieee, name):
-        self._remove_listener = None
         self._hass = hass
         self._ieee = ieee
         self._name = name
@@ -422,6 +340,34 @@ class NimlyDigitalLock(LockEntity):
             _LOGGER.error(f"Failed to unlock: {e}")
             return False
 
+
+    """
+    async def async_lock(self, **kwargs):
+        _LOGGER.info(f"AM Going to lock the lock...")
+
+        _LOGGER.info(f"Locking {self._name} [{self._ieee}] using Nordic ZBT-1 specification")
+
+        # First try with the Nordic ZBT-1 command module (exact format from Nordic docs)
+        from .nordic import lock_door
+        _LOGGER.info(f"Attempting lock with Nordic ZBT-1 command module")
+        success = await lock_door(self._hass, self._ieee_with_colons)
+
+        # If Nordic command succeeds, update state and return
+        if success:
+            _LOGGER.info(f"Successfully locked {self.name} using Nordic ZBT-1 format")
+            # Update internal state
+            self._is_locked = True
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+            self.async_write_ha_state()
+            return True
+
+        # Update our internal state
+        self._is_locked = True
+        self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+        self.async_write_ha_state()
+        return True
+    """
+
     async def async_unlock(self, **kwargs):
         _LOGGER.info(f"AM Going to unlock lock...")
         _LOGGER.info(f"Unlocking {self._name} [{self._ieee}]")
@@ -452,6 +398,11 @@ class NimlyDigitalLock(LockEntity):
             return False
 
 
+        # Update our internal state
+        #self._is_locked = False
+        #self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 0
+        #self.async_write_ha_state()
+        #return True
 
     async def async_update(self):
         _LOGGER.info(f"Updating lock state for {self._name} [{self._ieee}]")
@@ -489,6 +440,8 @@ class NimlyDigitalLock(LockEntity):
 
         except Exception as e:
             _LOGGER.warning(f"ANDRE AM - FAIL lock state: {e}")
+
+
 
 
 
@@ -658,8 +611,6 @@ class NimlyDigitalLock(LockEntity):
 
         _LOGGER.debug(f"Updated lock state: {self._is_locked}, attributes: {self._attrs}")
         """
-
-
 
 
 

@@ -2,7 +2,6 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_registry import EntityRegistry
 from homeassistant.helpers.event import async_track_state_change_event
 
@@ -21,11 +20,142 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     ieee = entry.data["ieee"]
     _LOGGER.debug(f"Setting up Nimly Digital Lock with IEEE: {ieee}")
 
+    # Register custom services
+    async def send_raw_zigbee_command(call):
+        """Send a raw Zigbee command to the lock for advanced troubleshooting."""
+        ieee = call.data["ieee"]
+        command = call.data["command"]
+        cluster_id = call.data["cluster_id"]
+        endpoint_id = call.data.get("endpoint_id", 1)
+        command_type = call.data.get("command_type", "server")
+        params = call.data.get("params", {})
+
+        # Always use ZHA service domain
+        service_domain = "zha"
+
+        # Prepare service data
+        service_data = {
+            "ieee": ieee,
+            "command": command,
+            "command_type": command_type,
+            "cluster_id": cluster_id,
+            "endpoint_id": endpoint_id
+        }
+
+        if params:
+            service_data["params"] = params
+
+        _LOGGER.debug(f"Sending raw Zigbee command: {service_data}")
+        try:
+            await hass.services.async_call(
+                service_domain, "issue_zigbee_cluster_command", service_data
+            )
+            _LOGGER.info(f"Raw Zigbee command sent successfully: {command} to cluster {cluster_id}")
+            return True
+        except Exception as e:
+            _LOGGER.error(f"Failed to send raw Zigbee command: {e}")
+            return False
+
+    async def try_all_endpoints(call):
+        """Try sending the same command to all common endpoints."""
+        ieee = call.data["ieee"]
+        command = call.data["command"]
+        cluster_id = call.data["cluster_id"]
+
+        # Common endpoints to try - include Nimly  endpoint 11 first
+        endpoints = [11, 1, 2, 3, 242]
+        results = {}
+
+        # Try each endpoint
+        for endpoint in endpoints:
+            _LOGGER.info(f"Trying endpoint {endpoint} with command {command}")
+            try:
+                # Always use ZHA service domain
+                service_domain = "zha"
+
+                # Prepare service data
+                service_data = {
+                    "ieee": ieee,
+                    "command": command,
+                    "command_type": "server",
+                    "cluster_id": cluster_id,
+                    "endpoint_id": endpoint
+                }
+
+                await hass.services.async_call(
+                    service_domain, "issue_zigbee_cluster_command", service_data
+                )
+                _LOGGER.info(f"Command sent successfully to endpoint {endpoint}")
+                results[endpoint] = "success"
+            except Exception as e:
+                _LOGGER.error(f"Failed to send command to endpoint {endpoint}: {e}")
+                results[endpoint] = f"failed: {str(e)}"
+
+        _LOGGER.info(f"All endpoint results: {results}")
+
+        # Display a notification with results
+        await hass.services.async_call(
+            "persistent_notification", "create",
+            {
+                "title": "Nimly Lock - Endpoint Test Results",
+                "message": f"Command: {command}\nCluster: {cluster_id}\nResults: {results}"
+            }
+        )
+
+        return results
+
+    # Add direct Safe4 lock/unlock service
+    async def send_safe4_command(call):
+        """Send a direct command to Safe4 ZigBee Door Lock using exact spec format."""
+        from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command
+        from .zha_mapping import format_ieee_with_colons
+
+        ieee = call.data["ieee"]
+        command = call.data["command"].lower()
+
+        # Format the IEEE address with colons
+        ieee_with_colons = format_ieee_with_colons(ieee)
+
+        success = False
+        # Call the appropriate Safe4 command function
+        if command == "lock":
+            _LOGGER.info(f"Sending Safe4 lock command to {ieee_with_colons}")
+            success = await send_safe4_lock_command(hass, ieee_with_colons)
+
+            if success:
+                # Update state
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1
+
+                # Update the entity
+                entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
+                await hass.services.async_call(
+                    "homeassistant", "update_entity", {"entity_id": entity_id}
+                )
+
+        elif command == "unlock":
+            _LOGGER.info(f"Sending Safe4 unlock command to {ieee_with_colons}")
+            success = await send_safe4_unlock_command(hass, ieee_with_colons)
+
+            if success:
+                # Update state
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 0
+
+                # Update the entity
+                entity_id = f"lock.{DOMAIN}_{ieee.replace(':', '').lower()}"
+                await hass.services.async_call(
+                    "homeassistant", "update_entity", {"entity_id": entity_id}
+                )
+
+        else:
+            _LOGGER.error(f"Invalid Safe4 command: {command}. Use 'lock' or 'unlock'.")
+            return False
+
+        return success
 
     # Register the services
-    #hass.services.async_register(DOMAIN, "send_raw_zigbee_command", send_raw_zigbee_command)
-    #hass.services.async_register(DOMAIN, "try_all_endpoints", try_all_endpoints)
-    #hass.services.async_register(DOMAIN, "send_safe4_command", send_safe4_command)
+    hass.services.async_register(DOMAIN, "send_raw_zigbee_command", send_raw_zigbee_command)
+    hass.services.async_register(DOMAIN, "try_all_endpoints", try_all_endpoints)
+    hass.services.async_register(DOMAIN, "send_safe4_command", send_safe4_command)
 
     # Handle potential entity migration
     # This helps if entities already exist with the old format
@@ -178,6 +308,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         else:
             _LOGGER.error("Manual command failed")
 
+    """async def handle_nordic_command(call):
+        ieee = call.data.get("ieee")
+        command_id = call.data.get("command_id")
+        retry_count = call.data.get("retry_count", 3)
+
+        if not ieee or command_id is None:
+            _LOGGER.error("IEEE and command_id are required")
+            return
+
+        _LOGGER.info(f"Sending Nordic ZBT-1 command: IEEE={ieee}, cmd=0x{command_id:02x}")
+        result = await send_nordic_command(hass, ieee, command_id, retry_count=retry_count)
+
+        if result:
+            _LOGGER.info("Nordic command succeeded")
+        else:
+            _LOGGER.error("Nordic command failed")
+"""
     async def handle_set_pin_code(call):
         """Handle the set_pin_code service call."""
         ieee = call.data.get("ieee")
@@ -337,6 +484,54 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Log which service we're using
         _LOGGER.info(f"Using {hass.data[f'{DOMAIN}_ZIGBEE_SERVICE']} service for zigbee commands")
 
+        """
+        # Attempt to read actual values from device if possible
+        from .safe4_lock import read_safe4_attribute
+        from .safe4_lock import SAFE4_DOOR_LOCK_CLUSTER, SAFE4_POWER_CLUSTER
+
+        # Try to read battery level
+        try:
+            battery_result = await read_safe4_attribute(
+                hass,
+                zha_ieee_found,  # Use the actually discovered ZHA device
+                SAFE4_POWER_CLUSTER,
+                0x0021  # Battery percentage remaining
+            )
+            if battery_result:
+                _LOGGER.info(f"Read actual battery level from device: {battery_result}")
+                hass.data[f"{DOMAIN}:{ieee}:battery"] = battery_result
+            else:
+                # Use reasonable default
+                hass.data[f"{DOMAIN}:{ieee}:battery"] = 85  # 85% battery
+        except Exception as e:
+            _LOGGER.warning(f"Could not read battery level: {e}")
+            hass.data[f"{DOMAIN}:{ieee}:battery"] = 85  # Default to 85% battery
+
+        # Try to read lock state
+        try:
+            lock_result = await read_safe4_attribute(
+                hass,
+                zha_ieee_found,  # Use the actually discovered ZHA device
+                SAFE4_DOOR_LOCK_CLUSTER,
+                0x0000  # Lock state attribute
+            )
+            if lock_result is not None:
+                _LOGGER.info(f"Read actual lock state from device: {lock_result}")
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = lock_result
+            else:
+                # Default to locked for security
+                hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Locked
+        except Exception as e:
+            _LOGGER.warning(f"Could not read lock state: {e}")
+            hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Default to locked
+
+        # Set other default values
+        hass.data[f"{DOMAIN}:{ieee}:door_state"] = 0  # Closed
+        hass.data[f"{DOMAIN}:{ieee}:actuator_enabled"] = 1  # Enabled
+        hass.data[f"{DOMAIN}:{ieee}:auto_relock_time"] = 30  # 30 seconds
+        hass.data[f"{DOMAIN}:{ieee}:sound_volume"] = 2  # High volume
+        """
+
         # Set up a listener for ZHA events for this device
         @callback
         def handle_zha_event(event):
@@ -372,7 +567,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         # Register the event listener
         hass.bus.async_listen("zha_event", handle_zha_event)
-        _LOGGER.info("2 ZHA event listener registered for lock events")
+        _LOGGER.info("ZHA event listener registered for lock events")
     else:
         _LOGGER.error(f"Could not find ZBT-1 device with IEEE {ieee} in device registry")
         _LOGGER.error("This integration requires a real ZBT-1 device.")
@@ -396,12 +591,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
         # Cannot proceed without real ZBT-1 device
         return False
 
-    hass.async_create_task(
-        hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"])
-    )
-
+    await hass.config_entries.async_forward_entry_setups(entry, ["lock", "sensor", "binary_sensor"])
     return True
-
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     await hass.config_entries.async_unload_platforms(entry, ["lock", "sensor", "binary_sensor"])
