@@ -38,6 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     lock = NimlyDigitalLock(hass, ieee, name)
     async_add_entities([lock])
 
+    """
     # Try polling device directly
     try:
         # Use async_add_executor_job to run async code in synchronous method
@@ -54,7 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     # Set up a periodic update every 30 seconds
     import asyncio
-
+    """
 
     """
     async def periodic_update(lock_entity):

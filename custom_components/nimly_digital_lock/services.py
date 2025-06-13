@@ -11,7 +11,20 @@ from .nordic import lock_door, unlock_door, send_nordic_command
 from .safe4_lock import send_safe4_lock_command, send_safe4_unlock_command
 from .direct_command import send_direct_command
 
+
+
+import logging
+from datetime import datetime
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers.json import save_json
+from homeassistant.components import zha
+
+from .const import DOMAIN, SERVICE_UPDATE, SERVICE_EXPORT, SERVICE_SCHEMAS
+
 _LOGGER = logging.getLogger(__name__)
+
+
 
 # Service schemas
 SEND_COMMAND_SCHEMA = vol.Schema({
@@ -22,146 +35,94 @@ SEND_COMMAND_SCHEMA = vol.Schema({
     vol.Optional("retry_count", default=5): cv.positive_int
 })
 
-@callback
-def setup_services(hass: HomeAssistant):
 
-    # Service to send a raw command directly to the lock (advanced troubleshooting)
-    async def handle_send_raw_command(call: ServiceCall):
-        ieee = call.data["ieee"]
-        command = call.data["command"]
-        endpoint = call.data.get("endpoint", 11)  # Default to endpoint 11 for ZBT-1
-        cluster_id = call.data.get("cluster_id", 0x0101)  # Default to Door Lock cluster
-        retry_count = call.data.get("retry_count", 5)
+async def async_register_services(hass: HomeAssistant) -> None:
+    """Register services for ZHA Device Info."""
 
-        # Convert string commands to their numeric equivalents
-        if isinstance(command, str):
-            if command.lower() == "lock":
-                command = 0x00
-            elif command.lower() == "unlock":
-                command = 0x01
-            else:
-                # Try to parse as hex
-                try:
-                    command = int(command, 16)
-                except ValueError:
-                    raise HomeAssistantError(f"Unknown command: {command}. Use 'lock', 'unlock', or a numeric command ID.")
+    async def handle_update(call) -> None:
+        """Update device info."""
+        _LOGGER.info("AMMM Updating ZHA device info")
+        zha_data = hass.data.get("zha")
 
-        _LOGGER.info(f"Sending raw command {command} to endpoint {endpoint} of device {ieee}")
+        if not zha_data or not zha_data.gateway_proxy:
+            _LOGGER.info("AMMM ZHA gateway not found")
+            return
 
-        # Send using direct_command module
-        success = await send_direct_command(
-            hass, 
-            ieee, 
-            command, 
-            endpoint=endpoint, 
-            cluster_id=cluster_id,
-            retry_count=retry_count
-        )
-
-        if success:
-            _LOGGER.info(f"Successfully sent command {command} to device {ieee}")
-            return {"success": True}
-        else:
-            _LOGGER.error(f"Failed to send command {command} to device {ieee}")
-            raise HomeAssistantError(f"Failed to send command {command} to device {ieee}")
-
-    # Service to try unlocking with all methods
-    async def handle_try_all_methods(call: ServiceCall):
-        ieee = call.data["ieee"]
-        command = call.data["command"]
-
-        # Convert string commands to their numeric equivalents
-        if isinstance(command, str):
-            if command.lower() == "lock":
-                command = 0x00
-            elif command.lower() == "unlock":
-                command = 0x01
-            else:
-                # Try to parse as hex
-                try:
-                    command = int(command, 16)
-                except ValueError:
-                    raise HomeAssistantError(f"Unknown command: {command}. Use 'lock', 'unlock', or a numeric command ID.")
-
-        _LOGGER.info(f"Trying all methods to send command {command} to device {ieee}")
-
-        # Try Nordic specific method first
+        device_registry = {}
         try:
-            # Import the Nordic-specific command module
-            command_name = "lock" if command == 0x00 else "unlock"
-            if command_name == "lock":
-                from .nordic import lock_door as nordic_lock
-                _LOGGER.info(f"Trying Nordic-specific lock command")
-                nordic_success = await nordic_lock(hass, ieee)
-            else:
-                from .nordic import unlock_door as nordic_unlock
-                _LOGGER.info(f"Trying Nordic-specific unlock command")
-                nordic_success = await nordic_unlock(hass, ieee)
+            for device in zha_data.gateway_proxy.gateway.devices.values():
+                if device is None:
+                    continue
 
-            if nordic_success:
-                _LOGGER.info(f"Successfully executed {command_name} command using Nordic-specific format")
-                return {"success": True, "method": "nordic"}
-        except Exception as e:
-            _LOGGER.warning(f"Nordic-specific method failed: {e}")
+                try:
+                    last_seen = device.last_seen
+                    if isinstance(last_seen, float):
+                        last_seen = datetime.fromtimestamp(last_seen)
 
-        # Try Safe4 method
+                    nwk_hex = f"0x{device.nwk:04x}"
+                    device_info = {
+                        "ieee": str(device.ieee),
+                        "nwk": nwk_hex,
+                        "manufacturer": device.manufacturer,
+                        "model": device.model,
+                        "name": device.name,
+                        "quirk_applied": device.quirk_applied,
+                        "power_source": device.power_source,
+                        "lqi": device.lqi,
+                        "rssi": device.rssi,
+                        "last_seen": last_seen.isoformat() if last_seen else None,
+                        "available": device.available,
+                    }
+
+                    # Add quirk_class if quirk is applied
+                    if device.quirk_applied:
+                        quirk = device.quirk_class
+                        if isinstance(quirk, str):
+                            device_info["quirk_class"] = quirk
+                        elif hasattr(quirk, "__name__"):
+                            device_info["quirk_class"] = quirk.__name__
+                        else:
+                            device_info["quirk_class"] = str(quirk)
+
+                    device_registry[str(device.ieee)] = device_info
+
+                    _LOGGER.info("AMMMUpdated info for device %s", device.ieee)
+                    _LOGGER.info("AMMMUpdated DEVICE %s", device)
+                except Exception as dev_err:
+                    _LOGGER.info("AMMM Error processing device %s: %s", device.ieee, dev_err)
+
+            # Store updated registry
+            hass.data[DOMAIN]["device_registry"] = device_registry
+
+            # Update the state of each ZHA Device Info sensor
+            for entity in hass.data[DOMAIN]["entities"]:
+                entity.async_write_ha_state()
+
+        except Exception as err:
+            _LOGGER.exception("Error processing devices: %s", err)
+
+    async def handle_export(call) -> None:
+        """Export device info to JSON."""
+        path = call.data.get("path", hass.config.path("zha_devices.json"))
         try:
-            if command == 0x00:  # Lock
-                safe4_success = await send_safe4_lock_command(hass, ieee)
-            else:  # Unlock
-                safe4_success = await send_safe4_unlock_command(hass, ieee)
-
-            if safe4_success:
-                _LOGGER.info(f"Successfully executed command {command} using Safe4 method")
-                return {"success": True, "method": "safe4"}
-        except Exception as e:
-            _LOGGER.warning(f"Safe4 method failed: {e}")
-
-        # Try direct command method with various endpoints
-        endpoints = [11, 1, 242, 2, 3]  # Try endpoint 11 first as required by spec
-        for endpoint in endpoints:
-            try:
-                _LOGGER.info(f"Trying direct command to endpoint {endpoint}")
-                success = await send_direct_command(
-                    hass, 
-                    ieee, 
-                    command, 
-                    endpoint=endpoint, 
-                    retry_count=5
-                )
-
-                if success:
-                    _LOGGER.info(f"Successfully sent command {command} to endpoint {endpoint}")
-                    return {"success": True, "method": "direct", "endpoint": endpoint}
-            except Exception as e:
-                _LOGGER.warning(f"Direct command to endpoint {endpoint} failed: {e}")
-
-        _LOGGER.error(f"All methods failed for command {command} to device {ieee}")
-        raise HomeAssistantError(f"Failed to execute command {command} with all available methods")
+            device_registry = hass.data[DOMAIN]["device_registry"]
+            if device_registry:
+                await hass.async_add_executor_job(save_json, path, device_registry)
+                _LOGGER.info("Exported ZHA device info to %s", path)
+            else:
+                _LOGGER.error("No device registry data to export")
+        except Exception as err:
+            _LOGGER.error("Failed to export: %s", err)
 
     # Register services
     async_register_admin_service(
-        hass,
-        DOMAIN,
-        "send_direct_command",
-        handle_send_raw_command,
-        schema=SEND_COMMAND_SCHEMA
+        hass, DOMAIN, SERVICE_UPDATE, handle_update,
+        schema=SERVICE_SCHEMAS[SERVICE_UPDATE]
     )
+    _LOGGER.debug("Registered update service")
 
     async_register_admin_service(
-        hass,
-        DOMAIN,
-        "try_all_methods",
-        handle_try_all_methods,
-        schema=SEND_COMMAND_SCHEMA
+        hass, DOMAIN, SERVICE_EXPORT, handle_export,
+        schema=SERVICE_SCHEMAS[SERVICE_EXPORT]
     )
-
-    _LOGGER.info("Nimly Digital Lock services registered")
-
-    return True
-
-@callback
-def unload_services(hass: HomeAssistant):
-    for service in ["send_direct_command", "try_all_methods"]:
-        if hass.services.has_service(DOMAIN, service):
-            hass.services.async_remove(DOMAIN, service)
+    _LOGGER.debug("Registered export service")

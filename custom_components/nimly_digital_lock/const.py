@@ -1,3 +1,5 @@
+import voluptuous as vol
+
 DOMAIN = "nimly_digital_lock"
 # Standard ZigBee Cluster IDs
 LOCK_CLUSTER_ID = 0x0101  # Door Lock cluster
@@ -5,6 +7,17 @@ POWER_CLUSTER_ID = 0x0001  # Power Configuration cluster
 # We'll discover the correct endpoint ID during device initialization
 ENDPOINT_ID = None  # This will be discovered per device
 
+PLATFORMS = ["lock", "sensor", "binary_sensor"]
+
+SERVICE_UPDATE = "update"
+SERVICE_EXPORT = "export"
+
+SERVICE_SCHEMAS = {
+    SERVICE_UPDATE: vol.Schema({}),
+    SERVICE_EXPORT: vol.Schema({
+        vol.Optional("path"): str,
+    })
+}
 # Attribute map for sensors and other status info
 ATTRIBUTE_MAP = [
     'battery',

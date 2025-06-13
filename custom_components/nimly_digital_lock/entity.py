@@ -50,8 +50,6 @@ class NimlyDigitalLock(LockEntity):
                     _LOGGER.info(f"Subscribed to attribute reports on Door Lock cluster for {self._name}")
                     return
 
-            _LOGGER.error(f"Could not find ZHA lock cluster entity for IEEE {self._ieee_with_colons}")
-
         except Exception as e:
             _LOGGER.error(f"Failed to subscribe to cluster updates: {e}")
 
@@ -456,7 +454,6 @@ class NimlyDigitalLock(LockEntity):
     async def async_update(self):
         _LOGGER.info(f"Updating lock state for {self._name} [{self._ieee}]")
         _LOGGER.info(f"Updating lock, extra_state_attributes: {self.extra_state_attributes}")
-        _LOGGER.info(f"Updating lock, self: {self}")
 
         try:
             ieee = EUI64.convert(self._ieee_with_colons)
