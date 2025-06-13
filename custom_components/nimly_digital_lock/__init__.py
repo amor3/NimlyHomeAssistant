@@ -23,22 +23,22 @@ _LOGGER = logging.getLogger(__name__)
 
 class MyClusterListener:
     def attribute_updated(self, attrid, value, received_timestamp):
-        _LOGGER.debug(
+        _LOGGER.info(
             "[ZCL ANDRE] Attribute Updated - AttrID: 0x%04X, Value: %s, Time: %s",
             attrid, value, received_timestamp
         )
 
     def cluster_command(self, tsn, command_id, args):
-        _LOGGER.debug(
+        _LOGGER.info(
             "[ZCL ANDRE] Cluster Command - TSN: %s, Command ID: 0x%02X, Args: %s",
             tsn, command_id, args
         )
 
     def raw_frame(self, frame):
-        _LOGGER.debug("[ZCL ANDRE] Raw Frame Received: %s", frame.hex())
+        _LOGGER.info("[ZCL ANDRE] Raw Frame Received: %s", frame.hex())
 
     def zdo_command(self, *args, **kwargs):
-        _LOGGER.debug("[ZDO ANDRE] Command Received: args=%s kwargs=%s", args, kwargs)
+        _LOGGER.info("[ZDO ANDRE] Command Received: args=%s kwargs=%s", args, kwargs)
 
 
 
