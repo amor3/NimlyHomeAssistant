@@ -10,8 +10,6 @@
     "@amor3"
   ],
   "platforms": [
-    "lock",
-    "sensor",
-    "binary_sensor"
+    "lock"
   ]
 }
