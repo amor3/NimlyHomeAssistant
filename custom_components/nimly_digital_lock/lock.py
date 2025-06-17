@@ -76,3 +76,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 _LOGGER.warning("Door Lock cluster (0x0101) not found on any endpoint")
         else:
             _LOGGER.info("ANDREEE 123 FAIL MATCH: dev_id: %s not ieee: %", dev_id, ieee)
+
+
+    async_add_entities([lock])

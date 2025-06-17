@@ -1,18 +1,9 @@
 import logging
 
-from homeassistant.components.logbook import async_log_entry
-from homeassistant.components.lock import LockEntity
-from homeassistant.components.zha.logbook import async_describe_events
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntry
-from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.entity_registry import EntityRegistry
-from homeassistant.helpers.event import async_track_state_change_event
-from zigpy.types import EUI64
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from zigpy.zcl.clusters.closures import LockState
 
 from .const import DOMAIN, PLATFORMS, SERVICE_UPDATE
 from .entity import NimlyDigitalLock
@@ -69,8 +60,6 @@ def has_matching_ieee(device_entry: DeviceEntry, ieee: str) -> bool:
 
 async def async_setup(hass: HomeAssistant, config: dict):
     return True
-
-
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
