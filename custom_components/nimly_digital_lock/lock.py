@@ -6,7 +6,6 @@ from . import MyClusterListener, ZHA_DOMAIN
 from .entity import NimlyDigitalLock
 from .const import DOMAIN
 import logging
-from .sensor import NimlyDiagnosticSensor, SENSOR_DEFINITIONS
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,20 +76,3 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 _LOGGER.warning("Door Lock cluster (0x0101) not found on any endpoint")
         else:
             _LOGGER.info("ANDREEE 123 FAIL MATCH: dev_id: %s not ieee: %", dev_id, ieee)
-
-
-    async_add_entities([lock])
-
-    sensor_entities = []
-    for sensor_def in SENSOR_DEFINITIONS:
-        sensor_entities.append(
-            NimlyDiagnosticSensor(
-                lock_device = lock,
-                name=sensor_def["name"],
-                key=sensor_def["key"],
-                unit=sensor_def.get("unit"),
-                icon=sensor_def.get("icon"),
-            )
-        )
-
-    async_add_entities(sensor_entities)
