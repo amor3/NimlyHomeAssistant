@@ -11,7 +11,7 @@ DATA_ZHA = "zha"
 from .zha_mapping import (
     LOCK_COMMANDS
 )
-from .zbt1_support import async_read_attribute_zbt1, async_send_command_zbt1, get_zbt1_endpoints
+from .zbt1_support import get_zbt1_endpoints
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -19,6 +19,17 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class NimlyDigitalLock(LockEntity):
+
+    def register_diagnostic_sensor(self, key: str, sensor):
+        """Registers a diagnostic sensor by key."""
+        self._diagnostic_sensors[key] = sensor
+
+    def _update_sensor(self, key: str, value):
+        """Updates a registered sensor if it exists."""
+        sensor = self._diagnostic_sensors.get(key)
+        if sensor:
+            sensor.update_from_lock(value)
+
 
     def set_cluster_listener(self, listener):
         self._cluster_listener = listener
@@ -29,6 +40,10 @@ class NimlyDigitalLock(LockEntity):
         # 0x0000 - Lock State
         if attr_id == 0x0000:
             self._is_locked = LockState(value) == LockState.Locked
+
+            lock_state_str = "Locked" if self._is_locked else "Unlocked"
+            self._update_sensor("lock_state", lock_state_str)
+
             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1 if self._is_locked else 0
             self.async_write_ha_state()
             _LOGGER.info(f"Lock is now: {'locked' if self._is_locked else 'unlocked'}")
@@ -439,6 +454,8 @@ class NimlyDigitalLock(LockEntity):
         self._is_locked = None
         #self._attrs = {}
         self._attr_extra_state_attributes = {}
+        self._diagnostic_sensors = {}
+
 
         _LOGGER.debug(f"Initialized lock with IEEE formats - Original: {ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}")
 

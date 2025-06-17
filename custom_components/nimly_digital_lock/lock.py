@@ -7,11 +7,13 @@ from .entity import NimlyDigitalLock
 from .const import DOMAIN
 import logging
 
+from .sensor import LockStateSensor
 
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
+async def async_setup_entry(self, hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
+
 
     ieee = entry.data["ieee"]
     name = entry.data.get("name", "Nimly Front Door")
@@ -77,5 +79,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         else:
             _LOGGER.info("ANDREEE 123 FAIL MATCH: dev_id: %s not ieee: %", dev_id, ieee)
 
+    lock_sensor = LockStateSensor(lock)
+    lock.register_diagnostic_sensor("lock_state", lock_sensor)
+    async_add_entities([lock_sensor])
 
     async_add_entities([lock])
