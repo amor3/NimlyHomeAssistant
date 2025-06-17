@@ -1,10 +1,12 @@
 import logging
 from homeassistant.components.lock import LockEntity
+from homeassistant.components.logbook import async_log_entry
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from zigpy.types import EUI64
+from zigpy.zcl.clusters.closures import LockState
 
 from .const import DOMAIN, ATTRIBUTE_MAP, LOCK_CLUSTER_ID, POWER_CLUSTER_ID, ENDPOINT_ID
 DATA_ZHA = "zha"
@@ -22,13 +24,148 @@ _LOGGER = logging.getLogger(__name__)
 
 class NimlyDigitalLock(LockEntity):
 
-    def attribute_updated(self, attr_id, value):
-        _LOGGER.info(f"Received lock attribute report: {attr_id} = {value}")
+    def set_cluster_listener(self, listener):
+        self._cluster_listener = listener
 
+    def attribute_updated(self, attr_id, value):
+        _LOGGER.info(f"Received lock attribute report: {attr_id:#06x}, Value: {value}")
+
+        # 0x0000 - Lock State
         if attr_id == 0x0000:
-            self._is_locked = value == 1
-            _LOGGER.info(f"Lock is now: {'locked' if self._is_locked else 'unlocked'}")
+            self._is_locked = LockState(value) == LockState.Locked
+            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1 if self._is_locked else 0
             self.async_write_ha_state()
+            _LOGGER.info(f"Lock is now: {'locked' if self._is_locked else 'unlocked'}")
+
+            # Update diagnostics entity state attribute
+            self._attr_extra_state_attributes = {
+                **(self._attr_extra_state_attributes or {}),
+                "Lock state": "Locked" if self._is_locked else "Unlocked"
+            }
+
+        # 0x0001 - Lock Type (Optional)
+        elif attr_id == 0x0001:
+            _LOGGER.info(f"Lock type reported: {value}")
+
+        # 0x0002 - Actuator Enabled (Optional)
+        elif attr_id == 0x0002:
+            enabled_str = "enabled" if value else "disabled"
+            _LOGGER.info(f"Actuator is {enabled_str}")
+
+        # 0x0003 - Door State (Optional)
+        elif attr_id == 0x0003:
+            door_state_map = {
+                0x00: "Open",
+                0x01: "Closed",
+                0x02: "Error",
+                0x03: "Jammed",
+                0x04: "Forced Open",
+            }
+            door_state = door_state_map.get(value, f"Unknown ({value})")
+            _LOGGER.info(f"Door state: {door_state}")
+            async_log_entry(
+                self._hass,
+                name="Nimly Lock",
+                message=f"Door state: {door_state}",
+                domain=DOMAIN,
+                entity_id=self.entity_id,
+            )
+
+        # 0x0021 - Battery Percentage Remaining (Power Cluster)
+        elif attr_id == 0x0021:
+            battery_percent = int(value / 2)
+            _LOGGER.info(f"Battery level: {battery_percent}%")
+            self._attr_extra_state_attributes = {
+                **(self._attr_extra_state_attributes or {}),
+                "Battery level": f"{battery_percent}%"
+            }
+            async_log_entry(
+                self._hass,
+                name="Nimly Lock",
+                message=f"Battery level: {battery_percent}%",
+                domain=DOMAIN,
+                entity_id=self.entity_id,
+            )
+
+        # 0x0100 - Event Status (User + Action + Method)
+        elif attr_id == 0x0100 and isinstance(value, int):
+            user_id = value & 0xFFFF
+            event = (value >> 16) & 0xFF
+            method = (value >> 24) & 0xFF
+
+            event_str = {1: "Locked", 2: "Unlocked"}.get(event, f"Unknown ({event})")
+            method_str = {
+                0: "Key", 1: "Button", 2: "Code Panel (PIN)",
+                3: "Fingerprint", 4: "RFID", 5: "Other"
+            }.get(method, f"Unknown ({method})")
+
+            _LOGGER.info(f"Lock Event: {event_str} via {method_str}, User ID: {user_id}")
+            self._hass.data[f"{DOMAIN}:{self._ieee}:last_method"] = method_str
+
+            async_log_entry(
+                self._hass,
+                name="Nimly Lock",
+                message=f"{event_str} via {method_str} (User ID: {user_id})",
+                domain=DOMAIN,
+                entity_id=self.entity_id,
+            )
+
+        # 0x0101 - PIN Used
+        elif attr_id == 0x0101 and isinstance(value, bytes):
+            try:
+                pin = value.decode(errors="ignore")
+                _LOGGER.info(f"Wrong PIN used: {pin}")
+                async_log_entry(
+                    self._hass,
+                    name="Nimly Lock",
+                    message=f"Wrong PIN used",
+                    domain=DOMAIN,
+                    entity_id=self.entity_id,
+                )
+            except Exception as e:
+                _LOGGER.warning(f"Could not decode PIN value: {value} ({e})")
+
+        # 0x0102 - RFID Used
+        elif attr_id == 0x0102 and isinstance(value, bytes):
+            try:
+                rfid = value.hex().upper()
+                _LOGGER.info(f"RFID used: {rfid}")
+                async_log_entry(
+                    self._hass,
+                    name="Nimly Lock",
+                    message=f"RFID used: {rfid}",
+                    domain=DOMAIN,
+                    entity_id=self.entity_id,
+                )
+            except Exception as e:
+                _LOGGER.warning(f"Could not decode RFID value: {value} ({e})")
+
+        # 0x0103 - Diagnostics / Result Code
+        elif attr_id == 0x0103 and isinstance(value, int):
+            result_code = value
+            result_str = "OK" if result_code == 0 else f"Error Code {result_code}"
+            _LOGGER.info(f"Lock operation result: {result_str}")
+            async_log_entry(
+                self._hass,
+                name="Nimly Lock",
+                message=f"Lock result: {result_str}",
+                domain=DOMAIN,
+                entity_id=self.entity_id,
+            )
+
+        else:
+            _LOGGER.debug(f"Unhandled attribute report: {attr_id:#06x} = {value}")
+
+
+
+
+
+
+
+
+
+
+
 
     async def async_added_to_hass(self):
         self._hass = self.hass
@@ -321,6 +458,7 @@ class NimlyDigitalLock(LockEntity):
         return False
 
     def __init__(self, hass, ieee, name):
+        self._cluster_listener = None
         self._remove_listener = None
         self._hass = hass
         self._ieee = ieee
@@ -354,7 +492,8 @@ class NimlyDigitalLock(LockEntity):
         self._attr_entity_id = f"{DOMAIN}_{self._ieee_no_colons}"
 
         self._is_locked = None
-        self._attrs = {}
+        #self._attrs = {}
+        self._attr_extra_state_attributes = {}
 
         _LOGGER.debug(f"Initialized lock with IEEE formats - Original: {ieee}, No colons: {self._ieee_no_colons}, With colons: {self._ieee_with_colons}")
 
@@ -376,7 +515,10 @@ class NimlyDigitalLock(LockEntity):
 
     @property
     def extra_state_attributes(self):
-        return self._attrs
+        return self._attr_extra_state_attributes or {}
+    #def extra_state_attributes(self):
+    #    return self._attrs
+
 
     @property
     def device_info(self):
@@ -451,212 +593,212 @@ class NimlyDigitalLock(LockEntity):
 
 
 
-    async def async_update(self):
-        _LOGGER.info(f"Updating lock state for {self._name} [{self._ieee}]")
-        _LOGGER.info(f"Updating lock, extra_state_attributes: {self.extra_state_attributes}")
-
-        try:
-            ieee = EUI64.convert(self._ieee_with_colons)
-            zha_data = self._hass.data["zha"]
-
-            _LOGGER.info(f"AM zha_data: {zha_data}]")
-
-            # Find the ZHA entity for Door Lock cluster (0x0101) on endpoint 11
-            for (dev_ieee, ep_id, cluster_id, cluster_type), entity in zha_data.entities.items():
-                if (
-                        dev_ieee == ieee
-                        and ep_id == 11
-                        and cluster_id == 0x0101
-                        and cluster_type == "in"
-                ):
-                    cluster = entity.cluster
-                    break
-            else:
-                _LOGGER.warning(f"Lock entity not found in ZHA entity map for {self._ieee}")
-                return
-
-            # Read lock state (0x0000)
-            result = await cluster.read_attributes([0x0000])
-            lock_state = result.get(0x0000)
-
-            if lock_state is not None:
-                self._is_locked = lock_state == 1
-                _LOGGER.info(f"Lock state is: {'locked' if self._is_locked else 'unlocked'}")
-                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
-            else:
-                _LOGGER.warning(f"Lock did not return Lock State attribute for {self._ieee}")
-
-        except Exception as e:
-            _LOGGER.warning(f"ANDRE AM - FAIL lock state: {e}")
-
-
-
-
-        """
-        # Read battery percentage (0x0021) from Power cluster (0x0001)
-        try:
-            service_data = {
-                "ieee": self._ieee_with_colons,
-                "endpoint_id": 11,  # ZBT-1 uses endpoint 11 
-                "cluster_id": 0x0001,  # Power Configuration cluster
-                "cluster_type": "in",
-                "attribute": 0x0021  # Battery percentage remaining
-            }
-
-            result = await self._hass.services.async_call(
-                "zha", "issue_zigbee_cluster_command", service_data, blocking=True, return_response=True
-            )
-
-            if result is not None and 0 <= result <= 100:
-                _LOGGER.info(f"Battery percentage read result: {result}%")
-                self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = result
-
-                # Set battery_low status if below 15%
-                battery_low = result < 15
-                battery_low_value = 1 if battery_low else 0
-                self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = battery_low_value
-        except Exception as e:
-            _LOGGER.warning(f"Failed to read battery percentage: {e}")
-
-        # Try to read attributes using the Safe4 module with multiple endpoints
-        # The Safe4 module already handles multiple endpoints and IEEE formats
-        try:
-            # Read lock state using Safe4 module
-            _LOGGER.info(f"Reading lock state from cluster {SAFE4_DOOR_LOCK_CLUSTER} using Safe4 module")
-            lock_state = await read_safe4_attribute(
-                self._hass,
-                self._ieee_with_colons,
-                SAFE4_DOOR_LOCK_CLUSTER,
-                0x0000  # Lock state attribute
-            )
-
-            if lock_state is not None:
-                _LOGGER.info(f"Successfully read lock state: {lock_state}")
-                # Store the result - use both IEEE formats to ensure consistency
-                self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
-                self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:lock_state"] = lock_state
-                self._is_locked = (lock_state == 1)
-            else:
-                # Try alternative method
-                _LOGGER.debug("Safe4 module failed for lock state, trying ZBT-1 method")
-                lock_state = await async_read_attribute_zbt1(
-                    self._hass, 
-                    self._ieee_with_colons, 
-                    LOCK_CLUSTER_ID, 
-                    0x0000,  # Lock state attribute
-                    endpoint_id=11  # Start with endpoint 11 per Safe4 spec
-                )
-
-                if lock_state is not None:
-                    _LOGGER.info(f"Successfully read lock state via ZBT1: {lock_state}")
-                    self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
-                    self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:lock_state"] = lock_state
-                    self._is_locked = (lock_state == 1)
-
-            # Read battery level
-            _LOGGER.debug(f"Reading battery level from cluster {SAFE4_POWER_CLUSTER}")
-            battery = await read_safe4_attribute(
-                self._hass,
-                self._ieee_with_colons,
-                SAFE4_POWER_CLUSTER,
-                0x0021  # Battery percentage remaining
-            )
-
-            if battery is not None:
-                _LOGGER.info(f"Successfully read battery level: {battery}")
-                # Store the result in both formats for consistency
-                self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery
-                self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:battery"] = battery
-
-                # Also set battery_low status if below 15%
-                if isinstance(battery, (int, float)) and battery < 15:
-                    self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 1
-                else:
-                    self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 0
-            else:
-                # Try alternative method
-                _LOGGER.debug("Safe4 module failed for battery, trying ZBT-1 method")
-                battery = await async_read_attribute_zbt1(
-                    self._hass, 
-                    self._ieee_with_colons, 
-                    POWER_CLUSTER_ID, 
-                    0x0021,  # Battery percentage remaining
-                    endpoint_id=11  # Start with endpoint 11 per Safe4 spec
-                )
-
-                if battery is not None:
-                    _LOGGER.info(f"Successfully read battery via ZBT1: {battery}")
-                    self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery
-                    self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:battery"] = battery
-
-                    # Also set battery_low status if below 15%
-                    if isinstance(battery, (int, float)) and battery < 15:
-                        self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 1
-                    else:
-                        self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 0
-
-            # Try to read battery voltage as well
-            battery_voltage = await read_safe4_attribute(
-                self._hass,
-                self._ieee_with_colons,
-                SAFE4_POWER_CLUSTER,
-                0x0020  # Battery voltage
-            )
-
-            if battery_voltage is not None:
-                # Convert from millivolts to volts if needed
-                if battery_voltage > 100:
-                    battery_voltage = battery_voltage / 1000.0
-
-                _LOGGER.info(f"Successfully read battery voltage: {battery_voltage}V")
-                self._hass.data[f"{DOMAIN}:{self._ieee}:battery_voltage"] = battery_voltage
-                self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:battery_voltage"] = battery_voltage
-
-        except Exception as e:
-            _LOGGER.warning(f"Error reading attributes from device: {str(e)}")
-        """
-
-        """
-        # Use current value from data store
-        lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
-        if lock_state is not None:
-            self._is_locked = (lock_state == 1)
-            _LOGGER.debug(f"Current lock state: {self._is_locked}")
-        else:
-            # If no state could be read, show an error
-            _LOGGER.error("Could not determine lock state - Nordic ZBT-1 device may be unreachable")
-            # Default to locked for security
-            self._is_locked = True
-            self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
-
-        # Debug: Log all lock-related keys in hass.data to help troubleshoot
-        lock_keys = []
-        for key in self._hass.data:
-            if f"{DOMAIN}:" in key:
-                lock_keys.append(key)
-        _LOGGER.debug(f"All lock data keys: {lock_keys}")
-
-        for key in lock_keys:
-            _LOGGER.debug(f"  {key}: {self._hass.data[key]}")
-
-        # Update attributes from stored values
-        for attr in ATTRIBUTE_MAP:
-            value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
-            if value is not None:
-                self._attrs[attr] = value
-
-        # Add last update timestamp
-        self._attrs["last_updated"] = self._hass.data.get(
-            f"{DOMAIN}:{self._ieee}:last_update", 
-            "unknown"
-        )
-
-        # Store current time as last update
-        from datetime import datetime
-        self._hass.data[f"{DOMAIN}:{self._ieee}:last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        _LOGGER.debug(f"Updated lock state: {self._is_locked}, attributes: {self._attrs}")
-        """
+    # async def async_update(self):
+    #     #_LOGGER.info(f"Updating lock state for {self._name} [{self._ieee}]")
+    #     #_LOGGER.info(f"Updating lock, extra_state_attributes: {self.extra_state_attributes}")
+    #
+    #     try:
+    #         ieee = EUI64.convert(self._ieee_with_colons)
+    #         zha_data = self._hass.data["zha"]
+    #
+    #         #_LOGGER.info(f"AM zha_data: {zha_data}]")
+    #
+    #         # Find the ZHA entity for Door Lock cluster (0x0101) on endpoint 11
+    #         for (dev_ieee, ep_id, cluster_id, cluster_type), entity in zha_data.entities.items():
+    #             if (
+    #                     dev_ieee == ieee
+    #                     and ep_id == 11
+    #                     and cluster_id == 0x0101
+    #                     and cluster_type == "in"
+    #             ):
+    #                 cluster = entity.cluster
+    #                 break
+    #         else:
+    #             _LOGGER.warning(f"Lock entity not found in ZHA entity map for {self._ieee}")
+    #             return
+    #
+    #         # Read lock state (0x0000)
+    #         result = await cluster.read_attributes([0x0000])
+    #         lock_state = result.get(0x0000)
+    #
+    #         if lock_state is not None:
+    #             self._is_locked = lock_state == 1
+    #             _LOGGER.info(f"Lock state is: {'locked' if self._is_locked else 'unlocked'}")
+    #             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
+    #         else:
+    #             _LOGGER.warning(f"Lock did not return Lock State attribute for {self._ieee}")
+    #
+    #     except Exception as e:
+    #         _LOGGER.warning(f"ANDRE AM - FAIL lock state: {e}")
+    #
+    #
+    #
+    #
+    #     """
+    #     # Read battery percentage (0x0021) from Power cluster (0x0001)
+    #     try:
+    #         service_data = {
+    #             "ieee": self._ieee_with_colons,
+    #             "endpoint_id": 11,  # ZBT-1 uses endpoint 11
+    #             "cluster_id": 0x0001,  # Power Configuration cluster
+    #             "cluster_type": "in",
+    #             "attribute": 0x0021  # Battery percentage remaining
+    #         }
+    #
+    #         result = await self._hass.services.async_call(
+    #             "zha", "issue_zigbee_cluster_command", service_data, blocking=True, return_response=True
+    #         )
+    #
+    #         if result is not None and 0 <= result <= 100:
+    #             _LOGGER.info(f"Battery percentage read result: {result}%")
+    #             self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = result
+    #
+    #             # Set battery_low status if below 15%
+    #             battery_low = result < 15
+    #             battery_low_value = 1 if battery_low else 0
+    #             self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = battery_low_value
+    #     except Exception as e:
+    #         _LOGGER.warning(f"Failed to read battery percentage: {e}")
+    #
+    #     # Try to read attributes using the Safe4 module with multiple endpoints
+    #     # The Safe4 module already handles multiple endpoints and IEEE formats
+    #     try:
+    #         # Read lock state using Safe4 module
+    #         _LOGGER.info(f"Reading lock state from cluster {SAFE4_DOOR_LOCK_CLUSTER} using Safe4 module")
+    #         lock_state = await read_safe4_attribute(
+    #             self._hass,
+    #             self._ieee_with_colons,
+    #             SAFE4_DOOR_LOCK_CLUSTER,
+    #             0x0000  # Lock state attribute
+    #         )
+    #
+    #         if lock_state is not None:
+    #             _LOGGER.info(f"Successfully read lock state: {lock_state}")
+    #             # Store the result - use both IEEE formats to ensure consistency
+    #             self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
+    #             self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:lock_state"] = lock_state
+    #             self._is_locked = (lock_state == 1)
+    #         else:
+    #             # Try alternative method
+    #             _LOGGER.debug("Safe4 module failed for lock state, trying ZBT-1 method")
+    #             lock_state = await async_read_attribute_zbt1(
+    #                 self._hass,
+    #                 self._ieee_with_colons,
+    #                 LOCK_CLUSTER_ID,
+    #                 0x0000,  # Lock state attribute
+    #                 endpoint_id=11  # Start with endpoint 11 per Safe4 spec
+    #             )
+    #
+    #             if lock_state is not None:
+    #                 _LOGGER.info(f"Successfully read lock state via ZBT1: {lock_state}")
+    #                 self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = lock_state
+    #                 self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:lock_state"] = lock_state
+    #                 self._is_locked = (lock_state == 1)
+    #
+    #         # Read battery level
+    #         _LOGGER.debug(f"Reading battery level from cluster {SAFE4_POWER_CLUSTER}")
+    #         battery = await read_safe4_attribute(
+    #             self._hass,
+    #             self._ieee_with_colons,
+    #             SAFE4_POWER_CLUSTER,
+    #             0x0021  # Battery percentage remaining
+    #         )
+    #
+    #         if battery is not None:
+    #             _LOGGER.info(f"Successfully read battery level: {battery}")
+    #             # Store the result in both formats for consistency
+    #             self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery
+    #             self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:battery"] = battery
+    #
+    #             # Also set battery_low status if below 15%
+    #             if isinstance(battery, (int, float)) and battery < 15:
+    #                 self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 1
+    #             else:
+    #                 self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 0
+    #         else:
+    #             # Try alternative method
+    #             _LOGGER.debug("Safe4 module failed for battery, trying ZBT-1 method")
+    #             battery = await async_read_attribute_zbt1(
+    #                 self._hass,
+    #                 self._ieee_with_colons,
+    #                 POWER_CLUSTER_ID,
+    #                 0x0021,  # Battery percentage remaining
+    #                 endpoint_id=11  # Start with endpoint 11 per Safe4 spec
+    #             )
+    #
+    #             if battery is not None:
+    #                 _LOGGER.info(f"Successfully read battery via ZBT1: {battery}")
+    #                 self._hass.data[f"{DOMAIN}:{self._ieee}:battery"] = battery
+    #                 self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:battery"] = battery
+    #
+    #                 # Also set battery_low status if below 15%
+    #                 if isinstance(battery, (int, float)) and battery < 15:
+    #                     self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 1
+    #                 else:
+    #                     self._hass.data[f"{DOMAIN}:{self._ieee}:battery_low"] = 0
+    #
+    #         # Try to read battery voltage as well
+    #         battery_voltage = await read_safe4_attribute(
+    #             self._hass,
+    #             self._ieee_with_colons,
+    #             SAFE4_POWER_CLUSTER,
+    #             0x0020  # Battery voltage
+    #         )
+    #
+    #         if battery_voltage is not None:
+    #             # Convert from millivolts to volts if needed
+    #             if battery_voltage > 100:
+    #                 battery_voltage = battery_voltage / 1000.0
+    #
+    #             _LOGGER.info(f"Successfully read battery voltage: {battery_voltage}V")
+    #             self._hass.data[f"{DOMAIN}:{self._ieee}:battery_voltage"] = battery_voltage
+    #             self._hass.data[f"{DOMAIN}:{self._ieee_with_colons}:battery_voltage"] = battery_voltage
+    #
+    #     except Exception as e:
+    #         _LOGGER.warning(f"Error reading attributes from device: {str(e)}")
+    #     """
+    #
+    #     """
+    #     # Use current value from data store
+    #     lock_state = self._hass.data.get(f"{DOMAIN}:{self._ieee}:lock_state")
+    #     if lock_state is not None:
+    #         self._is_locked = (lock_state == 1)
+    #         _LOGGER.debug(f"Current lock state: {self._is_locked}")
+    #     else:
+    #         # If no state could be read, show an error
+    #         _LOGGER.error("Could not determine lock state - Nordic ZBT-1 device may be unreachable")
+    #         # Default to locked for security
+    #         self._is_locked = True
+    #         self._hass.data[f"{DOMAIN}:{self._ieee}:lock_state"] = 1
+    #
+    #     # Debug: Log all lock-related keys in hass.data to help troubleshoot
+    #     lock_keys = []
+    #     for key in self._hass.data:
+    #         if f"{DOMAIN}:" in key:
+    #             lock_keys.append(key)
+    #     _LOGGER.debug(f"All lock data keys: {lock_keys}")
+    #
+    #     for key in lock_keys:
+    #         _LOGGER.debug(f"  {key}: {self._hass.data[key]}")
+    #
+    #     # Update attributes from stored values
+    #     for attr in ATTRIBUTE_MAP:
+    #         value = self._hass.data.get(f"{DOMAIN}:{self._ieee}:{attr}")
+    #         if value is not None:
+    #             self._attrs[attr] = value
+    #
+    #     # Add last update timestamp
+    #     self._attrs["last_updated"] = self._hass.data.get(
+    #         f"{DOMAIN}:{self._ieee}:last_update",
+    #         "unknown"
+    #     )
+    #
+    #     # Store current time as last update
+    #     from datetime import datetime
+    #     self._hass.data[f"{DOMAIN}:{self._ieee}:last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    #
+    #     _LOGGER.debug(f"Updated lock state: {self._is_locked}, attributes: {self._attrs}")
+    #     """
 
 
 

@@ -1,12 +1,13 @@
 import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+
+from . import MyClusterListener, ZHA_DOMAIN
 from .entity import NimlyDigitalLock
 from .const import DOMAIN
-from homeassistant.components.lock import LockEntity
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from zigpy.types import EUI64
 import logging
+from .sensor import NimlyDiagnosticSensor, SENSOR_DEFINITIONS
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,44 +34,63 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         hass.data[f"{DOMAIN}:{ieee}:lock_state"] = 1  # Default to locked
         _LOGGER.info(f"Initializing lock state to locked (1)")
 
-
-    # Create the lock entity
     lock = NimlyDigitalLock(hass, ieee, name)
+
+
+    zha_data = hass.data.get("zha")
+    _LOGGER.info("ANDREEE 123 GATEWAY: %s", zha_data.gateway_proxy.gateway)
+
+    devices = zha_data.gateway_proxy.gateway.devices.items()
+    _LOGGER.info("ANDREEE 123 DEVICES %s", devices)
+
+    ieee = entry.data["ieee"]
+
+    for dev_id, d in devices:
+        _LOGGER.info("ANDREEE 123 ONE DEV: %s", d)
+        _LOGGER.info("ANDREEE 123 ONE DEV IEEE: %s", d.ieee)
+        _LOGGER.info("ANDREEE 123 ONE DEV MATCH AGAINST: %s", ieee)
+
+        if str(d.ieee) == ieee.lower():
+            _LOGGER.info("ANDREEE 123 HIT HIT HIT")
+
+            _LOGGER.info("ANDREEE 123 ONE DEV endpoints items: %s", d.endpoints.items())
+
+            for ep_id, endpoint in d.device.endpoints.items():
+                if ep_id == 0:
+                    continue  # Skip ZDO endpoint
+
+                if 0x0101 in endpoint.in_clusters:
+                    _LOGGER.info(f"Found Door Lock cluster on endpoint {ep_id}")
+                    cluster = endpoint.in_clusters[0x0101]
+
+                    listener = MyClusterListener(lock)
+
+                    lock.set_cluster_listener(listener)
+                    cluster.add_listener(listener)
+
+                    _LOGGER.info(f"Listener added to cluster 0x0101 on endpoint {ep_id}")
+
+                    _LOGGER.info("ANDREEEEE Attaching listener to cluster: %s", cluster)
+
+                    break
+            else:
+                _LOGGER.warning("Door Lock cluster (0x0101) not found on any endpoint")
+        else:
+            _LOGGER.info("ANDREEE 123 FAIL MATCH: dev_id: %s not ieee: %", dev_id, ieee)
+
+
     async_add_entities([lock])
 
-    """
-    # Try polling device directly
-    try:
-        # Use async_add_executor_job to run async code in synchronous method
-        from .zbt1_support import async_read_attribute_zbt1
-        from .zha_mapping import SAFE4_DOOR_LOCK_CLUSTER
-
-        # Don't wait for result here, just trigger a poll that will update state
-        # and be available next update cycle
-        hass.async_create_task(
-            async_read_attribute_zbt1(hass, ieee, SAFE4_DOOR_LOCK_CLUSTER, 0x0000)
+    sensor_entities = []
+    for sensor_def in SENSOR_DEFINITIONS:
+        sensor_entities.append(
+            NimlyDiagnosticSensor(
+                lock_device = lock,
+                name=sensor_def["name"],
+                key=sensor_def["key"],
+                unit=sensor_def.get("unit"),
+                icon=sensor_def.get("icon"),
+            )
         )
-    except Exception as e:
-        _LOGGER.debug(f"Direct polling in update failed (will use cached state): {e}")
 
-    # Set up a periodic update every 30 seconds
-    import asyncio
-    """
-
-    """
-    async def periodic_update(lock_entity):
-        _LOGGER.debug(f"Starting periodic update for lock entity {lock_entity.name}")
-        while True:
-            try:
-                await lock_entity.async_update()
-                _LOGGER.debug(f"Periodic update completed successfully for {lock_entity.name}")
-            except Exception as e:
-                import traceback
-                _LOGGER.error(f"Error in periodic update for {lock_entity.name}: {e}")
-                _LOGGER.error(f"Traceback: {traceback.format_exc()}")
-            # Force state update
-            lock_entity.async_write_ha_state()
-            await asyncio.sleep(5)  # Update every 30 seconds
-
-    hass.loop.create_task(periodic_update(lock))
-    """
+    async_add_entities(sensor_entities)

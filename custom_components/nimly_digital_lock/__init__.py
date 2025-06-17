@@ -1,4 +1,8 @@
 import logging
+
+from homeassistant.components.logbook import async_log_entry
+from homeassistant.components.lock import LockEntity
+from homeassistant.components.zha.logbook import async_describe_events
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -8,8 +12,10 @@ from homeassistant.helpers.entity_registry import EntityRegistry
 from homeassistant.helpers.event import async_track_state_change_event
 from zigpy.types import EUI64
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from zigpy.zcl.clusters.closures import LockState
 
 from .const import DOMAIN, PLATFORMS, SERVICE_UPDATE
+from .entity import NimlyDigitalLock
 
 from .services import async_register_services
 
@@ -22,7 +28,13 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class MyClusterListener:
+
+    def __init__(self, lock: NimlyDigitalLock):
+        self._lock = lock
+
     def attribute_updated(self, attrid, value, received_timestamp):
+        self._lock.attribute_updated(attrid, value)
+
         _LOGGER.info(
             "[ZCL ANDRE] Attribute Updated - AttrID: 0x%04X, Value: %s, Time: %s",
             attrid, value, received_timestamp
@@ -61,8 +73,6 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up config entry."""
     _LOGGER.info("ANDREEE Setting up ZHA Device Info config entry")
@@ -85,64 +95,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             EVENT_HOMEASSISTANT_STARTED,
             initial_update
         )
-
-        zha_data = hass.data.get("zha")
-
-
-        _LOGGER.info("ANDREEE 123 GATEWAY: %s",  zha_data.gateway_proxy.gateway)
-
-        devices = zha_data.gateway_proxy.gateway.devices.items()
-
-        _LOGGER.info("ANDREEE 123 DEVICES %s",  devices)
-
-        ieee = entry.data["ieee"]
-
-        for dev_id, d in devices:
-            _LOGGER.info("ANDREEE 123 ONE DEV: %s", d)
-            _LOGGER.info("ANDREEE 123 ONE DEV IEEE: %s", d.ieee)
-            _LOGGER.info("ANDREEE 123 ONE DEV MATCH AGAINST: %s", ieee)
-
-            if str(d.ieee) == ieee.lower():
-                _LOGGER.info("ANDREEE 123 HIT HIT HIT")
-
-                _LOGGER.info("ANDREEE 123 ONE DEV endpoints items: %s", d.endpoints.items())
-
-                for ep_id, endpoint in d.device.endpoints.items():
-                    if ep_id == 0:
-                        continue  # Skip ZDO endpoint
-
-                    if 0x0101 in endpoint.in_clusters:
-                        _LOGGER.info(f"Found Door Lock cluster on endpoint {ep_id}")
-                        cluster = endpoint.in_clusters[0x0101]
-                        cluster.add_listener(MyClusterListener())
-                        _LOGGER.info(f"Listener added to cluster 0x0101 on endpoint {ep_id}")
-
-                        _LOGGER.info("ANDREEEEE Attaching listener to cluster: %s", cluster)
-
-                        break
-                else:
-                    _LOGGER.warning("Door Lock cluster (0x0101) not found on any endpoint")
-
-                """
-                cluster = d.endpoints[11].in_clusters[0x0101]
-                _LOGGER.info("ANDREEE 123 ONE DEV cluster: %s", cluster)
-
-                cluster.add_listener(MyClusterListener())
-                _LOGGER.info("ANDREEE 123 ONE DEV listener added.")
-                """
-            else:
-                _LOGGER.info("ANDREEE 123 FAIL MATCH: dev_id: %s not ieee: %", dev_id, ieee)
-
-
-        """
-        _LOGGER.info("ANDREEE 123")
-        devize = zha_data.gateway_proxy.gateway.device
-        _LOGGER.info("ANDREEE 1234")
-        cluster = devize.endpoints[11].in_clusters[0x0101]
-        _LOGGER.info("ANDREEE 12345")
-        cluster.add_listener(MyClusterListener())
-        _LOGGER.info("ANDREEE 123456")
-        """
 
         _LOGGER.info("ANDREEE ZHA Device Info config entry setup complete")
         return True
