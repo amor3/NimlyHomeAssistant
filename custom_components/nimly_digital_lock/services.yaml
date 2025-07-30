@@ -1,0 +1,212 @@
+# Services for the Nimly Digital Lock component
+# Services for Nimly Digital Lock Integration
+# Service definitions for the Nimly Digital Lock integration
+# Service definitions for the Nimly Digital Lock integration
+
+
+# Direct command services
+send_nordic_command:
+  name: Send Nordic ZBT-1 command
+  description: Send a command directly to the lock using Nordic ZBT-1 format
+  fields:
+    ieee:
+      name: IEEE Address
+      description: IEEE address of the lock
+      required: true
+      example: "f4:ce:36:0a:04:4d:31:f5"
+      selector:
+        text:
+    command_id:
+      name: Command ID
+      description: Command ID from ZCL 7.3.2.16 (0x00=lock, 0x01=unlock)
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    retry_count:
+      name: Retry Count
+      description: Number of retries
+      required: false
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+
+set_pin_code:
+  name: Set PIN code
+  description: Set a PIN code on the lock in a specific slot
+  fields:
+    ieee:
+      name: IEEE Address
+      description: IEEE address of the lock
+      required: true
+      example: "f4:ce:36:0a:04:4d:31:f5"
+      selector:
+        text:
+    user_id:
+      name: User ID
+      description: Slot number (2 or higher, first two slots are reserved for master code)
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 2
+          max: 100
+          mode: box
+    pin_code:
+      name: PIN Code
+      description: Numeric PIN code to set
+      required: true
+      example: "123456"
+      selector:
+        text:
+
+clear_pin_code:
+  name: Clear PIN code
+  description: Remove a PIN code from a specific slot
+  fields:
+    ieee:
+      name: IEEE Address
+      description: IEEE address of the lock
+      required: true
+      example: "f4:ce:36:0a:04:4d:31:f5"
+      selector:
+        text:
+    user_id:
+      name: User ID
+      description: Slot number to clear
+      required: true
+      example: 3
+      selector:
+        number:
+          min: 2
+          max: 100
+          mode: box
+run_diagnostics:
+  name: Run diagnostics
+  description: Run comprehensive diagnostics and log the results
+  target:
+    entity:
+      integration: nimly_digital_lock
+      domain: lock
+
+send_direct_command:
+  name: Send direct command
+  description: Send a direct Zigbee command to the lock for advanced troubleshooting
+  fields:
+    ieee:
+      name: IEEE Address
+      description: The IEEE address of the lock
+      required: true
+      example: "f4:ce:36:0a:04:4d:31:f5"
+      selector:
+        text:
+    command:
+      name: Command ID
+      description: The command ID to send (0=lock, 1=unlock)
+      required: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 255
+          mode: box
+    endpoint:
+      name: Endpoint ID
+      description: The endpoint ID to target
+      required: false
+      default: 11
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    cluster_id:
+      name: Cluster ID
+      description: The cluster ID to use
+      required: false
+      default: 257
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    retry_count:
+      name: Retry Count
+      description: Number of times to retry each method
+      required: false
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+send_safe4_command:
+  name: Send Safe4 Command
+  description: Send a command to a Safe4 ZigBee Door Lock using the exact format required by the specification.
+  fields:
+    ieee:
+      name: IEEE Address
+      description: IEEE address of the lock device (with or without colons)
+      required: true
+      example: "f4:ce:36:cc:35:e7:03:de"
+      selector:
+        text:
+    command:
+      name: Command
+      description: Command to send ("lock" or "unlock")
+      required: true
+      example: "lock"
+      selector:
+        select:
+          options:
+            - "lock"
+            - "unlock"
+send_raw_zigbee_command:
+  description: Send a raw Zigbee command to the lock for debugging and troubleshooting
+  fields:
+    ieee:
+      description: IEEE address of the Zigbee device
+      example: 'f4:ce:36:0a:04:4d:31:f5'
+      required: true
+    command:
+      description: Command ID (numeric) or name (string)
+      example: 0 or 'lock_door'
+      required: true
+    cluster_id:
+      description: Zigbee cluster ID
+      example: 257
+      required: true
+    endpoint_id:
+      description: Zigbee endpoint ID
+      example: 1
+      default: 1
+    command_type:
+      description: Command type (server or client)
+      example: 'server'
+      default: 'server'
+    params:
+      description: Parameters for the command (if needed)
+      example: '{"param1": 1}'
+      required: false
+
+try_all_endpoints:
+  description: Try sending the same command to all common endpoints (1, 2, 3, 242)
+  fields:
+    ieee:
+      description: IEEE address of the Zigbee device
+      example: 'f4:ce:36:0a:04:4d:31:f5'
+      required: true
+    command:
+      description: Command ID (numeric) or name (string)
+      example: 0 or 'lock_door'
+      required: true
+    cluster_id:
+      description: Zigbee cluster ID
+      example: 257
+      required: true

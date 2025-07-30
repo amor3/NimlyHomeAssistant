@@ -1,0 +1,26 @@
+{
+  "title": "Nimly Lock",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Nimly Lock",
+        "description": "Found {device_count} Nimly devices. Select your lock from the dropdown or enter the IEEE address manually.",
+        "data": {
+          "device_selection": "Select Nimly Lock",
+          "ieee": "IEEE Address (manual entry)",
+          "name": "Lock Name"
+        }
+      },
+      "options": {
+        "title": "Options",
+        "data": {
+          "auto_relock_time": "Auto Relock (s)",
+          "sound_volume": "Sound Volume"
+        }
+      }
+    },
+    "error": {
+      "invalid_ieee_length": "Invalid IEEE address format. Must be 16 hex characters (with or without colons)."
+    }
+  }
+}

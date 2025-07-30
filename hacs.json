@@ -1,0 +1,7 @@
+{
+  "name": "Nimly Digital Lock",
+  "render_readme": true,
+  "domains": ["nimly_digital_lock"],
+  "country": "SE",
+  "homeassistant": "2023.5.0"
+}
