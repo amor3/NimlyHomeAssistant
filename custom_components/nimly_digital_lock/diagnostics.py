@@ -1,5 +1,3 @@
-"""Diagnostics support for Nimly Digital Lock."""
-
 import logging
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
