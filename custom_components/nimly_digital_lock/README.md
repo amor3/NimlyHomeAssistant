@@ -47,7 +47,7 @@ You also need a compatible Zigbee dongle plugged into your Home Assistant server
 
 1. Download this repository as a ZIP and extract it
 2. Copy the `nimly_digital_lock` folder into `config/custom_components/`
-3. Restart Home Assistant
+3. Restart Home Assistant :)
 
 ## Configuration
 
