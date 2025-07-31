@@ -13,15 +13,12 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SoundVolumeSelect(SelectEntity):
-    """Sound volume select for Nimly lock."""
-
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
     _attr_icon = "mdi:volume-high"
     _attr_options = ["Off", "Low", "Normal"]
 
     def __init__(self, hass: HomeAssistant, ieee: str, lock_name: str) -> None:
-        """Initialize the select."""
         self.hass = hass
         self._ieee = ieee.lower().replace(":", "")
         self._attr_name = "Sound Volume"

@@ -6,6 +6,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .sensors.battery_sensor import BatterySensor
+from .sensors.diagnostic_sensor import LOCK_DIAGNOSTIC_ATTRIBUTES, LockDiagnosticsSensor
 from .sensors.rssi_sensor import RSSISensor
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,3 +46,20 @@ async def async_setup_entry(
                 entity.register_diagnostic_sensor("battery", battery_sensor)
                 entity.register_diagnostic_sensor("rssi", rssi_sensor)
                 _LOGGER.info(f"[AM] Registered sensors with lock: {entity.name}")
+
+
+
+    sensors = []
+    for attr_id, (attr_key, name) in LOCK_DIAGNOSTIC_ATTRIBUTES.items():
+        sensors.append(
+            LockDiagnosticsSensor(
+                hass=hass,
+                ieee=ieee,
+                lock_name=name,
+                attribute_id=attr_id,
+                attr_key=attr_key,
+                friendly_name=name
+            )
+        )
+
+    async_add_entities(sensors)

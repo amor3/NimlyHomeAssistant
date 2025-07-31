@@ -15,13 +15,11 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigE
     ieee_no_colons = ieee.replace(':', '')
     ieee_with_colons = ':'.join([ieee_no_colons[i:i+2] for i in range(0, len(ieee_no_colons), 2)])
 
-    # Get all the data stored for this device
     device_data = {}
     for key in hass.data:
         if key.startswith(f"{DOMAIN}:{ieee}:"):
             device_data[key.replace(f"{DOMAIN}:{ieee}:", "")] = hass.data[key]
 
-    # Check all available services
     available_services = {}
     service_domains = ["zigbee", "zha"]
     service_methods = [

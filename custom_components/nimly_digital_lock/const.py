@@ -7,7 +7,7 @@ POWER_CLUSTER_ID = 0x0001  # Power Configuration cluster
 # We'll discover the correct endpoint ID during device initialization
 ENDPOINT_ID = None  # This will be discovered per device
 
-PLATFORMS = ["lock", "sensor", "select"]  # Add "select" to platforms
+PLATFORMS = ["lock", "sensor", "select", "switch"]
 
 COMMON_ENDPOINTS = [11, 1, 242, 2, 3]
 

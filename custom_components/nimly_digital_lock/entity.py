@@ -66,10 +66,10 @@ class NimlyDigitalLock(LockEntity):
             _LOGGER.info(f"Lock is now: {'locked' if self._is_locked else 'unlocked'}")
 
             # Update diagnostics entity state attribute
-            self._attr_extra_state_attributes = {
-                **(self._attr_extra_state_attributes or {}),
-                "Lock state": "Locked" if self._is_locked else "Unlocked"
-            }
+            #self._attr_extra_state_attributes = {
+            #    **(self._attr_extra_state_attributes or {}),
+            #    "Lock state": "Locked" if self._is_locked else "Unlocked"
+            #}
 
         # 0x0001 - Lock Type (Optional)
         elif attr_id == 0x0001:
@@ -345,7 +345,7 @@ class NimlyDigitalLock(LockEntity):
 
         self._is_locked = None
         #self._attrs = {}
-        self._attr_extra_state_attributes = {"Lock state": "Unknown"}
+        #self._attr_extra_state_attributes = {"Lock state": "Unknown"}
         self._diagnostic_sensors = {}
 
 
@@ -367,9 +367,9 @@ class NimlyDigitalLock(LockEntity):
         self._is_locked = bool(lock_state) if lock_state is not None else self._is_locked
         return self._is_locked
 
-    @property
-    def extra_state_attributes(self):
-        return self._attr_extra_state_attributes or {}
+    #@property
+    #def extra_state_attributes(self):
+    #    return self._attr_extra_state_attributes or {}
     #def extra_state_attributes(self):
     #    return self._attrs
 
