@@ -416,7 +416,7 @@ class NimlyDigitalLock(LockEntity):
             return True
 
         except Exception as e:
-            _LOGGER.error(f"Failed to unlock: {e}")
+            _LOGGER.error(f"Failed to lock: {e}")
             return False
 
     async def async_unlock(self, **kwargs):
