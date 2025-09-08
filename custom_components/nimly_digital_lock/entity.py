@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import struct
+import traceback
 from typing import Any
 
 from homeassistant.components.lock import LockEntity
@@ -275,7 +276,7 @@ class NimlyDigitalLock(LockEntity):
         async def battery_polling_loop():
             while True:
                 await self._poll_battery()
-                await asyncio.sleep(310)
+                await asyncio.sleep(400)
 
         async def rssi_polling_loop():
             while True:
@@ -396,14 +397,21 @@ class NimlyDigitalLock(LockEntity):
                 "ieee": self._ieee_with_colons,
                 "endpoint_id": 11,  # ZBT-1 uses endpoint 11
                 "cluster_id": 0x0101,  # Door Lock cluster
+                "cluster_type": "in",
                 "command": 0x00,  # Lock command
                 "command_type": "server",
-                "params": {}  # Empty params required by HA
+                "args": []
             }
 
-            await self._hass.services.async_call(
-                "zha", "issue_zigbee_cluster_command", service_data, blocking=True
-            )
+            try:
+                await self._hass.services.async_call(
+                    "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+                )
+            except Exception as exc:
+                if isinstance(exc, IndexError) and "tuple index out of range" in str(exc):
+                    _LOGGER.debug(f"ZHA response shape bug hit; proceeding as success.")
+                else:
+                    raise
 
             _LOGGER.info(f"Successfully locked {self.name}")
             # Update internal state
@@ -417,6 +425,7 @@ class NimlyDigitalLock(LockEntity):
 
         except Exception as e:
             _LOGGER.error(f"Failed to lock: {e}")
+            _LOGGER.error("Lock traceback:\n%s", traceback.format_exc())
             return False
 
     async def async_unlock(self, **kwargs):
@@ -430,14 +439,21 @@ class NimlyDigitalLock(LockEntity):
                 "ieee": self._ieee_with_colons,
                 "endpoint_id": 11,  # ZBT-1 uses endpoint 11
                 "cluster_id": 0x0101,  # Door Lock cluster
+                "cluster_type": "in",
                 "command": 0x01,  # Unlock command
                 "command_type": "server",
-                "params": {}  # Empty params required by HA
+                "args": []
             }
 
-            await self._hass.services.async_call(
-                "zha", "issue_zigbee_cluster_command", service_data, blocking=True
-            )
+            try:
+                await self._hass.services.async_call(
+                    "zha", "issue_zigbee_cluster_command", service_data, blocking=True
+                )
+            except Exception as exc:
+                if isinstance(exc, IndexError) and "tuple index out of range" in str(exc):
+                    _LOGGER.debug(f"ZHA response shape bug hit; proceeding as success.")
+                else:
+                    raise
 
             _LOGGER.info(f"Successfully sent unlock command")
             self._is_locked = False
@@ -447,4 +463,5 @@ class NimlyDigitalLock(LockEntity):
             return True
         except Exception as e:
             _LOGGER.error(f"Failed to unlock: {e}")
+            _LOGGER.error("Unlock traceback:\n%s", traceback.format_exc())
             return False

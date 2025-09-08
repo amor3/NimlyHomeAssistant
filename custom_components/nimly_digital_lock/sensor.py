@@ -50,16 +50,17 @@ async def async_setup_entry(
 
 
     sensors = []
-    for attr_id, (attr_key, name) in LOCK_DIAGNOSTIC_ATTRIBUTES.items():
-        sensors.append(
-            LockDiagnosticsSensor(
-                hass=hass,
-                ieee=ieee,
-                lock_name=name,
-                attribute_id=attr_id,
-                attr_key=attr_key,
-                friendly_name=name
-            )
-        )
 
-    async_add_entities(sensors)
+    #for attr_id, (attr_key, name) in LOCK_DIAGNOSTIC_ATTRIBUTES.items():
+    #    sensors.append(
+    #        LockDiagnosticsSensor(
+    #            hass=hass,
+    #            ieee=ieee,
+    #            lock_name=name,
+    #            attribute_id=attr_id,
+    #            attr_key=attr_key,
+    #            friendly_name=name
+    #        )
+    #    )
+
+    #async_add_entities(sensors)
