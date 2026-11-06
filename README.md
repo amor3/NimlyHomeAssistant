@@ -4,11 +4,11 @@
 [![Tests](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/tests.yml/badge.svg)](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/tests.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-The complete Home Assistant integration for **Nimly** smart locks with the Nimly Zigbee
-module. Lock and unlock, see **who** did it and **how** (code, key tag, fingerprint,
-button, auto relock, the app), manage **PIN codes** including temporary ones, and keep an
-eye on battery and settings. Everything runs locally over your own Zigbee network; no
-cloud, no Nimly hub.
+The complete Home Assistant integration for Nimly smart locks with the Nimly Zigbee
+module. Lock and unlock, see who did it and how (code, key tag, fingerprint, button,
+auto relock, the app), manage PIN codes including temporary ones, and keep an eye on
+battery and settings. Everything runs locally over your own Zigbee network, without a
+cloud service or a Nimly hub.
 
 ## Features
 
@@ -20,17 +20,17 @@ cloud, no Nimly hub.
 - **PIN codes.** Set, clear and name codes from Home Assistant, by slot, with the lock's
   own limits. Codes entered in the dialog never reach the Home Assistant database.
 - **Temporary and scheduled codes.** Give the plumber a code for eight hours, start a
-  guest's code on Friday, or let the cleaner in on Mondays and Thursdays 08–16. Codes add
-  and remove themselves, also around a restart. Home Assistant can generate the code.
+  guest's code on Friday, or let the cleaner in on Mondays and Thursdays 08–16. Codes are
+  written and cleared on time, even across a restart. Home Assistant can generate the code.
 - **Key tags and fingerprints** *(experimental)*. Start enrolment and remove them from
   Home Assistant, and lock the keypad against adding new ones.
 - **Settings and health.** Auto relock, sound volume, battery level and a battery-low
   warning, and the Zigbee router the lock depends on.
 - **Automations.** Device triggers ("Unlocked with a code", "Locked automatically"…), an
   event entity and the `nimly_digital_lock_activity` event carry who, how and whether it
-  was the lock itself, ready for notifications and routines.
-- **Looks after itself.** Retries a sleeping lock, follows Zigbee changes, finds new
-  locks, survives a replaced Zigbee module, and raises a clear repair issue when
+  was the lock itself.
+- **Maintenance.** Retries a sleeping lock, follows Zigbee changes, finds new locks,
+  keeps its data when the Zigbee module is replaced, and raises a repair issue when
   something needs you. Diagnostics never contain codes, addresses or names.
 
 ### How it works with ZHA
@@ -38,13 +38,13 @@ cloud, no Nimly hub.
 Nimly locks join your Zigbee network through ZHA (Zigbee Home Automation), which comes
 with Home Assistant. ZHA carries the radio traffic; this integration builds on it and
 listens to the lock directly. Lock control comes from ZHA's lock entity, and the
-battery, auto relock and volume from ZHA's Nimly support when it provides them. When it
-does not (ZHA sometimes applies no Nimly quirk to the lock), this integration adds them
-itself, so you always have them, and never twice.
+battery, auto relock and volume from ZHA's Nimly support when it provides them. ZHA
+sometimes applies no Nimly quirk to the lock; then this integration adds those entities
+itself, and removes them again once ZHA has its own.
 
 ZHA's own "Last action" sensors for Nimly have not updated since Home Assistant 2026.2
-([zha-device-handlers#5235](https://github.com/zigpy/zha-device-handlers/issues/5235));
-this integration receives every report and is what shows who and how.
+([zha-device-handlers#5235](https://github.com/zigpy/zha-device-handlers/issues/5235)).
+This integration reads every report itself, so who and how keep working.
 
 ## Requirements
 
@@ -106,7 +106,7 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 | `sensor.…_last_report` | When the lock last sent an operation report (diagnostic): a quick way to see that reports arrive. |
 | `binary_sensor.…_battery_low` | On when the lock says its batteries need replacing (diagnostic). |
-| `sensor.…_parent_router` | The Zigbee router the lock talks through, by name, with the signal in dBm (diagnostic). Most dropouts are range: this shows which device the door depends on. |
+| `sensor.…_parent_router` | The Zigbee router the lock talks through, by name, with the signal in dBm (diagnostic). Most dropouts come from poor range, and this shows which device the door depends on. |
 | `switch.…_keypad_programming` | *Experimental.* Off stops anyone adding codes, tags or fingers at the keypad. The lock cannot be asked, so it shows the last setting sent (assumed state). |
 
 Lock control comes from ZHA's `lock.…` entity on the lock's ZHA device (the activity
@@ -121,7 +121,7 @@ device:
 | `sensor.…_battery` | Battery level in percent (diagnostic). |
 
 They appear only while ZHA lacks them, and are removed automatically once ZHA shows its
-own, so nothing is doubled.
+own.
 
 Every lock event also fires `nimly_digital_lock_activity` on the event bus:
 
@@ -175,7 +175,7 @@ actions:
 - **Name a slot**: name any slot (0–999), for example key tags and fingerprints
   enrolled at the lock, so events show the person instead of "Slot 152". Codes and key
   tags share one numbering, but fingerprints have their own (000–199): fingerprint 5 can
-  be someone else than code 5. Pick a credential kind to give it its own name.
+  be someone other than code 5. Pick a credential kind to give it its own name.
 - **Enroll key tag or fingerprint** *(experimental)*: pick a slot; the lock starts
   scanning and you present the tag or finger at the lock right away.
 - **Remove key tag or fingerprint**: removes it from a slot.
@@ -188,16 +188,17 @@ lock cannot hold a code switched off. A code written later is removed from stora
 it is on the lock; a weekly code stays there while the schedule runs.
 
 The same is available as actions for automations: `nimly_digital_lock.set_pin`,
-`clear_pin`, `set_slot_name`, `enroll_credential` and `remove_credential`. Pick the lock with `device_id` (this integration's
-device or ZHA's) or `config_entry_id`; with a single lock set up, neither is needed.
+`clear_pin`, `set_slot_name`, `enroll_credential` and `remove_credential`. Pick the lock
+with `device_id` (this integration's device or ZHA's) or `config_entry_id`; with a single
+lock set up, neither is needed.
 `set_slot_name` takes an optional `credential` (`pin`, `rfid` or `fingerprint`) to name
 only that kind on the slot.
 Home Assistant's recorder stores the data of every action call, so a code passed to
 `set_pin` ends up in the database; use the Configure dialog to keep it out.
 
 **Temporary and scheduled codes.** A code with an end time (`valid_until`, or
-`valid_for` such as `{"hours": 48}`) is cleared from the lock at that time, also if Home
-Assistant was down then (it is cleared at the next start). `valid_from` writes it later.
+`valid_for` such as `{"hours": 48}`) is cleared from the lock at that time. If Home
+Assistant was down then, it is cleared at the next start. `valid_from` writes it later.
 `weekdays` with `start_time` and `end_time` makes it weekly: written when each window
 opens and cleared when it closes; a window that passed while Home Assistant was down is
 skipped. If the lock cannot be reached, it is retried after 10 minutes, then 20, 40…
@@ -353,7 +354,6 @@ integration against a genuine zigpy Door Lock cluster with ZHA's Nimly quirk app
 frames sent to the lock are checked byte for byte against the Zigbee module's format, and
 the lock's answers and reports are fed in as raw ZCL frames. CI runs everything on the
 current Home Assistant and on the oldest supported one.
-
 
 ## Maintainer
 
