@@ -42,12 +42,15 @@ from .const import (
     RESERVED_SLOTS_MIN,
 )
 from .manager import NimlyConfigEntry, NimlyLockManager, to_utc
+from .rules import CREDENTIAL_KINDS
 from .zha import is_zha_running, iter_nimly_locks
 
 CONF_SLOT = "slot"
 CONF_NAME = "name"
 CONF_PIN_CODE = "pin_code"
 CONF_VALID_UNTIL = "valid_until"
+CONF_CREDENTIAL = "credential"
+CREDENTIAL_ANY = "any"
 
 
 def _parse_local(value: object) -> datetime | None:
@@ -163,6 +166,8 @@ class NimlyConfigFlow(ConfigFlow, domain=DOMAIN):
                 unique_id=ieee,
                 title=_title(ieee, model),
                 data={CONF_IEEE: ieee, CONF_MODEL: model},
+                # Picking the module already in use changes nothing.
+                reload_even_if_entry_is_unchanged=False,
             )
 
         if not locks:
@@ -316,7 +321,12 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         manager = self._manager
         if user_input is not None:
-            manager.set_slot_name(int(user_input[CONF_SLOT]), user_input.get(CONF_NAME, ""))
+            credential = user_input.get(CONF_CREDENTIAL, CREDENTIAL_ANY)
+            manager.set_slot_name(
+                int(user_input[CONF_SLOT]),
+                user_input.get(CONF_NAME, ""),
+                None if credential == CREDENTIAL_ANY else credential,
+            )
             return self._done()
         return self.async_show_form(
             step_id="name_slot",
@@ -324,6 +334,12 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                 {
                     vol.Required(CONF_SLOT): _slot_selector(0, MAX_SLOT),
                     vol.Optional(CONF_NAME, default=""): TextSelector(),
+                    vol.Optional(CONF_CREDENTIAL, default=CREDENTIAL_ANY): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[CREDENTIAL_ANY, *CREDENTIAL_KINDS],
+                            translation_key="credential",
+                        )
+                    ),
                 }
             ),
         )

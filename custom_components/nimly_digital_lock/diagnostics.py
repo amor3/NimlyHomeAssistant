@@ -33,12 +33,14 @@ async def async_get_config_entry_diagnostics(
             "quirk_class": quirk.quirk_class if quirk else None,
         },
         "listening": manager.listening,
+        "missed_reports": manager.missed_reports,
         "capabilities": manager.capabilities,
         "capabilities_read": manager.capabilities_read,
         "first_user_slot": manager.first_user_slot,
         "slots": {
             str(number): {
                 "named": bool(slot["name"]),
+                "named_kinds": sorted(slot["names"]),
                 "has_pin": slot["has_pin"],
                 "expires": slot["expires"],
             }

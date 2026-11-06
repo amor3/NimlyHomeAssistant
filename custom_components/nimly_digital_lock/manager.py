@@ -7,10 +7,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
+import time
 from typing import Any, TypedDict
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, Context, HomeAssistant, callback
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import (
     async_call_later,
@@ -23,6 +24,7 @@ from homeassistant.util import dt as dt_util
 from . import rules
 from .const import (
     ATTR_ID_EVENT_STATUS,
+    ATTR_ID_LOCK_STATE,
     ATTR_ID_PIN_USED,
     CMD_CLEAR_PIN,
     CMD_SET_PIN,
@@ -32,12 +34,15 @@ from .const import (
     DEFAULT_RESERVED_SLOTS,
     DOMAIN,
     EVENT_LOCK_ACTIVITY,
+    ISSUE_EVENTS_MISSING,
     ISSUE_EXPIRED_PIN,
     ISSUE_ZHA_INTERNALS,
     MAX_SLOT,
     STORAGE_VERSION,
+    LockAction,
+    LockSource,
 )
-from .rules import LockEvent
+from .rules import CREDENTIAL_KINDS, LockEvent
 from .zha import LockTransport, SendOutcome, ZhaInternalsMissing, subscribe_attribute_reports
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,6 +52,14 @@ _LOGGER = logging.getLogger(__name__)
 CLUSTER_CHECK_INTERVAL = timedelta(seconds=60)
 # How long to wait before trying again to clear an expired PIN code.
 EXPIRY_RETRY_S = 600
+# A Zigbee report this soon after a lock/unlock from Home Assistant answers it.
+REMOTE_WINDOW_S = 20.0
+# NimlyPRO has been seen answering commands with 0x0A (auto), Code Pro with
+# 0x05; a matching command from Home Assistant just before decides.
+REMOTE_SOURCES = frozenset({LockSource.ZIGBEE, LockSource.UNATTRIBUTED, LockSource.AUTO})
+# An operation report should follow a lock state change within this time.
+REPORT_GAP_S = 15
+MISSED_REPORTS_FOR_ISSUE = 3
 
 
 class SlotData(TypedDict):
@@ -56,10 +69,27 @@ class SlotData(TypedDict):
     has_pin: bool
     # ISO 8601 UTC time when the PIN code is cleared, or None.
     expires: str | None
+    # Names for one credential kind (pin, rfid, fingerprint) that override
+    # name: fingerprints are numbered apart from codes and tags.
+    names: dict[str, str]
 
 
 def _empty_slot() -> SlotData:
-    return SlotData(name="", has_pin=False, expires=None)
+    return SlotData(name="", has_pin=False, expires=None, names={})
+
+
+def _is_empty(slot: SlotData) -> bool:
+    return not slot["name"] and not slot["names"] and not slot["has_pin"]
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteCommand:
+    """A lock or unlock asked for in Home Assistant, waiting for its report."""
+
+    action: LockAction
+    at: float
+    context: Context
+    user: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +99,9 @@ class LockActivity:
     event: LockEvent
     user: str | None
     system: bool
+    # The Home Assistant user whose lock/unlock this report answers.
+    ha_user: str | None = None
+    context: Context | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -76,6 +109,7 @@ class LockActivity:
             "source": self.event.source.value,
             "slot": self.event.slot,
             "user": self.user,
+            "ha_user": self.ha_user,
             "system": self.system,
         }
 
@@ -114,6 +148,10 @@ class NimlyLockManager:
         self._cluster: Any = None
         self._unsubscribe: Callable[[], None] | None = None
         self._failed_cluster: Any = None
+        self._remote: RemoteCommand | None = None
+        self._last_lock_state: int | None = None
+        self._report_gap_timer: CALLBACK_TYPE | None = None
+        self.missed_reports = 0
         self._expiry_timers: dict[int, CALLBACK_TYPE] = {}
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[LockActivity], None]] = []
@@ -128,6 +166,11 @@ class NimlyLockManager:
                 name=str(value.get("name", "")),
                 has_pin=bool(value.get("has_pin")),
                 expires=value.get("expires") if value.get("has_pin") else None,
+                names={
+                    str(kind): str(name)
+                    for kind, name in (value.get("names") or {}).items()
+                    if kind in CREDENTIAL_KINDS and name
+                },
             )
             for key, value in data.get("slots", {}).items()
         }
@@ -141,7 +184,9 @@ class NimlyLockManager:
 
     def _data_to_save(self) -> dict[str, Any]:
         return {
-            "slots": {key: dict(slot) for key, slot in self._slots.items()},
+            "slots": {
+                key: {**slot, "names": dict(slot["names"])} for key, slot in self._slots.items()
+            },
             "capabilities": self.capabilities if self.capabilities_read else None,
         }
 
@@ -155,6 +200,9 @@ class NimlyLockManager:
         for cancel in self._expiry_timers.values():
             cancel()
         self._expiry_timers.clear()
+        if self._report_gap_timer is not None:
+            self._report_gap_timer()
+            self._report_gap_timer = None
 
     # Listeners for entities
 
@@ -191,23 +239,31 @@ class NimlyLockManager:
     def slots(self) -> dict[int, SlotData]:
         """Copy of all slots Home Assistant has a name or PIN for."""
         return {
-            int(key): SlotData(**slot)
+            int(key): SlotData(**{**slot, "names": dict(slot["names"])})  # type: ignore[typeddict-item]
             for key, slot in sorted(self._slots.items(), key=lambda i: int(i[0]))
         }
 
-    def slot_name(self, slot: int) -> str | None:
-        """The name given to a slot, or None."""
+    def slot_name(self, slot: int, credential: str | None = None) -> str | None:
+        """The name for a slot, for one credential kind when it has its own."""
         if (data := self._slots.get(str(slot))) is None:
             return None
+        if credential is not None and (own := data["names"].get(credential)):
+            return own
         return data["name"] or None
 
     @callback
-    def set_slot_name(self, slot: int, name: str) -> None:
-        """Name a slot; an empty name removes it."""
+    def set_slot_name(self, slot: int, name: str, credential: str | None = None) -> None:
+        """Name a slot, or one credential kind on it; an empty name removes it."""
         key = str(slot)
         current = self._slots.get(key, _empty_slot())
-        current["name"] = name.strip()
-        if not current["name"] and not current["has_pin"]:
+        name = name.strip()
+        if credential is None:
+            current["name"] = name
+        elif name:
+            current["names"][credential] = name
+        else:
+            current["names"].pop(credential, None)
+        if _is_empty(current):
             self._slots.pop(key, None)
         else:
             self._slots[key] = current
@@ -232,6 +288,13 @@ class NimlyLockManager:
         for the slot is dropped.
         """
         self._check_writable(slot, self.max_user_slot)
+        # Shielded: a closed dialog cancels the caller, but a code that
+        # reached the lock must still be recorded.
+        return await asyncio.shield(self._async_set(slot, code, name, expires))
+
+    async def _async_set(
+        self, slot: int, code: str, name: str | None, expires: datetime | None
+    ) -> SendOutcome:
         async with self._pin_lock:
             outcome = await self._send(
                 CMD_SET_PIN,
@@ -256,7 +319,7 @@ class NimlyLockManager:
         code may have been written before the capacity was known.
         """
         self._check_writable(slot, MAX_SLOT)
-        return await self._async_clear(slot)
+        return await asyncio.shield(self._async_clear(slot))
 
     async def _async_clear(self, slot: int) -> SendOutcome:
         """Clear a slot without the reserved-slot check.
@@ -272,7 +335,7 @@ class NimlyLockManager:
                 if (current := self._slots.get(str(slot))) is not None:
                     current["has_pin"] = False
                     current["expires"] = None
-                    if not current["name"]:
+                    if _is_empty(current):
                         self._slots.pop(str(slot))
                     self._schedule_save()
                     self.async_update_listeners()
@@ -462,11 +525,54 @@ class NimlyLockManager:
         _LOGGER.info("ZHA rebound lock %s; listening to its new cluster", self.ieee)
 
     @callback
+    def note_remote_command(self, action: LockAction, context: Context) -> None:
+        """Remember a lock/unlock asked for in Home Assistant.
+
+        The lock's report for it says only "Zigbee", so the next matching
+        report is credited to the user who asked (when a person did).
+        """
+        wake = self.transport.wake_context
+        if wake is not None and context.id == wake.id:
+            return  # our own wake-up; its report is handled as an echo
+        self._remote = RemoteCommand(action, time.monotonic(), context, None)
+        if context.user_id is None:
+            return
+
+        async def _resolve_user() -> None:
+            user = await self.hass.auth.async_get_user(context.user_id)  # type: ignore[arg-type]
+            remote = self._remote
+            if user is not None and remote is not None and remote.context is context:
+                self._remote = RemoteCommand(remote.action, remote.at, context, user.name)
+
+        # Started eagerly: the lookup never suspends, so the name is set
+        # before this returns, long before the lock's report can arrive.
+        self.entry.async_create_background_task(
+            self.hass, _resolve_user(), f"{DOMAIN} resolve user {self.ieee}", eager_start=True
+        )
+
+    def _take_remote(self, event: LockEvent) -> RemoteCommand | None:
+        """The remote command this report answers, if any (used once)."""
+        remote = self._remote
+        if (
+            remote is None
+            or event.slot is not None
+            or event.source not in REMOTE_SOURCES
+            or event.action is not remote.action
+            or time.monotonic() - remote.at > REMOTE_WINDOW_S
+        ):
+            return None
+        self._remote = None
+        return remote
+
+    @callback
     def _handle_report(self, attribute_id: int, raw: Any) -> None:
         if attribute_id == ATTR_ID_PIN_USED:
             # Carries the PIN in clear text; never stored or logged.
             return
         self.schedule_capability_refresh()
+        if attribute_id == ATTR_ID_LOCK_STATE:
+            self._watch_report_gap(raw)
+            return
         if attribute_id != ATTR_ID_EVENT_STATUS:
             return
         try:
@@ -479,7 +585,67 @@ class NimlyLockManager:
                 return
         if (event := rules.decode_event_status(value)) is None:
             return
+        self._report_arrived()
         self.handle_event(event)
+
+    # Operation reports that stop arriving
+
+    def _missing_issue_id(self) -> str:
+        return f"{ISSUE_EVENTS_MISSING}_{self.entry.entry_id}"
+
+    @callback
+    def _watch_report_gap(self, raw: Any) -> None:
+        """A lock state change should be followed by an operation report.
+
+        After a battery change the lock can lose the binding for 0x0100
+        while lock state reports keep coming. When that happens on a few
+        changes in a row, a repair issue suggests reconfiguring in ZHA.
+        """
+        try:
+            state = int(raw)
+        except (TypeError, ValueError):
+            return
+        previous, self._last_lock_state = self._last_lock_state, state
+        if previous is None or previous == state:
+            return
+        if self._report_gap_timer is not None:
+            self._report_gap_timer()
+
+        @callback
+        def _no_report(_now: datetime) -> None:
+            self._report_gap_timer = None
+            self.missed_reports += 1
+            _LOGGER.debug(
+                "Lock %s changed state without an operation report (%d in a row)",
+                self.ieee,
+                self.missed_reports,
+            )
+            if self.missed_reports == MISSED_REPORTS_FOR_ISSUE:
+                _LOGGER.warning(
+                    "Lock %s reports lock state but no operation events; "
+                    "reconfigure the device in ZHA",
+                    self.ieee,
+                )
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    self._missing_issue_id(),
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.WARNING,
+                    translation_key=ISSUE_EVENTS_MISSING,
+                    translation_placeholders={"title": self.entry.title},
+                )
+
+        self._report_gap_timer = async_call_later(self.hass, REPORT_GAP_S, _no_report)
+
+    @callback
+    def _report_arrived(self) -> None:
+        if self._report_gap_timer is not None:
+            self._report_gap_timer()
+            self._report_gap_timer = None
+        if self.missed_reports >= MISSED_REPORTS_FOR_ISSUE:
+            ir.async_delete_issue(self.hass, DOMAIN, self._missing_issue_id())
+        self.missed_reports = 0
 
     @callback
     def handle_event(self, event: LockEvent) -> None:
@@ -493,14 +659,20 @@ class NimlyLockManager:
             event.raw,
         )
         self.last_event = event
+        remote = self._take_remote(event)
         activity = LockActivity(
             event=event,
-            user=self.slot_name(event.slot) if event.slot is not None else None,
-            system=rules.is_system_event(event, self.transport.wake_echo_pending()),
+            user=(self.slot_name(event.slot, event.credential) if event.slot is not None else None),
+            # A command a person or automation gave is never "the lock itself".
+            system=remote is None
+            and rules.is_system_event(event, self.transport.wake_echo_pending()),
+            ha_user=remote.user if remote else None,
+            context=remote.context if remote else None,
         )
         for handle in list(self._event_listeners):
             handle(activity)
         self.hass.bus.async_fire(
             EVENT_LOCK_ACTIVITY,
             {"config_entry_id": self.entry.entry_id, "ieee": self.ieee, **activity.as_dict()},
+            context=activity.context,
         )

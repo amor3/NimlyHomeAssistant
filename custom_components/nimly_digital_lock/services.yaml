@@ -1,10 +1,18 @@
 set_pin:
   fields:
     config_entry_id:
-      required: true
+      required: false
       selector:
         config_entry:
           integration: nimly_digital_lock
+    device_id:
+      required: false
+      selector:
+        device:
+          filter:
+            - integration: nimly_digital_lock
+            - integration: zha
+              manufacturer: Onesti Products AS
     slot:
       required: true
       example: 3
@@ -39,10 +47,18 @@ set_pin:
 clear_pin:
   fields:
     config_entry_id:
-      required: true
+      required: false
       selector:
         config_entry:
           integration: nimly_digital_lock
+    device_id:
+      required: false
+      selector:
+        device:
+          filter:
+            - integration: nimly_digital_lock
+            - integration: zha
+              manufacturer: Onesti Products AS
     slot:
       required: true
       example: 3
@@ -55,10 +71,18 @@ clear_pin:
 set_slot_name:
   fields:
     config_entry_id:
-      required: true
+      required: false
       selector:
         config_entry:
           integration: nimly_digital_lock
+    device_id:
+      required: false
+      selector:
+        device:
+          filter:
+            - integration: nimly_digital_lock
+            - integration: zha
+              manufacturer: Onesti Products AS
     slot:
       required: true
       example: 3
@@ -72,3 +96,12 @@ set_slot_name:
       example: "Anna"
       selector:
         text:
+    credential:
+      required: false
+      selector:
+        select:
+          translation_key: credential
+          options:
+            - pin
+            - rfid
+            - fingerprint

@@ -63,7 +63,11 @@
         "description": "Namnge en plats så att händelser visar vem det är, till exempel en nyckelbricka eller ett fingeravtryck som registrerats på låset. Ett tomt namn tar bort det.",
         "data": {
           "slot": "Plats",
-          "name": "Namn"
+          "name": "Namn",
+          "credential": "Inloggningstyp"
+        },
+        "data_description": {
+          "credential": "Namnge bara den här typen på platsen. Fingeravtryck numreras skilt från koder och brickor, så fingeravtryck 5 kan vara någon annan än kod 5."
         }
       },
       "settings": {
@@ -81,7 +85,7 @@
     "error": {
       "slot_out_of_range": "Den platsen kan inte skrivas från Home Assistant.",
       "invalid_pin": "Koden får bara innehålla siffror och ha en längd som låset accepterar.",
-      "lock_unreachable": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen.",
+      "lock_unreachable": "Låset svarade inte; radion sover. Väck det genom att vrida vredet, eller slå en giltig kod och #, och försök igen inom några sekunder. Att bara röra vid knappsatsen tänder bara belysningen.",
       "lock_rejected": "Låset avvisade kommandot.",
       "lock_rejected_duplicate": "Låset avvisade koden: den används redan.",
       "lock_rejected_memory_full": "Låset avvisade koden: minnet är fullt.",
@@ -162,7 +166,7 @@
       "message": "PIN-koden ska vara {min}-{max} siffror."
     },
     "lock_unreachable": {
-      "message": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen."
+      "message": "Låset svarade inte; radion sover. Väck det genom att vrida vredet, eller slå en giltig kod och #, och försök igen inom några sekunder. Att bara röra vid knappsatsen tänder bara belysningen."
     },
     "lock_rejected": {
       "message": "Låset avvisade kommandot."
@@ -175,6 +179,9 @@
     },
     "expiry_in_past": {
       "message": "Sluttiden måste ligga i framtiden."
+    },
+    "lock_required": {
+      "message": "Fler än ett Nimly-lås är konfigurerat; välj låset (konfigurationspost eller enhet)."
     }
   },
   "issues": {
@@ -188,7 +195,11 @@
     },
     "expired_pin_not_cleared": {
       "title": "Utgången PIN-kod på {title} är fortfarande aktiv",
-      "description": "Den tillfälliga koden för {name} (plats {slot}) har gått ut, men låset har inte tagit bort den än, så den kan fortfarande öppna dörren. Home Assistant försöker igen var tionde minut. Tryck på en knapp på låset för att väcka det, eller ta bort koden på knappsatsen."
+      "description": "Den tillfälliga koden för {name} (plats {slot}) har gått ut, men låset har inte tagit bort den än, så den kan fortfarande öppna dörren. Home Assistant försöker igen var tionde minut. Vrid vredet för att väcka låset, eller ta bort koden på knappsatsen."
+    },
+    "events_missing": {
+      "title": "{title} rapporterar låsläge men inte vem eller hur",
+      "description": "Låset rapporterar när det låses och låses upp, men händelserna om vem och hur har slutat komma. Det händer ofta efter ett batteribyte. Öppna låsets enhet i ZHA och välj Konfigurera om medan låset är vaket (vrid vredet eller slå en kod och # först). Om det misslyckas, vänta några timmar eller ta bort och parkoppla låset i ZHA igen."
     }
   },
   "services": {
@@ -198,7 +209,7 @@
       "fields": {
         "config_entry_id": {
           "name": "Lås",
-          "description": "Nimly-låset."
+          "description": "Nimly-låset. Behövs inte när bara ett lås är konfigurerat."
         },
         "slot": {
           "name": "Plats",
@@ -219,6 +230,10 @@
         "valid_for": {
           "name": "Giltig i",
           "description": "Ta bort koden efter så här lång tid (tillfällig kod). Kan inte kombineras med giltig till."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsets enhet (den här integrationens eller ZHA:s). Behövs inte när bara ett lås är konfigurerat."
         }
       }
     },
@@ -228,11 +243,15 @@
       "fields": {
         "config_entry_id": {
           "name": "Lås",
-          "description": "Nimly-låset."
+          "description": "Nimly-låset. Behövs inte när bara ett lås är konfigurerat."
         },
         "slot": {
           "name": "Plats",
           "description": "Platsen som ska rensas."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsets enhet (den här integrationens eller ZHA:s). Behövs inte när bara ett lås är konfigurerat."
         }
       }
     },
@@ -242,7 +261,7 @@
       "fields": {
         "config_entry_id": {
           "name": "Lås",
-          "description": "Nimly-låset."
+          "description": "Nimly-låset. Behövs inte när bara ett lås är konfigurerat."
         },
         "slot": {
           "name": "Plats",
@@ -251,7 +270,25 @@
         "name": {
           "name": "Namn",
           "description": "Namnet, eller tomt för att ta bort det."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsets enhet (den här integrationens eller ZHA:s). Behövs inte när bara ett lås är konfigurerat."
+        },
+        "credential": {
+          "name": "Inloggningstyp",
+          "description": "Namnge bara den här typen på platsen (pin, rfid eller fingerprint). Utelämna för att namnge platsen för alla typer."
         }
+      }
+    }
+  },
+  "selector": {
+    "credential": {
+      "options": {
+        "any": "Alla typer",
+        "pin": "PIN-kod",
+        "rfid": "Nyckelbricka",
+        "fingerprint": "Fingeravtryck"
       }
     }
   }

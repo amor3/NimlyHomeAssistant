@@ -20,7 +20,7 @@ from zigpy.exceptions import DeliveryError, ZigbeeException
 from zigpy.zcl.foundation import Status
 
 from homeassistant.components.zha.helpers import get_zha_gateway_proxy
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import (
@@ -236,6 +236,9 @@ class LockTransport:
         self.ieee = ieee
         self.wake_with_lock = False
         self._last_wake: float | None = None
+        # The context of our own wake-up call, so it is not taken for a
+        # person locking the door.
+        self.wake_context: Context | None = None
 
     def cluster(self) -> Any:
         return find_door_lock_cluster(self.hass, self.ieee)
@@ -254,9 +257,10 @@ class LockTransport:
         if (entity_id := find_lock_entity_id(self.hass, self.ieee)) is None:
             return
         self._last_wake = time.monotonic()
+        self.wake_context = Context()
         try:
             await self.hass.services.async_call(
-                "lock", "lock", {"entity_id": entity_id}, blocking=True
+                "lock", "lock", {"entity_id": entity_id}, blocking=True, context=self.wake_context
             )
         except Exception as err:  # noqa: BLE001 - a failed wake must not abort the retry
             _LOGGER.debug("Wake-up of %s failed: %s", self.ieee, type(err).__name__)

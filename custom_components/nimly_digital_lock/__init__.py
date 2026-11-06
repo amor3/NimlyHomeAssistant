@@ -7,8 +7,8 @@ import re
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, EVENT_CALL_SERVICE, Platform
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import (
     config_validation as cv,
@@ -25,6 +25,7 @@ from .const import (
     ISSUE_QUIRK_MISSING,
     ISSUE_ZHA_INTERNALS,
     ZHA_DOMAIN,
+    LockAction,
 )
 from .discovery import async_discover_locks, async_setup_discovery
 from .manager import NimlyConfigEntry, NimlyLockManager, lock_store
@@ -32,6 +33,8 @@ from .services import async_setup_services
 from .zha import (
     ZhaInternalsMissing,
     find_door_lock_cluster,
+    find_lock_entity_id,
+    find_zha_device,
     is_zha_running,
     lock_in_zha,
     model_in_zha,
@@ -42,6 +45,9 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+LOCK_DOMAIN = "lock"
+_COMMANDS = {"lock": LockAction.LOCK, "unlock": LockAction.UNLOCK, "open": LockAction.UNLOCK}
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -121,6 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> boo
     _start_listening(hass, entry, manager, cluster)
     _check_quirk(hass, entry)
     _watch_zha(hass, entry)
+    _watch_lock_commands(hass, entry, manager)
     manager.async_schedule_expiries()
     manager.schedule_capability_refresh()
     async_discover_locks(hass)
@@ -134,8 +141,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> bo
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> None:
-    """Remove stored slot names when the lock is deleted."""
+    """Remove stored slot names and this lock's repair issues."""
     await lock_store(hass, entry).async_remove()
+    issues = ir.async_get(hass)
+    for domain, issue_id in list(issues.issues):
+        if domain == DOMAIN and entry.entry_id in issue_id:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 async def async_remove_config_entry_device(
@@ -196,6 +207,31 @@ def _check_quirk(hass: HomeAssistant, entry: NimlyConfigEntry) -> None:
         translation_placeholders={"title": entry.title},
         learn_more_url="https://github.com/amor3/NimlyHomeAssistant#zha-does-not-show-auto-relock-or-volume",
     )
+
+
+@callback
+def _watch_lock_commands(
+    hass: HomeAssistant, entry: NimlyConfigEntry, manager: NimlyLockManager
+) -> None:
+    """Note lock/unlock calls to ZHA's lock entity, to credit who asked."""
+
+    @callback
+    def _on_call_service(event: Event) -> None:
+        data = event.data
+        if data["domain"] != LOCK_DOMAIN or (action := _COMMANDS.get(data["service"])) is None:
+            return
+        service_data = data.get("service_data") or {}
+        if (entity_id := find_lock_entity_id(hass, manager.ieee)) is None:
+            return
+        targets = service_data.get(ATTR_ENTITY_ID) or []
+        devices = service_data.get(ATTR_DEVICE_ID) or []
+        targets = [targets] if isinstance(targets, str) else list(targets)
+        devices = [devices] if isinstance(devices, str) else list(devices)
+        zha_device = find_zha_device(hass, manager.ieee)
+        if entity_id in targets or (zha_device is not None and zha_device.id in devices):
+            manager.note_remote_command(action, event.context)
+
+    entry.async_on_unload(hass.bus.async_listen(EVENT_CALL_SERVICE, _on_call_service))
 
 
 @callback

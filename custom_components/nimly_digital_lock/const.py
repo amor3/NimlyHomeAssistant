@@ -36,6 +36,7 @@ DOOR_LOCK_CLUSTER_ID: Final = 0x0101
 LOCK_ENDPOINT_ID: Final = 11
 
 # Door Lock cluster attributes (Safe4 Zigbee module specification).
+ATTR_ID_LOCK_STATE: Final = 0x0000
 ATTR_ID_NUM_PIN_USERS: Final = 0x0012
 ATTR_ID_MAX_PIN_LENGTH: Final = 0x0017
 ATTR_ID_MIN_PIN_LENGTH: Final = 0x0018
@@ -69,6 +70,7 @@ EVENT_LOCK_ACTIVITY: Final = f"{DOMAIN}_activity"
 ISSUE_ZHA_INTERNALS: Final = "zha_internals"
 ISSUE_QUIRK_MISSING: Final = "quirk_missing"
 ISSUE_EXPIRED_PIN: Final = "expired_pin_not_cleared"
+ISSUE_EVENTS_MISSING: Final = "events_missing"
 
 STORAGE_VERSION: Final = 1
 
@@ -115,3 +117,4 @@ class NimlyServiceArgument(StrEnum):
     NAME = "name"
     VALID_UNTIL = "valid_until"
     VALID_FOR = "valid_for"
+    CREDENTIAL = "credential"

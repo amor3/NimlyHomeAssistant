@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -31,7 +32,7 @@ async def test_set_pin(
         0x05, user_id=4, user_status=1, user_type=0, pin_code="2468"
     )
     assert init_integration.runtime_data.slots == {
-        4: {"name": "Bo", "has_pin": True, "expires": None}
+        4: {"name": "Bo", "has_pin": True, "expires": None, "names": {}}
     }
     assert hass.states.get("sensor.nimlypro_activity_pin_codes").state == "1"
 
@@ -110,7 +111,7 @@ async def test_clear_pin_keeps_name(
     await _call(hass, init_integration, NimlyService.CLEAR_PIN, slot=4)
     fake_zha.cluster.command.assert_awaited_with(0x07, user_id=4)
     assert init_integration.runtime_data.slots == {
-        4: {"name": "Bo", "has_pin": False, "expires": None}
+        4: {"name": "Bo", "has_pin": False, "expires": None, "names": {}}
     }
 
 
@@ -141,7 +142,7 @@ async def test_slots_persist_across_reload(
     await hass.config_entries.async_reload(init_integration.entry_id)
     await hass.async_block_till_done()
     manager = init_integration.runtime_data
-    assert manager.slots == {4: {"name": "Bo", "has_pin": True, "expires": None}}
+    assert manager.slots == {4: {"name": "Bo", "has_pin": True, "expires": None, "names": {}}}
     assert manager.capabilities_read is True
 
 
@@ -161,3 +162,23 @@ async def test_unexpected_error_is_contained(
         await _call(hass, init_integration, NimlyService.SET_PIN, slot=4, pin_code="864209")
     assert err.value.translation_key == "lock_unreachable"
     assert "864209" not in caplog.text
+
+
+async def test_cancelled_caller_still_records_pin(
+    hass: HomeAssistant, fake_zha: FakeZha, init_integration: MockConfigEntry
+) -> None:
+    """Closing the dialog mid-command must not lose a code the lock took."""
+    release = asyncio.Event()
+
+    async def _slow_command(*_args, **_kwargs):
+        await release.wait()
+
+    fake_zha.cluster.command = AsyncMock(side_effect=_slow_command)
+    manager = init_integration.runtime_data
+    caller = hass.async_create_task(manager.async_set_pin(4, "1234", "Bo"))
+    await asyncio.sleep(0)
+    caller.cancel()
+    release.set()
+    await hass.async_block_till_done()
+    assert caller.cancelled()
+    assert manager.slots[4]["has_pin"] is True

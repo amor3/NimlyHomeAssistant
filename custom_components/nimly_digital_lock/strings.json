@@ -63,7 +63,11 @@
         "description": "Name a slot so events show who it is, for example a key tag or fingerprint enrolled at the lock. An empty name removes it.",
         "data": {
           "slot": "Slot",
-          "name": "Name"
+          "name": "Name",
+          "credential": "Credential"
+        },
+        "data_description": {
+          "credential": "Name only this kind on the slot. Fingerprints are numbered apart from codes and key tags, so fingerprint 5 can be someone else than code 5."
         }
       },
       "settings": {
@@ -81,7 +85,7 @@
     "error": {
       "slot_out_of_range": "That slot cannot be written from Home Assistant.",
       "invalid_pin": "The code must be digits only and the length the lock accepts.",
-      "lock_unreachable": "The lock did not answer. Press a key on the lock to wake it and try again.",
+      "lock_unreachable": "The lock did not answer; its radio is asleep. Wake it by turning the knob, or by entering a valid code and #, then try again within a few seconds. Touching the keypad only lights it up.",
       "lock_rejected": "The lock refused the command.",
       "lock_rejected_duplicate": "The lock refused the code: it is already in use.",
       "lock_rejected_memory_full": "The lock refused the code: its memory is full.",
@@ -162,7 +166,7 @@
       "message": "The PIN code must be {min}-{max} digits."
     },
     "lock_unreachable": {
-      "message": "The lock did not answer. Press a key on the lock to wake it and try again."
+      "message": "The lock did not answer; its radio is asleep. Wake it by turning the knob, or by entering a valid code and #, then try again within a few seconds. Touching the keypad only lights it up."
     },
     "lock_rejected": {
       "message": "The lock refused the command."
@@ -175,6 +179,9 @@
     },
     "expiry_in_past": {
       "message": "The end time must be in the future."
+    },
+    "lock_required": {
+      "message": "More than one Nimly lock is set up; choose the lock (config entry or device)."
     }
   },
   "issues": {
@@ -188,7 +195,11 @@
     },
     "expired_pin_not_cleared": {
       "title": "Expired PIN code on {title} is still active",
-      "description": "The temporary code for {name} (slot {slot}) has expired, but the lock has not removed it yet, so it may still open the door. Home Assistant keeps trying every 10 minutes. Press a key on the lock to wake it, or delete the code at the keypad."
+      "description": "The temporary code for {name} (slot {slot}) has expired, but the lock has not removed it yet, so it may still open the door. Home Assistant keeps trying every 10 minutes. Turn the knob to wake the lock, or delete the code at the keypad."
+    },
+    "events_missing": {
+      "title": "{title} reports lock state but not who or how",
+      "description": "The lock reports when it locks and unlocks, but its operation events (who and how) have stopped arriving. This often happens after a battery change. In ZHA, open the lock's device and choose Reconfigure while the lock is awake (turn the knob or enter a code and # first). If that fails, wait a few hours, or remove and pair the lock in ZHA again."
     }
   },
   "services": {
@@ -198,7 +209,7 @@
       "fields": {
         "config_entry_id": {
           "name": "Lock",
-          "description": "The Nimly lock."
+          "description": "The Nimly lock. Not needed when only one lock is set up."
         },
         "slot": {
           "name": "Slot",
@@ -219,6 +230,10 @@
         "valid_for": {
           "name": "Valid for",
           "description": "Remove the code after this long (temporary code). Cannot be combined with valid until."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "The lock's device (this integration's or ZHA's). Not needed when only one lock is set up."
         }
       }
     },
@@ -228,11 +243,15 @@
       "fields": {
         "config_entry_id": {
           "name": "Lock",
-          "description": "The Nimly lock."
+          "description": "The Nimly lock. Not needed when only one lock is set up."
         },
         "slot": {
           "name": "Slot",
           "description": "The slot to clear."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "The lock's device (this integration's or ZHA's). Not needed when only one lock is set up."
         }
       }
     },
@@ -242,7 +261,7 @@
       "fields": {
         "config_entry_id": {
           "name": "Lock",
-          "description": "The Nimly lock."
+          "description": "The Nimly lock. Not needed when only one lock is set up."
         },
         "slot": {
           "name": "Slot",
@@ -251,7 +270,25 @@
         "name": {
           "name": "Name",
           "description": "The name, or empty to remove it."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "The lock's device (this integration's or ZHA's). Not needed when only one lock is set up."
+        },
+        "credential": {
+          "name": "Credential",
+          "description": "Name only this credential kind on the slot (pin, rfid or fingerprint). Leave out to name the slot for all kinds."
         }
+      }
+    }
+  },
+  "selector": {
+    "credential": {
+      "options": {
+        "any": "All kinds",
+        "pin": "PIN code",
+        "rfid": "Key tag",
+        "fingerprint": "Fingerprint"
       }
     }
   }

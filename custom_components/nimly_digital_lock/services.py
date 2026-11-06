@@ -5,19 +5,23 @@ from __future__ import annotations
 from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import ATTR_DEVICE_ID
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.util import dt as dt_util
 
 from . import rules
 from .compat import vol
-from .const import DOMAIN, MAX_SLOT, NimlyService, NimlyServiceArgument as Arg
+from .const import CONF_IEEE, DOMAIN, MAX_SLOT, NimlyService, NimlyServiceArgument as Arg
 from .manager import NimlyConfigEntry, NimlyLockManager, to_utc
+from .rules import CREDENTIAL_KINDS
 from .zha import SendOutcome
 
 _BASE = {
-    vol.Required(Arg.CONFIG_ENTRY_ID.value): cv.string,
+    # Either names the lock; with a single lock set up, neither is needed.
+    vol.Exclusive(Arg.CONFIG_ENTRY_ID.value, "lock"): cv.string,
+    vol.Exclusive(ATTR_DEVICE_ID, "lock"): cv.string,
     vol.Required(Arg.SLOT.value): vol.All(vol.Coerce(int), vol.Range(min=0)),
 }
 
@@ -31,13 +35,45 @@ SET_PIN_SCHEMA = vol.Schema(
     }
 )
 CLEAR_PIN_SCHEMA = vol.Schema(_BASE)
-SET_SLOT_NAME_SCHEMA = vol.Schema({**_BASE, vol.Required(Arg.NAME.value): vol.Any(cv.string, "")})
+SET_SLOT_NAME_SCHEMA = vol.Schema(
+    {
+        **_BASE,
+        vol.Required(Arg.NAME.value): vol.Any(cv.string, ""),
+        vol.Optional(Arg.CREDENTIAL.value): vol.In(CREDENTIAL_KINDS),
+    }
+)
+
+
+def _entry_for_device(hass: HomeAssistant, device_id: str) -> NimlyConfigEntry | None:
+    """The entry for our own device, or for ZHA's device of the same lock."""
+    if (device := dr.async_get(hass).async_get(device_id)) is None:
+        return None
+    entries: list[NimlyConfigEntry] = hass.config_entries.async_entries(DOMAIN)
+    # Child devices (newer Home Assistant) have no connections.
+    connections = device.connections if isinstance(device, dr.DeviceEntry) else set()
+    for entry in entries:
+        if (DOMAIN, entry.entry_id) in device.identifiers:
+            return entry
+        if (dr.CONNECTION_ZIGBEE, str(entry.data.get(CONF_IEEE, "")).lower()) in connections:
+            return entry
+    return None
 
 
 def _manager(hass: HomeAssistant, call: ServiceCall) -> NimlyLockManager:
-    entry: NimlyConfigEntry | None = hass.config_entries.async_get_entry(
-        call.data[Arg.CONFIG_ENTRY_ID]
-    )
+    entry: NimlyConfigEntry | None
+    if (entry_id := call.data.get(Arg.CONFIG_ENTRY_ID)) is not None:
+        entry = hass.config_entries.async_get_entry(entry_id)
+    elif (device_id := call.data.get(ATTR_DEVICE_ID)) is not None:
+        entry = _entry_for_device(hass, device_id)
+    else:
+        loaded = [
+            candidate
+            for candidate in hass.config_entries.async_entries(DOMAIN)
+            if candidate.state is ConfigEntryState.LOADED
+        ]
+        if len(loaded) != 1:
+            raise ServiceValidationError(translation_domain=DOMAIN, translation_key="lock_required")
+        entry = loaded[0]
     if entry is None or entry.domain != DOMAIN:
         raise ServiceValidationError(translation_domain=DOMAIN, translation_key="entry_not_found")
     if entry.state is not ConfigEntryState.LOADED:
@@ -110,7 +146,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_key="slot_out_of_range",
                 translation_placeholders={"slot": str(slot), "first": "0", "last": str(MAX_SLOT)},
             )
-        manager.set_slot_name(slot, call.data[Arg.NAME])
+        manager.set_slot_name(slot, call.data[Arg.NAME], call.data.get(Arg.CREDENTIAL))
 
     hass.services.async_register(DOMAIN, NimlyService.SET_PIN, set_pin, SET_PIN_SCHEMA)
     hass.services.async_register(DOMAIN, NimlyService.CLEAR_PIN, clear_pin, CLEAR_PIN_SCHEMA)

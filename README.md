@@ -19,11 +19,16 @@ integration does **not** create those again. It adds what ZHA leaves out:
 | Lock / unlock, lock state | ✅ | – |
 | Battery, signal (LQI/RSSI) | ✅ | – |
 | Auto relock switch, sound volume | ✅ (quirk) | – |
-| Who operated the lock, by name | – | ✅ |
-| How it was operated (keypad, tag, fingerprint, auto relock…) | raw numbers | ✅ decoded |
+| Who operated the lock, by name (also the Home Assistant user who unlocked) | – | ✅ |
+| How it was operated (keypad, tag, fingerprint, auto relock…) | ❌ see below | ✅ decoded |
 | Event entity and `nimly_digital_lock_activity` event for automations | – | ✅ |
 | Set and clear PIN codes, name slots | – | ✅ |
 | Temporary PIN codes that remove themselves | – | ✅ |
+
+Since Home Assistant 2026.2, the "Last action" sensors of ZHA's quirk no longer update
+([zha-device-handlers#5235](https://github.com/zigpy/zha-device-handlers/issues/5235)): the
+lock sends its operation report without a manufacturer code and zigpy no longer matches it.
+This integration listens to the Door Lock cluster directly and receives every report.
 
 ## Requirements
 
@@ -31,7 +36,11 @@ integration does **not** create those again. It adds what ZHA leaves out:
 - A Nimly lock with the **Nimly Zigbee module** (Connect Module) paired with ZHA.
   Zigbee module firmware **4.7.79 (20240625) or newer** is recommended; older firmware
   reports unreliably.
-- A Zigbee router close to the door helps a lot: the lock's metal casing weakens the signal.
+- A mains-powered Zigbee router (a smart plug) within a few metres of the door, on the
+  inside. The radio sits in a metal lock body at the edge of the house and sleeps, so it
+  depends on the nearest router; this fixes most dropouts.
+- Do not leave the Zigbee module in a lock that is not paired: it keeps searching and
+  drains the batteries.
 
 Supported: every lock whose Zigbee module reports the manufacturer `Onesti Products AS`
 and has a Door Lock cluster. That includes NimlyCode, NimlyCodePRO, NimlyTouch, NimlyPRO
@@ -73,7 +82,7 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 | `event.…_activity` | Fires `lock` / `unlock` with `source`, `slot`, `user` and `system` attributes. |
 | `sensor.…_last_action` | Locked / Unlocked. |
 | `sensor.…_last_operated_by` | Keypad, Key tag, Fingerprint, Button, Auto relock, Home Assistant / Zigbee, Other. |
-| `sensor.…_last_user` | The last person who used a code, tag or finger (slot name, or "Slot N"). Auto relock does not overwrite it. Survives restarts. |
+| `sensor.…_last_user` | The last person who operated the lock: the slot name for a code, tag or finger ("Slot N" if unnamed), or the Home Assistant user who locked or unlocked from the app. Auto relock and a palm lock from outside do not overwrite it. Survives restarts. |
 | `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant; slot names in the attributes (never the codes). |
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 
@@ -88,6 +97,7 @@ data:
   source: keypad        # zigbee | button | keypad | fingerprint | rfid | auto | unattributed | unknown
   slot: 5               # null when no user is involved
   user: Anna            # slot name, or null
+  ha_user: null         # the Home Assistant user, when the command came from the app
   system: false         # true for auto relock and similar non-human events
 ```
 
@@ -118,13 +128,16 @@ actions:
   for a temporary code.
 - **Clear PIN code**: removes the code from a slot; the name stays.
 - **Name a slot**: name any slot (0–999), for example key tags and fingerprints
-  enrolled at the lock, so events show the person instead of "Slot 152".
+  enrolled at the lock, so events show the person instead of "Slot 152". Codes and key
+  tags share one numbering, but fingerprints have their own (000–199): fingerprint 5 can
+  be someone else than code 5. Pick a credential kind to give it its own name.
 - **Settings**: number of reserved master slots, and the wake-up option below.
 
 Codes entered in the Configure dialog go straight to the lock and are never stored in
 Home Assistant. The same is available as actions for automations:
 `nimly_digital_lock.set_pin`, `nimly_digital_lock.clear_pin` and
-`nimly_digital_lock.set_slot_name`. Note that Home Assistant's recorder stores the data
+`nimly_digital_lock.set_slot_name`. Pick the lock with `device_id` (this integration's
+device or ZHA's) or `config_entry_id`; with a single lock set up, neither is needed. Note that Home Assistant's recorder stores the data
 of every action call, so a code passed to `set_pin` ends up in the database.
 
 **Temporary codes.** A code with an end time (`valid_until`, or `valid_for` such as
@@ -136,8 +149,7 @@ reached, it is retried every 10 minutes until it succeeds. The end time is shown
 ```yaml
 action: nimly_digital_lock.set_pin
 data:
-  config_entry_id: 01J...   # pick the lock in the action editor
-  slot: 10
+  slot: 10                  # add device_id when you have more than one lock
   pin_code: "482913"
   name: Plumber
   valid_for:
@@ -149,8 +161,11 @@ for master codes, so Home Assistant only writes PINs from slot 3 (configurable 1
 the Code Pro has a single master slot). The highest slot comes from the lock's reported
 PIN capacity.
 
-**Sleeping lock.** The lock's radio sleeps. A command that times out is retried
-automatically. If it still fails, press a key on the lock to wake it and try again. The
+**Sleeping lock.** The lock's radio sleeps, and its parent router drops queued messages
+after 7.68 seconds. A command that times out is retried automatically. If it still fails,
+wake the lock by turning the knob, or by entering a valid code and `#`, and try again
+within a few seconds. Touching the keypad only lights it up. A code you set is only
+confirmed by the lock answering; try it on the keypad. The
 **Wake the lock by locking it** setting instead sends a lock command through ZHA before
 retrying. That moves the bolt and locks an open door, so it is off by default.
 
@@ -189,8 +204,17 @@ to point to ZHA's entities instead. The `nimly_digital_lock.update` and
   reports door state "unspecified"). Use a separate contact sensor.
 - ZHA has no public API for what this integration listens to. If an update breaks it, a
   repair issue tells you, and lock control in ZHA keeps working.
-- If ZHA replaces the lock's device object (after a rejoin, a re-interview or a battery
-  change), the integration notices within a minute and listens again.
+- If ZHA replaces the lock's device object (after a rejoin or a re-interview), the
+  integration notices within a minute and listens again.
+- **After a battery change** the lock can lose its report binding: lock state still
+  updates, but who and how stop. The integration notices when this happens a few times in
+  a row and raises a repair issue. Fix: wake the lock (knob, or code and `#`) and choose
+  **Reconfigure** on the device in ZHA within a few seconds; repeat if it fails, or
+  re-pair as a last resort.
+- Configuration writes to a sleeping lock (auto relock, volume in ZHA) do not always
+  take. Wake the lock first.
+- The lock does not say which Home Assistant user unlocked it; the integration credits a
+  report to the user whose lock/unlock call came within 20 seconds before it.
 
 ## Troubleshooting
 

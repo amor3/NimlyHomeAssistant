@@ -13,7 +13,6 @@ from . import rules
 from .const import LockAction, LockSource
 from .entity import NimlyEntity, NimlyEventEntity
 from .manager import LockActivity, NimlyConfigEntry, NimlyLockManager
-from .rules import LockEvent
 
 PARALLEL_UPDATES = 0
 
@@ -51,10 +50,12 @@ class _LockEventSensor(NimlyEventEntity, RestoreSensor):
 
     @callback
     def _handle_lock_event(self, activity: LockActivity) -> None:
-        if self._apply(activity.event):
+        if self._apply(activity):
+            if activity.context is not None:
+                self.async_set_context(activity.context)
             self.async_write_ha_state()
 
-    def _apply(self, event: LockEvent) -> bool:
+    def _apply(self, activity: LockActivity) -> bool:
         raise NotImplementedError
 
 
@@ -67,7 +68,8 @@ class LastActionSensor(_LockEventSensor):
     def __init__(self, manager: NimlyLockManager) -> None:
         super().__init__(manager, "last_action")
 
-    def _apply(self, event: LockEvent) -> bool:
+    def _apply(self, activity: LockActivity) -> bool:
+        event = activity.event
         self._attr_native_value = event.action.value
         self._attr_extra_state_attributes = {"source": event.source.value, "slot": event.slot}
         return True
@@ -82,26 +84,36 @@ class LastSourceSensor(_LockEventSensor):
     def __init__(self, manager: NimlyLockManager) -> None:
         super().__init__(manager, "last_source")
 
-    def _apply(self, event: LockEvent) -> bool:
+    def _apply(self, activity: LockActivity) -> bool:
+        event = activity.event
         self._attr_native_value = event.source.value
         self._attr_extra_state_attributes = {"action": event.action.value, "slot": event.slot}
         return True
 
 
 class LastUserSensor(_LockEventSensor):
-    """Who last used a code, tag or finger.
+    """Who last operated the lock: a code, tag or finger, or a Home Assistant user.
 
-    Only credential events update it, so the auto relock seconds later
-    does not wipe out who opened the door.
+    Events that name nobody (auto relock, a palm lock from outside) leave it
+    alone, so the relock seconds later does not wipe out who opened the door.
     """
 
     def __init__(self, manager: NimlyLockManager) -> None:
         super().__init__(manager, "last_user")
 
-    def _apply(self, event: LockEvent) -> bool:
-        if not event.by_credential or event.slot is None:
+    def _apply(self, activity: LockActivity) -> bool:
+        event = activity.event
+        if activity.ha_user is not None:
+            self._attr_native_value = activity.ha_user
+            self._attr_extra_state_attributes = {
+                "slot": None,
+                "source": event.source.value,
+                "action": event.action.value,
+            }
+            return True
+        if not event.credits_user or event.slot is None:
             return False
-        self._attr_native_value = self.manager.slot_name(event.slot) or f"Slot {event.slot}"
+        self._attr_native_value = activity.user or f"Slot {event.slot}"
         self._attr_extra_state_attributes = {
             "slot": event.slot,
             "source": event.source.value,

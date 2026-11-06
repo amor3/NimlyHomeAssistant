@@ -86,3 +86,21 @@ def test_pin_rules() -> None:
 def test_redact_digits() -> None:
     assert redact_digits("pin_code=123456 slot 3") == "pin_code=**** slot 3"
     assert redact_digits(ValueError("code 9876")) == "code ****"
+
+
+def test_auto_source_on_unlock_is_unattributed() -> None:
+    """Auto relock cannot unlock; 0x0A on an unlock means nobody known."""
+    event = decode_event_status(0x0A020000)
+    assert event is not None
+    assert event.source is LockSource.UNATTRIBUTED
+    assert not is_system_event(event)
+
+
+def test_credits_user() -> None:
+    palm_lock = decode_event_status(0x02010000)
+    master_unlock = decode_event_status(0x02020000)
+    finger_lock = decode_event_status(0x03010001)
+    assert palm_lock and not palm_lock.credits_user
+    assert master_unlock and master_unlock.credits_user
+    assert finger_lock and finger_lock.credits_user
+    assert finger_lock.credential == "fingerprint"

@@ -37,5 +37,8 @@ class NimlyActivityEvent(NimlyEventEntity, EventEntity):
     @callback
     def _handle_activity(self, activity: LockActivity) -> None:
         attributes = activity.as_dict()
+        if activity.context is not None:
+            # The logbook then shows who asked for it in Home Assistant.
+            self.async_set_context(activity.context)
         self._trigger_event(attributes.pop("action"), attributes)
         self.async_write_ha_state()

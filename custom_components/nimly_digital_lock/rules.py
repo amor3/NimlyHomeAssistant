@@ -36,6 +36,15 @@ _ACTION_MAP: dict[int, LockAction] = {
     0x02: LockAction.UNLOCK,
 }
 
+# Codes and key tags share one slot numbering, fingerprints have their own
+# (000-199), so fingerprint 5 and code 5 may be different people.
+_CREDENTIAL_KIND: dict[LockSource, str] = {
+    LockSource.KEYPAD: "pin",
+    LockSource.RFID: "rfid",
+    LockSource.FINGERPRINT: "fingerprint",
+}
+CREDENTIAL_KINDS = tuple(_CREDENTIAL_KIND.values())
+
 _DIGIT_RUN = re.compile(rf"\d{{{PIN_LENGTH_SANE[0]},}}")
 
 
@@ -53,6 +62,24 @@ class LockEvent:
         """Whether a person's code, tag or finger operated the lock."""
         return self.source in CREDENTIAL_SOURCES
 
+    @property
+    def credits_user(self) -> bool:
+        """Whether the slot names who did it.
+
+        Locking from the outside with a palm or # needs no code, and is
+        likely reported as keypad on slot 0; that is not the master user.
+        """
+        if not self.by_credential or self.slot is None:
+            return False
+        return not (
+            self.action is LockAction.LOCK and self.source is LockSource.KEYPAD and self.slot == 0
+        )
+
+    @property
+    def credential(self) -> str | None:
+        """The credential kind, for names kept per kind: pin, rfid or fingerprint."""
+        return _CREDENTIAL_KIND.get(self.source)
+
 
 def decode_event_status(value: int) -> LockEvent | None:
     """Decode the 32-bit Event Status bitmap.
@@ -65,6 +92,10 @@ def decode_event_status(value: int) -> LockEvent | None:
     slot = value & 0xFFFF
     action = _ACTION_MAP.get((value >> 16) & 0xFF, LockAction.UNKNOWN)
     source = _SOURCE_MAP.get((value >> 24) & 0xFF, LockSource.UNKNOWN)
+    if source is LockSource.AUTO and action is LockAction.UNLOCK:
+        # Auto relock cannot unlock: 0x0A has been seen on unlocks too and
+        # then only means "nobody to attribute this to".
+        source = LockSource.UNATTRIBUTED
     # Slot 0 is the master code, so it only names someone when a
     # credential was used; a Zigbee or auto lock reports 0 for "nobody".
     if slot == 0 and source not in CREDENTIAL_SOURCES:

@@ -164,7 +164,7 @@ async def test_temporary_pin_is_cleared(
     await hass.async_block_till_done(wait_background_tasks=True)
     fake_zha.cluster.command.assert_awaited_with(0x07, user_id=5)
     assert init_integration.runtime_data.slots == {
-        5: {"name": "Plumber", "has_pin": False, "expires": None}
+        5: {"name": "Plumber", "has_pin": False, "expires": None, "names": {}}
     }
 
 
@@ -223,7 +223,9 @@ async def test_pin_expired_while_home_assistant_was_down(
     }
     mock_config_entry.add_to_hass(hass)
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
+    # The overdue timer fires on the next loop turn and clears in the background.
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
     fake_zha.cluster.command.assert_awaited_once_with(0x07, user_id=6)
     assert mock_config_entry.runtime_data.slots[6]["has_pin"] is False
 

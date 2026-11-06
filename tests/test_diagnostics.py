@@ -36,6 +36,8 @@ async def test_diagnostics_redacted(
     assert "Bo" not in text
     assert "135790" not in text
     assert diagnostics["listening"] is True
-    assert diagnostics["slots"] == {"4": {"named": True, "has_pin": True, "expires": None}}
+    assert diagnostics["slots"] == {
+        "4": {"named": True, "named_kinds": [], "has_pin": True, "expires": None}
+    }
     assert diagnostics["last_event"]["source"] == "keypad"
     assert diagnostics["zha"]["has_on_event"] is True
