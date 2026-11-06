@@ -37,6 +37,9 @@
       },
       "parent_router": {
         "default": "mdi:router-wireless"
+      },
+      "unlocks": {
+        "default": "mdi:counter"
       }
     },
     "switch": {

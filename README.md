@@ -20,10 +20,13 @@ cloud service or a Nimly hub.
 - **PIN codes.** Set, clear and name codes from Home Assistant, by slot, with the lock's
   own limits. Codes entered in the dialog never reach the Home Assistant database.
 - **Temporary and scheduled codes.** Give the plumber a code for eight hours, start a
-  guest's code on Friday, or let the cleaner in on Mondays and Thursdays 08–16. Codes are
-  written and cleared on time, even across a restart. Home Assistant can generate the code.
+  guest's code on Friday, or let the cleaner in on Mondays and Thursdays 08–16. Give the
+  courier a one-time code, or a code that works five times. Codes are written and cleared
+  on time, even across a restart. Home Assistant can generate the code.
 - **Key tags and fingerprints** *(experimental)*. Start enrolment and remove them from
   Home Assistant, and lock the keypad against adding new ones.
+- **Unlocks per person.** How many times each person unlocked, and when they last did,
+  counted by code, key tag, fingerprint and Home Assistant user.
 - **Settings and health.** Auto relock, sound volume, battery level and a battery-low
   warning, and the Zigbee router the lock depends on.
 - **Automations.** Device triggers ("Unlocked with a code", "Locked automatically"…), an
@@ -58,8 +61,8 @@ This integration reads every report itself, so who and how keep working.
 - Do not leave the Zigbee module in a lock that is not paired: it keeps searching and
   drains the batteries.
 
-The integration is available in English, Swedish, Norwegian (bokmål) and Danish, following
-the Home Assistant language.
+The integration is available in English, Swedish, Norwegian (bokmål), Danish and Finnish,
+following the Home Assistant language.
 
 Supported: every lock whose Zigbee module reports the manufacturer `Onesti Products AS`
 and has a Door Lock cluster. That includes NimlyCode, NimlyCodePRO, NimlyTouch, NimlyPRO
@@ -102,7 +105,8 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 | `sensor.…_last_action` | Locked / Unlocked. |
 | `sensor.…_last_operated_by` | Keypad, Key tag, Fingerprint, Button, Auto relock, Home Assistant / Zigbee, Other. |
 | `sensor.…_last_user` | The last person who operated the lock: the slot name for a code, tag or finger ("Slot N" if unnamed), or the Home Assistant user who locked or unlocked from the app. Auto relock and a palm lock from outside do not overwrite it. Survives restarts. |
-| `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant (diagnostic). The `slots` attribute lists names, names per credential kind and the end time of temporary codes, never the codes. |
+| `sensor.…_unlocks` | Unlocks by people since setup. `by_user` counts per person (a person with a code and a fingerprint counts once, by name); `credentials` has the count and last unlock per code, tag, finger and Home Assistant user. Button and auto events are not counted. |
+| `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant (diagnostic). The `slots` attribute lists names, names per credential kind, the end time of temporary codes and the uses left on limited codes, never the codes. |
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 | `sensor.…_last_report` | When the lock last sent an operation report (diagnostic): a quick way to see that reports arrive. |
 | `binary_sensor.…_battery_low` | On when the lock says its batteries need replacing (diagnostic). |
@@ -168,7 +172,8 @@ actions:
 
 - **Set PIN code**: pick a slot, give it a name and enter the code, or leave the code
   empty to have one generated (shown once). Set **Valid from** and **Valid until** for a
-  temporary code.
+  temporary code, and **Number of uses** for a code that is removed after that many
+  unlocks (1 for a one-time code).
 - **Weekly PIN code**: a code that works on chosen weekdays between two times, for
   example Monday and Thursday 08:00–16:00, optionally from a first to a last day.
 - **Clear PIN code**: removes the code from a slot; the name stays.
@@ -205,6 +210,13 @@ skipped. If the lock cannot be reached, it is retried after 10 minutes, then 20,
 up to every 6 hours. End times and schedules (never the codes) are in the attributes of
 the PIN codes sensor.
 
+**Limited codes.** `max_uses` removes the code after that many unlocks with it; 1 makes a
+one-time code. Only unlocks with that code count, not a key tag or fingerprint in the same
+slot. It combines with `valid_from` and an end time (whichever comes first removes the
+code), but not with a weekly schedule. If the lock is asleep when the code runs out, the
+clear is retried like an expired code. Setting a new code in a slot starts its unlock
+count from zero.
+
 **Generated codes.** Leave out `pin_code` and call the action with a response: a random
 code the lock accepts (no 1234 or 0000) is written and returned, and stays out of the
 action's recorded data.
@@ -217,6 +229,15 @@ data:
   name: Plumber
   valid_for:
     hours: 8
+```
+
+```yaml
+action: nimly_digital_lock.set_pin
+data:
+  slot: 12
+  name: Courier
+  max_uses: 1               # a one-time code
+response_variable: result
 ```
 
 ```yaml
@@ -273,8 +294,8 @@ to point to the current ones. The `nimly_digital_lock.update` and
 
 Clear the PIN codes that should stop working first: they live on the lock, and removing
 the integration leaves them there. Then delete the entry under **Settings → Devices &
-services → Nimly Digital Lock**. Slot names, temporary-code timers and the integration's
-repair issues are removed with it. The lock itself stays in ZHA.
+services → Nimly Digital Lock**. Slot names, temporary-code timers, unlock counts and the
+integration's repair issues are removed with it. The lock itself stays in ZHA.
 
 ## Limitations
 
@@ -297,6 +318,9 @@ repair issues are removed with it. The lock itself stays in ZHA.
   re-pair as a last resort.
 - Configuration writes to a sleeping lock (auto relock, volume in ZHA) do not always
   take. Wake the lock first.
+- A code's uses are counted from the lock's reports. An unlock while Home Assistant was
+  down or the report was lost is not counted, so a limited code can work once more than
+  set. Use an end time as well when that matters.
 - The lock does not say which Home Assistant user unlocked it; the integration credits a
   report to the user whose lock/unlock call came within 20 seconds before it.
 
@@ -316,7 +340,7 @@ back, update Home Assistant, then remove the lock from ZHA and pair it again (or
 | Nimly lock events cannot be received | ZHA offers no way to listen to the lock (a Home Assistant update changed ZHA). Lock control in ZHA still works. |
 | *Lock* reports lock state but not who or how | Operation reports stopped, usually after a battery change. Reconfigure the device in ZHA with the lock awake. |
 | ZHA runs *lock* without its Nimly quirk | ZHA's auto relock, volume and battery are missing; the integration provides them. See above. |
-| Expired PIN code on *lock* is still active | A temporary code could not be removed yet; it may still open the door. Wake the lock or delete the code at the keypad. |
+| Expired or used-up PIN code on *lock* is still active | A temporary or used-up code could not be removed yet; it may still open the door. Wake the lock or delete the code at the keypad. |
 
 If the lock is not in ZHA yet, or ZHA has not finished reading it, setup waits and
 retries by itself.

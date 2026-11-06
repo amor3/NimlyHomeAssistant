@@ -40,6 +40,7 @@ async def async_setup_entry(
             PinCapacitySensor(manager),
             LastReportSensor(manager),
             ParentRouterSensor(manager),
+            UnlocksSensor(manager),
         ]
     )
     if FEATURE_BATTERY in manager.fallbacks:
@@ -246,10 +247,44 @@ class PinCodesSensor(NimlyEntity, SensorEntity):
                     "names": slot["names"],
                     "has_pin": slot["has_pin"],
                     "expires": slot["expires"],
+                    # Unlocks left before a limited code is cleared.
+                    "uses_left": self.manager.uses_left(number),
                 }
                 for number, slot in self.manager.slots.items()
             },
         }
+
+
+class UnlocksSensor(NimlyEntity, SensorEntity):
+    """Unlocks by people, in total and per person.
+
+    Codes, key tags and fingers count by slot; app unlocks by Home
+    Assistant user. Button and auto events name nobody and are not counted.
+    """
+
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, manager: NimlyLockManager) -> None:
+        super().__init__(manager, "unlocks")
+
+    @property
+    def native_value(self) -> int:
+        return self.manager.unlocks_total
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        by_user: dict[str, int] = {}
+        credentials: dict[str, dict[str, Any]] = {}
+        for key, record in sorted(self.manager.usage.items()):
+            label = self.manager.usage_label(key)
+            # A person with a code and a fingerprint counts once, by name.
+            by_user[label] = by_user.get(label, 0) + record["count"]
+            credentials[key] = {
+                "user": label,
+                "count": record["count"],
+                "last_unlock": record["last"],
+            }
+        return {"by_user": by_user, "credentials": credentials}
 
 
 class PinCapacitySensor(NimlyEntity, SensorEntity):

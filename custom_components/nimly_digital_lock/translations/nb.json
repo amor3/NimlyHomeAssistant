@@ -50,12 +50,14 @@
           "name": "Navn",
           "pin_code": "PIN-kode",
           "valid_until": "Gyldig til",
-          "valid_from": "Gyldig fra"
+          "valid_from": "Gyldig fra",
+          "max_uses": "Antall bruk"
         },
         "data_description": {
           "valid_until": "Valgfritt. Koden fjernes fra låsen på dette tidspunktet. La stå tomt for en permanent kode.",
           "valid_from": "Valgfritt. Koden skrives til låsen på dette tidspunktet. Frem til da lagres den i Home Assistants lagring.",
-          "pin_code": "La stå tomt for å få en kode generert; den vises én gang."
+          "pin_code": "La stå tomt for å få en kode generert; den vises én gang.",
+          "max_uses": "Valgfritt. Koden fjernes etter så mange opplåsinger; 1 gir en engangskode. La stå tomt for ingen grense."
         }
       },
       "clear_pin": {
@@ -201,6 +203,9 @@
       },
       "parent_router": {
         "name": "Overordnet ruter"
+      },
+      "unlocks": {
+        "name": "Opplåsinger"
       }
     },
     "select": {
@@ -278,6 +283,9 @@
     },
     "empty_window": {
       "message": "start_time og end_time kan ikke være like."
+    },
+    "uses_with_weekly": {
+      "message": "max_uses kan ikke kombineres med en ukeplan."
     }
   },
   "issues": {
@@ -290,8 +298,8 @@
       "description": "ZHA har ikke brukt noen enhets-quirk på låsen, så automatisk låsing og lydvolum mangler i ZHA, og batterinivået kan bli feil. Sørg for at ZHA er oppdatert, og fjern og par låsen på nytt i ZHA (eller rekonfigurer den). Låseaktivitet og PIN-håndtering i denne integrasjonen virker uansett."
     },
     "expired_pin_not_cleared": {
-      "title": "Utløpt PIN-kode på {title} er fortsatt aktiv",
-      "description": "Den midlertidige koden for {name} (plass {slot}) har utløpt, men låsen har ikke fjernet den ennå, så den kan fortsatt åpne døren. Home Assistant prøver igjen hvert tiende minutt. Vri på vrideren for å vekke låsen, eller slett koden på tastaturet."
+      "title": "Utløpt eller oppbrukt PIN-kode på {title} er fortsatt aktiv",
+      "description": "Koden for {name} (plass {slot}) har utløpt eller er brukt opp, men låsen har ikke fjernet den ennå, så den kan fortsatt åpne døren. Home Assistant prøver igjen hvert tiende minutt. Vri på vrideren for å vekke låsen, eller slett koden på tastaturet."
     },
     "events_missing": {
       "title": "{title} rapporterer låsestatus, men ikke hvem eller hvordan",
@@ -346,6 +354,10 @@
         "end_time": {
           "name": "Sluttid",
           "description": "Når koden slutter å virke de dagene."
+        },
+        "max_uses": {
+          "name": "Antall bruk",
+          "description": "Fjern koden etter så mange opplåsinger med den (1 gir en engangskode). Ikke for ukekoder."
         }
       }
     },

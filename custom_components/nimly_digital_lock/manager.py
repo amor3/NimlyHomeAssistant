@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, time as dt_time, timedelta
 import logging
@@ -89,6 +90,16 @@ REPORT_GAP_S = 15
 MISSED_REPORTS_FOR_ISSUE = 3
 # How many raw reports diagnostics keep.
 RECENT_REPORTS = 20
+# Most uses a limited code can be given.
+MAX_USES = 999
+
+
+class UsageData(TypedDict):
+    """Unlocks by one credential (pin:5, fingerprint:5) or Home Assistant user."""
+
+    count: int
+    # ISO 8601 UTC time of the last unlock.
+    last: str | None
 
 
 class SlotData(TypedDict):
@@ -176,6 +187,8 @@ class PinSchedule:
     days: frozenset[int] = frozenset()
     time_from: dt_time | None = None
     time_to: dt_time | None = None
+    # A one-off code is cleared after this many unlocks.
+    uses: int | None = None
 
     @property
     def recurring(self) -> bool:
@@ -205,6 +218,7 @@ class PinSchedule:
             "days": sorted(self.days),
             "from": self.time_from.isoformat(timespec="minutes") if self.time_from else None,
             "to": self.time_to.isoformat(timespec="minutes") if self.time_to else None,
+            "uses": self.uses,
         }
 
     def to_store(self) -> dict[str, Any]:
@@ -224,6 +238,9 @@ class PinSchedule:
         days = data.get("days") or ()
         if days and not (data.get("from") and data.get("to")):
             raise ValueError("weekly schedule without times")
+        uses = data.get("uses")
+        if uses is not None and not (isinstance(uses, int) and 0 < uses <= MAX_USES):
+            raise ValueError("bad use limit")
         return cls(
             code=code,
             name=data.get("name"),
@@ -232,6 +249,7 @@ class PinSchedule:
             days=frozenset(int(day) for day in data.get("days") or ()),
             time_from=_clock(data.get("from")),
             time_to=_clock(data.get("to")),
+            uses=uses,
         )
 
 
@@ -252,6 +270,11 @@ class NimlyLockManager:
         self._store = lock_store(hass, entry)
         self._capability_task: asyncio.Task[None] | None = None
         self._slots: dict[str, SlotData] = {}
+        # Slot -> unlocks left before a limited code is cleared.
+        self._uses_left: dict[int, int] = {}
+        self._usage: dict[str, UsageData] = {}
+        # Unlocks by people since setup; never goes down, for long-term statistics.
+        self.unlocks_total = 0
         self.capabilities: dict[str, int] = {}
         self.capabilities_read = False
         # What ZHA lacks for this lock, provided by the integration itself.
@@ -313,8 +336,32 @@ class NimlyLockManager:
             except (TypeError, ValueError):
                 self.capabilities = {}
         self._load_schedules(data.get("schedules"))
+        self._load_usage(data)
         if isinstance(keypad := data.get("keypad_programming"), bool):
             self.keypad_programming = keypad
+
+    def _load_usage(self, data: dict[str, Any]) -> None:
+        self._uses_left = {}
+        if isinstance(raw := data.get("uses_left"), dict):
+            for key, left in raw.items():
+                with suppress(TypeError, ValueError):
+                    slot = int(key)
+                    if (
+                        isinstance(left, int)
+                        and 0 <= left <= MAX_USES
+                        and self._slots.get(str(slot), _empty_slot())["has_pin"]
+                    ):
+                        self._uses_left[slot] = left
+        self._usage = {}
+        if isinstance(raw := data.get("usage"), dict):
+            for key, record in raw.items():
+                if isinstance(record, dict) and isinstance(count := record.get("count"), int):
+                    last = record.get("last")
+                    self._usage[str(key)] = UsageData(
+                        count=max(0, count), last=str(last) if last else None
+                    )
+        total = data.get("unlocks_total")
+        self.unlocks_total = total if isinstance(total, int) and total >= 0 else 0
 
     @staticmethod
     def _parse_slot(value: Any) -> SlotData:
@@ -345,6 +392,9 @@ class NimlyLockManager:
             # one-off schedule is dropped (code and all) once it is.
             "schedules": {str(slot): sch.to_store() for slot, sch in self._schedules.items()},
             "keypad_programming": self.keypad_programming,
+            "uses_left": {str(slot): left for slot, left in self._uses_left.items()},
+            "usage": {key: dict(record) for key, record in self._usage.items()},
+            "unlocks_total": self.unlocks_total,
         }
 
     async def async_flush(self) -> None:
@@ -442,23 +492,33 @@ class NimlyLockManager:
         code: str,
         name: str | None = None,
         expires: datetime | None = None,
+        uses: int | None = None,
     ) -> SendOutcome:
         """Write a PIN code to a slot.
 
         A name of None keeps the current one. With expires, the code is
         cleared from the lock at that time; without, any earlier expiry
-        for the slot is dropped.
+        for the slot is dropped. With uses, it is cleared after that many
+        unlocks.
         """
         self._check_writable(slot, self.max_user_slot)
         # A code set by hand replaces any schedule for the slot.
         self._drop_schedule(slot)
         # Shielded: a closed dialog cancels the caller, but a code that
         # reached the lock must still be recorded.
-        return await asyncio.shield(self._async_set(slot, code, name, expires))
+        return await asyncio.shield(self._async_set(slot, code, name, expires, uses, fresh=True))
 
     async def _async_set(
-        self, slot: int, code: str, name: str | None, expires: datetime | None
+        self,
+        slot: int,
+        code: str,
+        name: str | None,
+        expires: datetime | None,
+        uses: int | None = None,
+        *,
+        fresh: bool = False,
     ) -> SendOutcome:
+        """Write a code; fresh (a new code, not a weekly rewrite) restarts its count."""
         async with self._pin_lock:
             outcome = await self._send(
                 CMD_SET_PIN,
@@ -471,6 +531,13 @@ class NimlyLockManager:
                     current["name"] = rules.clean_name(name)
                 current["expires"] = dt_util.as_utc(expires).isoformat() if expires else None
                 self._slots[str(slot)] = current
+                if uses is not None:
+                    self._uses_left[slot] = uses
+                else:
+                    self._uses_left.pop(slot, None)
+                if fresh:
+                    # A new code may belong to someone else: count it from zero.
+                    self._usage.pop(f"pin:{slot}", None)
                 self._schedule_expiry(slot)
                 self._schedule_save()
                 self.async_update_listeners()
@@ -497,6 +564,7 @@ class NimlyLockManager:
             if outcome.delivered:
                 if (cancel := self._expiry_timers.pop(slot, None)) is not None:
                     cancel()
+                self._uses_left.pop(slot, None)
                 if (current := self._slots.get(str(slot))) is not None:
                     current["has_pin"] = False
                     current["expires"] = None
@@ -517,9 +585,16 @@ class NimlyLockManager:
 
     @callback
     def async_schedule_expiries(self) -> None:
-        """Arm a timer for every stored PIN code with an expiry."""
+        """Arm a timer for every stored PIN code with an expiry.
+
+        A code whose uses ran out before a restart, but was not cleared
+        yet, is cleared now.
+        """
         for key in self._slots:
             self._schedule_expiry(int(key))
+        for slot, left in self._uses_left.items():
+            if left == 0:
+                self._start_used_up_clear(slot)
 
     @callback
     def _schedule_expiry(self, slot: int) -> None:
@@ -553,13 +628,16 @@ class NimlyLockManager:
         """
         outcome = await self._async_clear(slot)
         if outcome.delivered:
-            _LOGGER.info("Expired PIN code in slot %s on %s was cleared", slot, self.ieee)
+            _LOGGER.info(
+                "Expired or used-up PIN code in slot %s on %s was cleared", slot, self.ieee
+            )
             ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
             return
         delay = retry_delay(attempt)
         _LOGGER.log(
             logging.WARNING if attempt <= 2 else logging.DEBUG,
-            "Could not clear the expired PIN code in slot %s on %s (%s); retrying in %s min",
+            "Could not clear the expired or used-up PIN code in slot %s on %s (%s); "
+            "retrying in %s min",
             slot,
             self.ieee,
             outcome.error_key,
@@ -661,6 +739,8 @@ class NimlyLockManager:
         if schedule.name is not None:
             current["name"] = rules.clean_name(schedule.name)
             self._slots[str(slot)] = current
+        # A new code may belong to someone else: count it from zero.
+        self._usage.pop(f"pin:{slot}", None)
         self._schedule_save()
         self.async_update_listeners()
         return await asyncio.shield(self._async_activate(slot))
@@ -726,7 +806,14 @@ class NimlyLockManager:
             )
             self._drop_schedule(slot)
             return None
-        outcome = await self._async_set(slot, schedule.code, schedule.name, ends)
+        outcome = await self._async_set(
+            slot,
+            schedule.code,
+            schedule.name,
+            ends,
+            None if schedule.recurring else schedule.uses,
+            fresh=not schedule.recurring,
+        )
         if not outcome.delivered:
             delay = retry_delay(attempt)
             _LOGGER.warning(
@@ -803,6 +890,63 @@ class NimlyLockManager:
             self.hass,
             self.async_refresh_capabilities(),
             f"{DOMAIN} capability read {self.ieee}",
+        )
+
+    # Use limits and unlock statistics
+
+    def uses_left(self, slot: int) -> int | None:
+        """Unlocks left before the code in a slot is cleared, or None."""
+        return self._uses_left.get(slot)
+
+    @property
+    def usage(self) -> dict[str, UsageData]:
+        """Unlocks per credential (pin:5, rfid:5, fingerprint:5) and per ha:<user>."""
+        return {key: UsageData(**record) for key, record in self._usage.items()}
+
+    def usage_label(self, key: str) -> str:
+        """Who a usage key stands for: the slot's name, or the Home Assistant user."""
+        kind, _, rest = key.partition(":")
+        if kind == "ha":
+            return rest
+        return self.slot_label(int(rest), kind)
+
+    @callback
+    def _record_unlock(self, activity: LockActivity) -> None:
+        """Count an unlock by a person; use up a limited code."""
+        event = activity.event
+        if event.action is not LockAction.UNLOCK:
+            return
+        if activity.ha_user is not None:
+            key = f"ha:{activity.ha_user}"
+        elif event.credits_user and event.slot is not None and event.credential:
+            key = f"{event.credential}:{event.slot}"
+        else:
+            return
+        record = self._usage.setdefault(key, UsageData(count=0, last=None))
+        record["count"] += 1
+        record["last"] = dt_util.utcnow().isoformat(timespec="seconds")
+        self.unlocks_total += 1
+        if key.startswith("pin:") and event.slot is not None:
+            self._use_code(event.slot)
+        self._schedule_save()
+        self.async_update_listeners()
+
+    @callback
+    def _use_code(self, slot: int) -> None:
+        if (left := self._uses_left.get(slot)) is None or left == 0:
+            return
+        self._uses_left[slot] = left - 1
+        if left == 1:
+            _LOGGER.info("PIN code in slot %s on %s is used up; clearing it", slot, self.ieee)
+            self._start_used_up_clear(slot)
+
+    @callback
+    def _start_used_up_clear(self, slot: int) -> None:
+        # The clear (and its retries) replaces any expiry still waiting.
+        if (cancel := self._expiry_timers.pop(slot, None)) is not None:
+            cancel()
+        self.entry.async_create_background_task(
+            self.hass, self._async_expire(slot), f"{DOMAIN} PIN used up {self.ieee} {slot}"
         )
 
     # Lock events
@@ -1179,6 +1323,7 @@ class NimlyLockManager:
             context=remote.context if remote else None,
             remote=remote is not None,
         )
+        self._record_unlock(activity)
         for handle in list(self._event_listeners):
             handle(activity)
         self.hass.bus.async_fire(

@@ -29,7 +29,7 @@ from .const import (
     NimlyService,
     NimlyServiceArgument as Arg,
 )
-from .manager import NimlyConfigEntry, NimlyLockManager, PinSchedule, to_utc
+from .manager import MAX_USES, NimlyConfigEntry, NimlyLockManager, PinSchedule, to_utc
 from .rules import CREDENTIAL_KINDS
 from .zha import SendOutcome
 
@@ -57,6 +57,7 @@ SET_PIN_SCHEMA = vol.Schema(
         ),
         vol.Inclusive(Arg.START_TIME.value, "weekly"): cv.time,
         vol.Inclusive(Arg.END_TIME.value, "weekly"): cv.time,
+        vol.Optional(Arg.MAX_USES.value): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_USES)),
     }
 )
 CLEAR_PIN_SCHEMA = vol.Schema(_BASE)
@@ -168,6 +169,10 @@ async def _async_set_pin(hass: HomeAssistant, call: ServiceCall) -> ServiceRespo
     if start is not None and expires is not None and expires <= start:
         raise ServiceValidationError(translation_domain=DOMAIN, translation_key="end_before_start")
     days = frozenset(WEEKDAYS.index(day) for day in call.data.get(Arg.WEEKDAYS, ()))
+    uses: int | None = call.data.get(Arg.MAX_USES)
+    if uses is not None and days:
+        # A weekly code is written again for every window.
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="uses_with_weekly")
     scheduled = bool(days) or (start is not None and start > dt_util.utcnow())
     if scheduled:
         if days and call.data[Arg.START_TIME] == call.data[Arg.END_TIME]:
@@ -180,12 +185,13 @@ async def _async_set_pin(hass: HomeAssistant, call: ServiceCall) -> ServiceRespo
             days=days,
             time_from=call.data.get(Arg.START_TIME),
             time_to=call.data.get(Arg.END_TIME),
+            uses=uses,
         )
         outcome = await manager.async_schedule_pin(slot, schedule)
         if outcome is not None:
             _raise_for(outcome)
     else:
-        _raise_for(await manager.async_set_pin(slot, code, name, expires))
+        _raise_for(await manager.async_set_pin(slot, code, name, expires, uses))
     if not call.return_response:
         return None
     response: dict[str, Any] = {"slot": slot, "scheduled": scheduled}

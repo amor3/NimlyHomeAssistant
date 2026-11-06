@@ -1,0 +1,491 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Valitse Nimly-lukko",
+        "description": "ZHA:han liitetyt lukot, joita ei ole vielä otettu käyttöön. Lukon ohjaus, akku, automaattinen uudelleenlukitus ja äänenvoimakkuus pysyvät ZHA:ssa; tämä lisää tiedon siitä, kuka ja miten, sekä PIN-koodien hallinnan.",
+        "data": {
+          "ieee": "Lukko"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Nimly-lukko löytyi",
+        "description": "ZHA on liittänyt lukon {name} ({ieee}). Ota se käyttöön nähdäksesi, kuka lukitsee ja avaa sen, ja hallitaksesi sen PIN-koodeja."
+      },
+      "reconfigure": {
+        "title": "Vaihda Zigbee-moduuli",
+        "description": "Valitse lukko uudelleen, kun olet vaihtanut sen Zigbee-moduulin. Paikkojen nimet, PIN-koodit ja entiteetit säilyvät.",
+        "data": {
+          "ieee": "Lukko"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Tämä lukko on jo otettu käyttöön.",
+      "no_locks": "ZHA:sta ei löytynyt Nimly-lukkoa. Liitä ensin lukon Zigbee-moduuli ZHA:han (herätä se näppäilemällä koodi ja # näppäimistöllä, kun ZHA etsii).",
+      "zha_not_running": "ZHA ei ole käynnissä. Ota ensin käyttöön Zigbee Home Automation.",
+      "reconfigure_successful": "Lukko käyttää nyt valittua Zigbee-moduulia."
+    },
+    "flow_title": "{name}"
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hallitse lukkoa",
+        "menu_options": {
+          "set_pin": "Aseta PIN-koodi",
+          "schedule_pin": "Viikoittainen PIN-koodi",
+          "clear_pin": "Poista PIN-koodi",
+          "name_slot": "Nimeä paikka",
+          "enroll_credential": "Lisää avaintunniste tai sormenjälki",
+          "remove_credential": "Poista avaintunniste tai sormenjälki",
+          "settings": "Asetukset"
+        }
+      },
+      "set_pin": {
+        "title": "Aseta PIN-koodi",
+        "description": "Käyttäjäpaikat alkavat numerosta {first}. Koodissa on oltava {min}-{max} numeroa. Se lähetetään suoraan lukkoon eikä sitä tallenneta Home Assistantiin.",
+        "data": {
+          "slot": "Paikka",
+          "name": "Nimi",
+          "pin_code": "PIN-koodi",
+          "valid_until": "Voimassa asti",
+          "valid_from": "Voimassa alkaen",
+          "max_uses": "Käyttökertojen määrä"
+        },
+        "data_description": {
+          "valid_until": "Valinnainen. Koodi poistetaan lukosta tähän aikaan. Jätä tyhjäksi pysyvää koodia varten.",
+          "valid_from": "Valinnainen. Koodi kirjoitetaan lukkoon tähän aikaan. Siihen asti se säilytetään Home Assistantin tallennustilassa.",
+          "pin_code": "Jätä tyhjäksi, niin koodi luodaan automaattisesti; se näytetään kerran.",
+          "max_uses": "Valinnainen. Koodi poistetaan näin monen avauksen jälkeen; 1 tekee siitä kertakäyttöisen. Jätä tyhjäksi, jos rajaa ei ole."
+        }
+      },
+      "clear_pin": {
+        "title": "Poista PIN-koodi",
+        "data": {
+          "slot": "Paikka"
+        }
+      },
+      "name_slot": {
+        "title": "Nimeä paikka",
+        "description": "Nimeä paikka, jotta tapahtumat näyttävät kuka se on, esimerkiksi lukolla lisätty avaintunniste tai sormenjälki. Tyhjä nimi poistaa nimen.",
+        "data": {
+          "slot": "Paikka",
+          "name": "Nimi",
+          "credential": "Tunnistetapa"
+        },
+        "data_description": {
+          "credential": "Nimeä paikalle vain tämä tunnistetapa. Sormenjäljet numeroidaan erikseen koodeista ja avaintunnisteista, joten sormenjälki 5 voi kuulua eri henkilölle kuin koodi 5."
+        }
+      },
+      "settings": {
+        "title": "Asetukset",
+        "data": {
+          "reserved_slots": "Varatut pääkoodipaikat",
+          "wake_with_lock": "Herätä lukko lukitsemalla se"
+        },
+        "data_description": {
+          "reserved_slots": "Kuinka monta paikkaa nollasta alkaen sisältää pääkoodeja. Home Assistant ei koskaan kirjoita niihin PIN-koodia.",
+          "wake_with_lock": "Kun komento aikakatkaistaan, lähetä lukituskomento ZHA:n kautta radion herättämiseksi ennen uutta yritystä. Tämä liikuttaa salpaa: avoin ovi lukitaan."
+        }
+      },
+      "schedule_pin": {
+        "title": "Viikoittainen PIN-koodi",
+        "description": "Koodi toimii valittuina päivinä kahden kellonajan välillä, esimerkiksi siivoojalle. Home Assistant kirjoittaa sen lukkoon jokaisen jakson alkaessa ja poistaa sen jakson päättyessä, joten se säilyttää koodin tallennustilassaan aikataulun ajan.",
+        "data": {
+          "slot": "Paikka",
+          "name": "Nimi",
+          "pin_code": "PIN-koodi",
+          "weekdays": "Päivät",
+          "start_time": "Alkaen",
+          "end_time": "Asti",
+          "valid_from": "Ensimmäinen päivä",
+          "valid_until": "Viimeinen päivä"
+        },
+        "data_description": {
+          "pin_code": "Jätä tyhjäksi, niin koodi luodaan automaattisesti; se näytetään kerran.",
+          "valid_from": "Valinnainen. Aikataulu alkaa tänä päivänä.",
+          "valid_until": "Valinnainen. Aikataulu ja koodi päättyvät tähän aikaan."
+        }
+      },
+      "pin_generated": {
+        "title": "Uusi PIN-koodi",
+        "description": "Paikan {slot} koodi on **{pin}**. Kirjoita se muistiin nyt: sitä ei näytetä uudelleen."
+      },
+      "enroll_credential": {
+        "title": "Lisää avaintunniste tai sormenjälki",
+        "description": "Kokeellinen: käyttää Zigbee-moduulin omia komentoja, joita ei ole vielä vahvistettu kaikilla lukoilla. Lukko käsketään lukemaan; esitä sen jälkeen tunniste tai sormi lukolle.",
+        "data": {
+          "credential": "Tyyppi",
+          "slot": "Paikka"
+        }
+      },
+      "enroll_started": {
+        "title": "Esitä se lukolle",
+        "description": "Lukko lukee paikkaa {slot} ({kind}). Pidä avaintunniste lukijaa vasten tai aseta sormi anturille nyt lukon käyttöohjeen mukaisesti. Nimeä paikka jälkeenpäin, jotta tapahtumat näyttävät kuka se on."
+      },
+      "remove_credential": {
+        "title": "Poista avaintunniste tai sormenjälki",
+        "description": "Poistaa paikassa olevan avaintunnisteen tai sormenjäljen lukosta. Sormenjäljet käyttävät kokeellisia komentoja.",
+        "data": {
+          "credential": "Tyyppi",
+          "slot": "Paikka"
+        }
+      }
+    },
+    "error": {
+      "slot_out_of_range": "Tähän paikkaan ei voi kirjoittaa Home Assistantista.",
+      "invalid_pin": "Koodissa saa olla vain numeroita, ja sen pituuden on oltava lukon hyväksymä.",
+      "lock_unreachable": "Lukko ei vastannut; sen radio on lepotilassa. Herätä se kääntämällä nuppia tai näppäilemällä kelvollinen koodi ja #, ja yritä sitten uudelleen muutaman sekunnin sisällä. Näppäimistön koskettaminen vain sytyttää sen valot.",
+      "lock_rejected": "Lukko hylkäsi komennon.",
+      "lock_rejected_duplicate": "Lukko hylkäsi koodin: se on jo käytössä.",
+      "lock_rejected_memory_full": "Lukko hylkäsi koodin: sen muisti on täynnä.",
+      "expiry_in_past": "Päättymisajan on oltava tulevaisuudessa.",
+      "name_too_long": "Nimi on liian pitkä (enintään 64 merkkiä).",
+      "end_before_start": "Lopun on oltava alun jälkeen.",
+      "empty_window": "Alkaen- ja Asti-aika eivät voi olla samat."
+    },
+    "abort": {
+      "no_pin_codes": "Yhdessäkään paikassa ei ole Home Assistantista asetettua PIN-koodia."
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Toiminta",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "lock": "Lukittu",
+              "unlock": "Avattu",
+              "unknown": "Tuntematon"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "last_action": {
+        "name": "Viimeisin toiminto",
+        "state": {
+          "lock": "Lukittu",
+          "unlock": "Avattu",
+          "unknown": "Tuntematon"
+        }
+      },
+      "last_source": {
+        "name": "Viimeksi käytetty tapa",
+        "state": {
+          "zigbee": "Home Assistant / Zigbee",
+          "button": "Painike",
+          "keypad": "Näppäimistö",
+          "fingerprint": "Sormenjälki",
+          "rfid": "Avaintunniste",
+          "unattributed": "Muu",
+          "auto": "Automaattinen uudelleenlukitus",
+          "unknown": "Tuntematon"
+        }
+      },
+      "last_user": {
+        "name": "Viimeisin käyttäjä"
+      },
+      "pin_codes": {
+        "name": "PIN-koodit"
+      },
+      "pin_capacity": {
+        "name": "PIN-kapasiteetti"
+      },
+      "last_report": {
+        "name": "Viimeisin raportti"
+      },
+      "battery": {
+        "name": "Akku"
+      },
+      "parent_router": {
+        "name": "Isäntäreititin"
+      },
+      "unlocks": {
+        "name": "Avaukset"
+      }
+    },
+    "select": {
+      "sound_volume": {
+        "name": "Äänenvoimakkuus",
+        "state": {
+          "off": "Pois",
+          "low": "Matala",
+          "normal": "Normaali"
+        }
+      }
+    },
+    "switch": {
+      "auto_relock": {
+        "name": "Automaattinen uudelleenlukitus"
+      },
+      "keypad_programming": {
+        "name": "Ohjelmointi näppäimistöltä"
+      }
+    },
+    "binary_sensor": {
+      "battery_low": {
+        "name": "Akku vähissä"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_running": {
+      "message": "ZHA ei ole vielä käynnissä."
+    },
+    "lock_not_in_zha": {
+      "message": "Lukko {ieee} ei ole ZHA:ssa."
+    },
+    "cluster_missing": {
+      "message": "Lukko {ieee} on ZHA:ssa, mutta sillä ei ole vielä Door Lock -klusteria. Odota, että ZHA saa laitteen kartoituksen valmiiksi, tai määritä laite uudelleen ZHA:ssa."
+    },
+    "entry_not_found": {
+      "message": "Tällä asetusmerkinnällä ei ole Nimly-lukkoa."
+    },
+    "entry_not_loaded": {
+      "message": "Nimly-lukkoa ei ole ladattu."
+    },
+    "slot_out_of_range": {
+      "message": "Paikkaa {slot} ei voi käyttää; sallitut paikat ovat {first}-{last}."
+    },
+    "invalid_pin": {
+      "message": "PIN-koodissa on oltava {min}-{max} numeroa."
+    },
+    "lock_unreachable": {
+      "message": "Lukko ei vastannut; sen radio on lepotilassa. Herätä se kääntämällä nuppia tai näppäilemällä kelvollinen koodi ja #, ja yritä sitten uudelleen muutaman sekunnin sisällä. Näppäimistön koskettaminen vain sytyttää sen valot."
+    },
+    "lock_rejected": {
+      "message": "Lukko hylkäsi komennon."
+    },
+    "lock_rejected_duplicate": {
+      "message": "Lukko hylkäsi koodin: se on jo käytössä."
+    },
+    "lock_rejected_memory_full": {
+      "message": "Lukko hylkäsi koodin: sen muisti on täynnä."
+    },
+    "expiry_in_past": {
+      "message": "Päättymisajan on oltava tulevaisuudessa."
+    },
+    "lock_required": {
+      "message": "Käytössä on useampi kuin yksi Nimly-lukko; valitse lukko (asetusmerkintä tai laite)."
+    },
+    "slot_fallback": {
+      "message": "Paikka {slot}"
+    },
+    "generate_needs_response": {
+      "message": "Anna PIN-koodi tai kutsu toimintoa vastauksen kanssa, niin koodi luodaan automaattisesti."
+    },
+    "end_before_start": {
+      "message": "Lopun on oltava alun jälkeen."
+    },
+    "empty_window": {
+      "message": "start_time ja end_time eivät voi olla samat."
+    },
+    "uses_with_weekly": {
+      "message": "max_uses-arvoa ei voi yhdistää viikkoaikatauluun."
+    }
+  },
+  "issues": {
+    "zha_internals": {
+      "title": "Nimly-lukon tapahtumia ei voida vastaanottaa",
+      "description": "ZHA ei tarjoa sitä, mitä tämä integraatio tarvitsee lukon kuuntelemiseen ({detail}). Lukon ohjaus ZHA:ssa toimii edelleen. Päivitä integraatio tai ilmoita Home Assistant -versiosi ongelmaraportissa."
+    },
+    "quirk_missing": {
+      "title": "ZHA käyttää lukkoa {title} ilman sen Nimly-quirkia",
+      "description": "ZHA ei käyttänyt tälle lukolle laitekohtaista quirkia, joten automaattinen uudelleenlukitus ja äänenvoimakkuus puuttuvat ZHA:sta ja akun varaustaso voi olla väärä. Varmista, että ZHA on ajan tasalla, ja poista lukko ZHA:sta ja liitä se uudelleen (tai määritä se uudelleen). Lukon toiminta ja PIN-koodien hallinta tässä integraatiossa toimivat joka tapauksessa."
+    },
+    "expired_pin_not_cleared": {
+      "title": "Vanhentunut tai käytetty PIN-koodi lukossa {title} on yhä voimassa",
+      "description": "Henkilön {name} koodi (paikka {slot}) on vanhentunut tai käytetty loppuun, mutta lukko ei ole vielä poistanut sitä, joten se voi yhä avata oven. Home Assistant yrittää uudelleen 10 minuutin välein. Herätä lukko kääntämällä nuppia tai poista koodi näppäimistöltä."
+    },
+    "events_missing": {
+      "title": "{title} raportoi lukon tilan mutta ei sitä, kuka tai miten",
+      "description": "Lukko raportoi, kun se lukitaan ja avataan, mutta sen toimintatapahtumat (kuka ja miten) ovat lakanneet saapumasta. Näin käy usein paristojen vaihdon jälkeen. Avaa ZHA:ssa lukon laite ja valitse Määritä uudelleen, kun lukko on hereillä (käännä ensin nuppia tai näppäile koodi ja #). Jos se ei onnistu, odota muutama tunti tai poista lukko ZHA:sta ja liitä se uudelleen."
+    }
+  },
+  "services": {
+    "set_pin": {
+      "name": "Aseta PIN-koodi",
+      "description": "Kirjoittaa PIN-koodin lukon paikkaan. Tallennin tallentaa toimintojen tiedot; käytä integraation Määritä-ikkunaa, jotta koodi ei päädy tietokantaan.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lukko",
+          "description": "Nimly-lukko. Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "slot": {
+          "name": "Paikka",
+          "description": "Käyttäjäpaikka; varattuihin pääkoodipaikkoihin ei voi kirjoittaa."
+        },
+        "pin_code": {
+          "name": "PIN-koodi",
+          "description": "Vain numeroita, lukon hyväksymä pituus. Jätä pois, niin koodi luodaan ja palautetaan vastauksessa."
+        },
+        "name": {
+          "name": "Nimi",
+          "description": "Kenelle koodi kuuluu; näkyy lukon tapahtumissa."
+        },
+        "valid_until": {
+          "name": "Voimassa asti",
+          "description": "Poista koodi tähän aikaan (väliaikainen koodi). Ei voi yhdistää kestoon."
+        },
+        "valid_for": {
+          "name": "Voimassa ajan",
+          "description": "Poista koodi tämän ajan kuluttua (väliaikainen koodi). Ei voi yhdistää päättymisaikaan."
+        },
+        "device_id": {
+          "name": "Laite",
+          "description": "Lukon laite (tämän integraation tai ZHA:n). Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "valid_from": {
+          "name": "Voimassa alkaen",
+          "description": "Kirjoita koodi tähän aikaan eikä heti (se säilytetään siihen asti Home Assistantissa)."
+        },
+        "weekdays": {
+          "name": "Viikonpäivät",
+          "description": "Päivät, joina koodi toimii; alkamis- ja päättymisajan kanssa viikkoaikataulu."
+        },
+        "start_time": {
+          "name": "Alkamisaika",
+          "description": "Milloin koodi alkaa toimia näinä päivinä."
+        },
+        "end_time": {
+          "name": "Päättymisaika",
+          "description": "Milloin koodi lakkaa toimimasta näinä päivinä."
+        },
+        "max_uses": {
+          "name": "Käyttökertojen määrä",
+          "description": "Poista koodi näin monen sillä tehdyn avauksen jälkeen (1 tekee siitä kertakäyttöisen). Ei viikoittaisille koodeille."
+        }
+      }
+    },
+    "clear_pin": {
+      "name": "Poista PIN-koodi",
+      "description": "Poistaa PIN-koodin paikasta. Paikka säilyttää nimensä.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lukko",
+          "description": "Nimly-lukko. Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "slot": {
+          "name": "Paikka",
+          "description": "Tyhjennettävä paikka."
+        },
+        "device_id": {
+          "name": "Laite",
+          "description": "Lukon laite (tämän integraation tai ZHA:n). Ei tarvita, kun käytössä on vain yksi lukko."
+        }
+      }
+    },
+    "set_slot_name": {
+      "name": "Nimeä paikka",
+      "description": "Nimeää paikan, jotta lukon tapahtumat näyttävät kuka se on. Tyhjä nimi poistaa nimen.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lukko",
+          "description": "Nimly-lukko. Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "slot": {
+          "name": "Paikka",
+          "description": "Nimettävä paikka, myös pääkoodipaikat."
+        },
+        "name": {
+          "name": "Nimi",
+          "description": "Nimi, tai tyhjä sen poistamiseksi."
+        },
+        "device_id": {
+          "name": "Laite",
+          "description": "Lukon laite (tämän integraation tai ZHA:n). Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "credential": {
+          "name": "Tunnistetapa",
+          "description": "Nimeä paikalle vain tämä tunnistetapa (pin, rfid tai fingerprint). Jätä pois nimetäksesi paikan kaikille tavoille."
+        }
+      }
+    },
+    "enroll_credential": {
+      "name": "Lisää avaintunniste tai sormenjälki",
+      "description": "Kokeellinen. Käskee lukon lukemaan avaintunnisteen tai sormenjäljen paikkaan; esitä se lukolle heti sen jälkeen.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lukko",
+          "description": "Nimly-lukko. Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "device_id": {
+          "name": "Laite",
+          "description": "Lukon laite (tämän integraation tai ZHA:n). Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "slot": {
+          "name": "Paikka",
+          "description": "Paikka, johon lisätään tai josta poistetaan."
+        },
+        "credential": {
+          "name": "Tyyppi",
+          "description": "rfid avaintunnisteelle, fingerprint sormelle."
+        }
+      }
+    },
+    "remove_credential": {
+      "name": "Poista avaintunniste tai sormenjälki",
+      "description": "Poistaa paikassa olevan avaintunnisteen tai sormenjäljen lukosta (sormenjäljet: kokeellinen).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lukko",
+          "description": "Nimly-lukko. Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "device_id": {
+          "name": "Laite",
+          "description": "Lukon laite (tämän integraation tai ZHA:n). Ei tarvita, kun käytössä on vain yksi lukko."
+        },
+        "slot": {
+          "name": "Paikka",
+          "description": "Paikka, johon lisätään tai josta poistetaan."
+        },
+        "credential": {
+          "name": "Tyyppi",
+          "description": "rfid avaintunnisteelle, fingerprint sormelle."
+        }
+      }
+    }
+  },
+  "selector": {
+    "credential": {
+      "options": {
+        "any": "Kaikki tavat",
+        "pin": "PIN-koodi",
+        "rfid": "Avaintunniste",
+        "fingerprint": "Sormenjälki"
+      }
+    },
+    "weekday": {
+      "options": {
+        "mon": "Maanantai",
+        "tue": "Tiistai",
+        "wed": "Keskiviikko",
+        "thu": "Torstai",
+        "fri": "Perjantai",
+        "sat": "Lauantai",
+        "sun": "Sunnuntai"
+      }
+    },
+    "physical_credential": {
+      "options": {
+        "rfid": "Avaintunniste",
+        "fingerprint": "Sormenjälki"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "locked": "Henkilö lukitsi",
+      "unlocked": "Henkilö avasi",
+      "unlocked_keypad": "Avattu koodilla",
+      "unlocked_rfid": "Avattu avaintunnisteella",
+      "unlocked_fingerprint": "Avattu sormenjäljellä",
+      "unlocked_remotely": "Avattu Home Assistantista",
+      "auto_relocked": "Lukittu automaattisesti"
+    }
+  }
+}

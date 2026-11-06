@@ -157,3 +157,4 @@ class NimlyServiceArgument(StrEnum):
     WEEKDAYS = "weekdays"
     START_TIME = "start_time"
     END_TIME = "end_time"
+    MAX_USES = "max_uses"

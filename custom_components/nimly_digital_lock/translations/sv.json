@@ -50,12 +50,14 @@
           "name": "Namn",
           "pin_code": "PIN-kod",
           "valid_until": "Giltig till",
-          "valid_from": "Giltig från"
+          "valid_from": "Giltig från",
+          "max_uses": "Antal användningar"
         },
         "data_description": {
           "valid_until": "Valfritt. Koden tas bort från låset vid den här tidpunkten. Lämna tomt för en permanent kod.",
           "valid_from": "Valfritt. Koden skrivs till låset vid den här tidpunkten. Fram till dess sparas den i Home Assistants lagring.",
-          "pin_code": "Lämna tomt för att få en kod genererad; den visas en gång."
+          "pin_code": "Lämna tomt för att få en kod genererad; den visas en gång.",
+          "max_uses": "Valfritt. Koden tas bort efter så här många upplåsningar; 1 ger en engångskod. Lämna tomt för ingen gräns."
         }
       },
       "clear_pin": {
@@ -201,6 +203,9 @@
       },
       "parent_router": {
         "name": "Förälderrouter"
+      },
+      "unlocks": {
+        "name": "Upplåsningar"
       }
     },
     "select": {
@@ -278,6 +283,9 @@
     },
     "empty_window": {
       "message": "start_time och end_time kan inte vara samma."
+    },
+    "uses_with_weekly": {
+      "message": "max_uses kan inte kombineras med ett veckoschema."
     }
   },
   "issues": {
@@ -290,8 +298,8 @@
       "description": "ZHA har inte tillämpat någon enhets-quirk på låset, så automatisk omlåsning och ljudvolym saknas i ZHA och batterinivån kan bli fel. Se till att ZHA är uppdaterat och ta sedan bort och parkoppla om låset i ZHA (eller konfigurera om det). Låsaktivitet och PIN-hantering i den här integrationen fungerar ändå."
     },
     "expired_pin_not_cleared": {
-      "title": "Utgången PIN-kod på {title} är fortfarande aktiv",
-      "description": "Den tillfälliga koden för {name} (plats {slot}) har gått ut, men låset har inte tagit bort den än, så den kan fortfarande öppna dörren. Home Assistant försöker igen var tionde minut. Vrid vredet för att väcka låset, eller ta bort koden på knappsatsen."
+      "title": "Utgången eller förbrukad PIN-kod på {title} är fortfarande aktiv",
+      "description": "Koden för {name} (plats {slot}) har gått ut eller förbrukats, men låset har inte tagit bort den än, så den kan fortfarande öppna dörren. Home Assistant försöker igen var tionde minut. Vrid vredet för att väcka låset, eller ta bort koden på knappsatsen."
     },
     "events_missing": {
       "title": "{title} rapporterar låsläge men inte vem eller hur",
@@ -346,6 +354,10 @@
         "end_time": {
           "name": "Sluttid",
           "description": "När koden slutar fungera de dagarna."
+        },
+        "max_uses": {
+          "name": "Antal användningar",
+          "description": "Ta bort koden efter så här många upplåsningar med den (1 ger en engångskod). Inte för veckokoder."
         }
       }
     },

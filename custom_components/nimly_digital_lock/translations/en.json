@@ -50,12 +50,14 @@
           "name": "Name",
           "pin_code": "PIN code",
           "valid_until": "Valid until",
-          "valid_from": "Valid from"
+          "valid_from": "Valid from",
+          "max_uses": "Number of uses"
         },
         "data_description": {
           "valid_until": "Optional. The code is removed from the lock at this time. Leave empty for a permanent code.",
           "valid_from": "Optional. The code is written to the lock at this time. Until then it is kept in Home Assistant's storage.",
-          "pin_code": "Leave empty to have a code generated; it is shown once."
+          "pin_code": "Leave empty to have a code generated; it is shown once.",
+          "max_uses": "Optional. The code is removed after this many unlocks; 1 makes a one-time code. Leave empty for no limit."
         }
       },
       "clear_pin": {
@@ -73,7 +75,7 @@
           "credential": "Credential"
         },
         "data_description": {
-          "credential": "Name only this kind on the slot. Fingerprints are numbered apart from codes and key tags, so fingerprint 5 can be someone else than code 5."
+          "credential": "Name only this kind on the slot. Fingerprints are numbered apart from codes and key tags, so fingerprint 5 can be someone other than code 5."
         }
       },
       "settings": {
@@ -201,6 +203,9 @@
       },
       "parent_router": {
         "name": "Parent router"
+      },
+      "unlocks": {
+        "name": "Unlocks"
       }
     },
     "select": {
@@ -278,6 +283,9 @@
     },
     "empty_window": {
       "message": "start_time and end_time cannot be the same."
+    },
+    "uses_with_weekly": {
+      "message": "max_uses cannot be combined with a weekly schedule."
     }
   },
   "issues": {
@@ -290,8 +298,8 @@
       "description": "ZHA did not apply a device quirk to this lock, so auto relock and sound volume are missing in ZHA and the battery level may be wrong. Make sure ZHA is up to date, then remove and re-pair the lock in ZHA (or reconfigure it). Lock activity and PIN management in this integration work either way."
     },
     "expired_pin_not_cleared": {
-      "title": "Expired PIN code on {title} is still active",
-      "description": "The temporary code for {name} (slot {slot}) has expired, but the lock has not removed it yet, so it may still open the door. Home Assistant keeps trying every 10 minutes. Turn the knob to wake the lock, or delete the code at the keypad."
+      "title": "Expired or used-up PIN code on {title} is still active",
+      "description": "The code for {name} (slot {slot}) has expired or been used up, but the lock has not removed it yet, so it may still open the door. Home Assistant keeps trying every 10 minutes. Turn the knob to wake the lock, or delete the code at the keypad."
     },
     "events_missing": {
       "title": "{title} reports lock state but not who or how",
@@ -346,6 +354,10 @@
         "end_time": {
           "name": "End time",
           "description": "When the code stops working on those days."
+        },
+        "max_uses": {
+          "name": "Number of uses",
+          "description": "Remove the code after this many unlocks with it (1 makes a one-time code). Not for weekly codes."
         }
       }
     },

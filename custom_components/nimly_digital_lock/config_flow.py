@@ -43,7 +43,7 @@ from .const import (
     RESERVED_SLOTS_MAX,
     RESERVED_SLOTS_MIN,
 )
-from .manager import NimlyConfigEntry, NimlyLockManager, PinSchedule, to_utc
+from .manager import MAX_USES, NimlyConfigEntry, NimlyLockManager, PinSchedule, to_utc
 from .rules import CREDENTIAL_KINDS
 from .zha import SendOutcome, is_zha_running, iter_nimly_locks
 
@@ -56,6 +56,7 @@ CONF_VALID_FROM = "valid_from"
 CONF_WEEKDAYS = "weekdays"
 CONF_START_TIME = "start_time"
 CONF_END_TIME = "end_time"
+CONF_MAX_USES = "max_uses"
 CREDENTIAL_ANY = "any"
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -300,6 +301,8 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
             slot, code, name, generated = self._check_pin_input(manager, user_input, errors)
             start = _parse_local(user_input.get(CONF_VALID_FROM))
             expires = _parse_local(user_input.get(CONF_VALID_UNTIL))
+            # Left empty: no limit.
+            uses = int(user_input[CONF_MAX_USES]) if user_input.get(CONF_MAX_USES) else None
             if not errors and expires is not None and expires <= dt_util.utcnow():
                 errors[CONF_VALID_UNTIL] = "expiry_in_past"
             elif not errors and start and expires and expires <= start:
@@ -308,10 +311,11 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                 outcome: SendOutcome | None
                 if start is not None and start > dt_util.utcnow():
                     outcome = await manager.async_schedule_pin(
-                        slot, PinSchedule(code=code, name=name, start=start, until=expires)
+                        slot,
+                        PinSchedule(code=code, name=name, start=start, until=expires, uses=uses),
                     )
                 else:
-                    outcome = await manager.async_set_pin(slot, code, name, expires)
+                    outcome = await manager.async_set_pin(slot, code, name, expires, uses)
                 if outcome is None or outcome.delivered:
                     return await self._finish_pin(slot, code if generated else None)
                 errors["base"] = outcome.error_key or "lock_unreachable"
@@ -322,6 +326,7 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                     **self._pin_fields(manager),
                     vol.Optional(CONF_VALID_FROM): DateTimeSelector(),
                     vol.Optional(CONF_VALID_UNTIL): DateTimeSelector(),
+                    vol.Optional(CONF_MAX_USES): _slot_selector(1, MAX_USES),
                 }
             ),
             errors=errors,
