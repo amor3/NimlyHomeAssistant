@@ -143,6 +143,24 @@
       },
       "last_report": {
         "name": "Last report"
+      },
+      "battery": {
+        "name": "Battery"
+      }
+    },
+    "select": {
+      "sound_volume": {
+        "name": "Sound volume",
+        "state": {
+          "off": "Off",
+          "low": "Low",
+          "normal": "Normal"
+        }
+      }
+    },
+    "switch": {
+      "auto_relock": {
+        "name": "Auto relock"
       }
     }
   },

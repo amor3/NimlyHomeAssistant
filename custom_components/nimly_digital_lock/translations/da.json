@@ -143,6 +143,24 @@
       },
       "last_report": {
         "name": "Seneste rapport"
+      },
+      "battery": {
+        "name": "Batteri"
+      }
+    },
+    "select": {
+      "sound_volume": {
+        "name": "Lydstyrke",
+        "state": {
+          "off": "Fra",
+          "low": "Lav",
+          "normal": "Normal"
+        }
+      }
+    },
+    "switch": {
+      "auto_relock": {
+        "name": "Automatisk genlåsning"
       }
     }
   },

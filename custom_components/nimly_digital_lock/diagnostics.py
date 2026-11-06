@@ -33,6 +33,10 @@ async def async_get_config_entry_diagnostics(
             "quirk_class": quirk.quirk_class if quirk else None,
         },
         "listening": manager.listening,
+        # What ZHA lacks and the integration provides itself.
+        "fallbacks": sorted(manager.fallbacks),
+        "settings": {f"0x{key:04x}": value for key, value in manager.settings.items()},
+        "battery": manager.battery,
         "missed_reports": manager.missed_reports,
         "capabilities": manager.capabilities,
         "capabilities_read": manager.capabilities_read,

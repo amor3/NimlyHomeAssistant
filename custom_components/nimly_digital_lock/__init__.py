@@ -22,6 +22,10 @@ from .const import (
     CONF_IEEE,
     CONF_MODEL,
     DOMAIN,
+    FALLBACK_FEATURES,
+    FEATURE_AUTO_RELOCK,
+    FEATURE_BATTERY,
+    FEATURE_SOUND_VOLUME,
     ISSUE_QUIRK_MISSING,
     ISSUE_ZHA_INTERNALS,
     ZHA_DOMAIN,
@@ -39,11 +43,19 @@ from .zha import (
     lock_in_zha,
     model_in_zha,
     quirk_status,
+    zha_features,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
+
+# Fallback entity unique id key per feature, as entity.py builds them.
+_FALLBACK_KEYS = {
+    FEATURE_AUTO_RELOCK: ("switch", "auto_relock"),
+    FEATURE_SOUND_VOLUME: ("select", "sound_volume"),
+    FEATURE_BATTERY: ("sensor", "battery"),
+}
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 LOCK_DOMAIN = "lock"
@@ -122,6 +134,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> boo
 
     manager = NimlyLockManager(hass, entry)
     await manager.async_load()
+    manager.fallbacks = frozenset(FALLBACK_FEATURES) - zha_features(hass, ieee)
+    _remove_unneeded_fallbacks(hass, entry, manager.fallbacks)
+    if manager.fallbacks:
+        _LOGGER.info(
+            "ZHA shows no %s for lock %s; the integration provides them",
+            ", ".join(sorted(manager.fallbacks)),
+            ieee,
+        )
     entry.runtime_data = manager
     entry.async_on_unload(manager.async_shutdown)
 
@@ -156,6 +176,20 @@ async def async_remove_config_entry_device(
 ) -> bool:
     """Allow removing a device only when it is not this entry's lock."""
     return (DOMAIN, entry.entry_id) not in device_entry.identifiers
+
+
+@callback
+def _remove_unneeded_fallbacks(
+    hass: HomeAssistant, entry: NimlyConfigEntry, needed: frozenset[str]
+) -> None:
+    """Drop fallback entities for what ZHA now shows itself, so none is doubled."""
+    registry = er.async_get(hass)
+    for feature, (domain, key) in _FALLBACK_KEYS.items():
+        if feature in needed:
+            continue
+        if entity_id := registry.async_get_entity_id(domain, DOMAIN, f"{entry.entry_id}-{key}"):
+            _LOGGER.info("ZHA now shows %s; removing %s", feature, entity_id)
+            registry.async_remove(entity_id)
 
 
 @callback

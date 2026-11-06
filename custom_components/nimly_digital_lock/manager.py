@@ -24,9 +24,12 @@ from homeassistant.util import dt as dt_util
 
 from . import rules
 from .const import (
+    ATTR_ID_AUTO_RELOCK,
+    ATTR_ID_BATTERY_PERCENT,
     ATTR_ID_EVENT_STATUS,
     ATTR_ID_LOCK_STATE,
     ATTR_ID_PIN_USED,
+    ATTR_ID_SOUND_VOLUME,
     CMD_CLEAR_PIN,
     CMD_SET_PIN,
     CONF_IEEE,
@@ -34,17 +37,28 @@ from .const import (
     CONF_WAKE_WITH_LOCK,
     DEFAULT_RESERVED_SLOTS,
     DOMAIN,
+    DOOR_LOCK_CLUSTER_ID,
     EVENT_LOCK_ACTIVITY,
+    FEATURE_AUTO_RELOCK,
+    FEATURE_BATTERY,
+    FEATURE_SOUND_VOLUME,
     ISSUE_EVENTS_MISSING,
     ISSUE_EXPIRED_PIN,
     ISSUE_ZHA_INTERNALS,
     MAX_SLOT,
+    POWER_CLUSTER_ID,
     STORAGE_VERSION,
     LockAction,
     LockSource,
 )
 from .rules import CREDENTIAL_KINDS, LockEvent
-from .zha import LockTransport, SendOutcome, ZhaInternalsMissing, subscribe_attribute_reports
+from .zha import (
+    LockTransport,
+    SendOutcome,
+    ZhaInternalsMissing,
+    find_cluster,
+    subscribe_attribute_reports,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,6 +158,13 @@ class NimlyLockManager:
         self._slots: dict[str, SlotData] = {}
         self.capabilities: dict[str, int] = {}
         self.capabilities_read = False
+        # What ZHA lacks for this lock, provided by the integration itself.
+        self.fallbacks: frozenset[str] = frozenset()
+        # Door Lock attribute id -> value, for the fallback entities.
+        self.settings: dict[int, int] = {}
+        self.battery: int | None = None
+        self._settings_task: asyncio.Task[None] | None = None
+        self._power_unsubscribe: Callable[[], None] | None = None
         self.listening = False
         self.last_event: LockEvent | None = None
         self._cluster: Any = None
@@ -456,7 +477,12 @@ class NimlyLockManager:
 
     @callback
     def schedule_capability_refresh(self) -> None:
-        """Start a capability read unless one is done or already running."""
+        """Start a capability read unless one is done or already running.
+
+        Also reads the fallback entities' values: the moments the lock is
+        awake are the same.
+        """
+        self.schedule_settings_read()
         if self.capabilities_read or (
             self._capability_task is not None and not self._capability_task.done()
         ):
@@ -491,13 +517,35 @@ class NimlyLockManager:
     def _subscribe(self, cluster: Any) -> None:
         self._unsubscribe = subscribe_attribute_reports(cluster, self._handle_report)
         self._cluster = cluster
+        if (
+            FEATURE_BATTERY in self.fallbacks
+            and (power := find_cluster(self.hass, self.ieee, POWER_CLUSTER_ID)) is not None
+        ):
+            # ZHA's quirk doubles the lock's percent; older zigpy hands the
+            # listener that doubled value (newer zigpy hands the raw one).
+            halve = "Doubling" in type(power).__name__ and not callable(
+                getattr(power, "on_event", None)
+            )
+
+            def _power_report(attribute_id: int, raw: Any) -> None:
+                if halve and isinstance(raw, int | float):
+                    raw = int(raw) // 2
+                self._handle_power_report(attribute_id, raw)
+
+            try:
+                self._power_unsubscribe = subscribe_attribute_reports(power, _power_report)
+            except ZhaInternalsMissing:
+                _LOGGER.debug("No battery reports from %s", self.ieee)
         self.listening = True
         self.async_update_listeners()
 
     def _unsubscribe_cluster(self) -> None:
         if self._unsubscribe is not None:
             self._unsubscribe()
+        if self._power_unsubscribe is not None:
+            self._power_unsubscribe()
         self._unsubscribe = None
+        self._power_unsubscribe = None
         self._cluster = None
 
     @callback
@@ -585,6 +633,9 @@ class NimlyLockManager:
         if attribute_id == ATTR_ID_LOCK_STATE:
             self._watch_report_gap(raw)
             return
+        if attribute_id in (ATTR_ID_AUTO_RELOCK, ATTR_ID_SOUND_VOLUME):
+            self._store_setting(attribute_id, raw)
+            return
         if attribute_id != ATTR_ID_EVENT_STATUS:
             return
         try:
@@ -599,6 +650,78 @@ class NimlyLockManager:
             return
         self._report_arrived()
         self.handle_event(event)
+
+    # Settings and battery for what ZHA lacks
+
+    @callback
+    def _store_setting(self, attribute_id: int, raw: Any) -> None:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return
+        if self.settings.get(attribute_id) != value:
+            self.settings[attribute_id] = value
+            self.async_update_listeners()
+
+    @callback
+    def _handle_power_report(self, attribute_id: int, raw: Any) -> None:
+        if attribute_id != ATTR_ID_BATTERY_PERCENT:
+            return
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return
+        # The lock reports percent, where ZCL expects half-percent; 0xFF is
+        # "unknown". ZHA's Nimly quirk doubles it for the same reason.
+        if value > 200:
+            return
+        if (percent := min(100, value)) != self.battery:
+            self.battery = percent
+            self.async_update_listeners()
+
+    def _settings_to_read(self) -> dict[int, list[int]]:
+        wanted: dict[int, list[int]] = {}
+        for feature, attribute_id in (
+            (FEATURE_AUTO_RELOCK, ATTR_ID_AUTO_RELOCK),
+            (FEATURE_SOUND_VOLUME, ATTR_ID_SOUND_VOLUME),
+        ):
+            if feature in self.fallbacks and attribute_id not in self.settings:
+                wanted.setdefault(DOOR_LOCK_CLUSTER_ID, []).append(attribute_id)
+        if FEATURE_BATTERY in self.fallbacks and self.battery is None:
+            wanted[POWER_CLUSTER_ID] = [ATTR_ID_BATTERY_PERCENT]
+        return wanted
+
+    async def async_read_settings(self) -> None:
+        """Read the values the fallback entities show, while the lock is awake."""
+        for cluster_id, attribute_ids in self._settings_to_read().items():
+            values = await self.transport.read_attributes(cluster_id, attribute_ids)
+            for attribute_id, value in values.items():
+                if cluster_id == POWER_CLUSTER_ID:
+                    self._handle_power_report(attribute_id, value)
+                else:
+                    self._store_setting(attribute_id, value)
+
+    @callback
+    def schedule_settings_read(self) -> None:
+        """Start a read of missing fallback values unless one is running."""
+        if not self._settings_to_read() or (
+            self._settings_task is not None and not self._settings_task.done()
+        ):
+            return
+        self._settings_task = self.entry.async_create_background_task(
+            self.hass, self.async_read_settings(), f"{DOMAIN} settings read {self.ieee}"
+        )
+
+    async def async_write_setting(self, attribute_id: int, value: int) -> SendOutcome:
+        """Write auto relock or sound volume, when ZHA does not offer them."""
+        async with self._pin_lock:
+            outcome = await self.transport.write_attribute(attribute_id, value)
+        if outcome.lock_answered:
+            self.schedule_capability_refresh()
+        if outcome.delivered:
+            self.settings[attribute_id] = value
+            self.async_update_listeners()
+        return outcome
 
     # Operation reports that stop arriving
 

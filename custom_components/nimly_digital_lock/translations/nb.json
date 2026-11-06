@@ -143,6 +143,24 @@
       },
       "last_report": {
         "name": "Siste rapport"
+      },
+      "battery": {
+        "name": "Batteri"
+      }
+    },
+    "select": {
+      "sound_volume": {
+        "name": "Lydvolum",
+        "state": {
+          "off": "Av",
+          "low": "Lav",
+          "normal": "Normal"
+        }
+      }
+    },
+    "switch": {
+      "auto_relock": {
+        "name": "Automatisk låsing"
       }
     }
   },

@@ -4,31 +4,42 @@
 [![Tests](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/tests.yml/badge.svg)](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/tests.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-Tells you **who** locked or unlocked your Nimly door and **how** (code, key tag,
-fingerprint, button, auto relock, Home Assistant), and lets you **manage PIN codes**
-from Home Assistant. Everything runs locally over your own Zigbee network through ZHA.
+The complete Home Assistant integration for **Nimly** smart locks with the Nimly Zigbee
+module. Lock and unlock, see **who** did it and **how** (code, key tag, fingerprint,
+button, auto relock, the app), manage **PIN codes** including temporary ones, and keep an
+eye on battery and settings. Everything runs locally over your own Zigbee network; no
+cloud, no Nimly hub.
 
-## How it fits with ZHA
+## Features
 
-The lock itself is handled by ZHA (Zigbee Home Automation). Its built-in Nimly quirk
-already gives you the lock entity, battery level, auto relock and sound volume, so this
-integration does **not** create those again. It adds what ZHA leaves out:
+- **Lock control and battery.** Lock and unlock from dashboards, automations and voice
+  assistants, with the lock's real state and battery level.
+- **Who and how.** Every lock and unlock is decoded into the person (by slot name, or the
+  Home Assistant user who used the app) and the method. Auto relock is recognised and
+  never hides who opened the door.
+- **PIN codes.** Set, clear and name codes from Home Assistant, by slot, with the lock's
+  own limits. Codes entered in the dialog never reach the Home Assistant database.
+- **Temporary codes.** Give the plumber a code for eight hours; it removes itself, also
+  if Home Assistant was off at the time.
+- **Settings.** Auto relock on or off, and the sound volume.
+- **Automations.** An event entity and the `nimly_digital_lock_activity` event carry who,
+  how and whether it was the lock itself, ready for notifications and routines.
+- **Looks after itself.** Retries a sleeping lock, follows Zigbee changes, finds new
+  locks, survives a replaced Zigbee module, and raises a clear repair issue when
+  something needs you. Diagnostics never contain codes, addresses or names.
 
-| Feature | ZHA | This integration |
-| --- | --- | --- |
-| Lock / unlock, lock state | ✅ | – |
-| Battery, signal (LQI/RSSI) | ✅ | – |
-| Auto relock switch, sound volume | ✅ (quirk) | – |
-| Who operated the lock, by name (also the Home Assistant user who unlocked) | – | ✅ |
-| How it was operated (keypad, tag, fingerprint, auto relock…) | ❌ see below | ✅ decoded |
-| Event entity and `nimly_digital_lock_activity` event for automations | – | ✅ |
-| Set and clear PIN codes, name slots | – | ✅ |
-| Temporary PIN codes that remove themselves | – | ✅ |
+### How it works with ZHA
 
-Since Home Assistant 2026.2, the "Last action" sensors of ZHA's quirk no longer update
-([zha-device-handlers#5235](https://github.com/zigpy/zha-device-handlers/issues/5235)): the
-lock sends its operation report without a manufacturer code and zigpy no longer matches it.
-This integration listens to the Door Lock cluster directly and receives every report.
+Nimly locks join your Zigbee network through ZHA (Zigbee Home Automation), which comes
+with Home Assistant. ZHA carries the radio traffic; this integration builds on it and
+listens to the lock directly. Lock control comes from ZHA's lock entity, and the
+battery, auto relock and volume from ZHA's Nimly support when it provides them. When it
+does not (ZHA sometimes applies no Nimly quirk to the lock), this integration adds them
+itself, so you always have them, and never twice.
+
+ZHA's own "Last action" sensors for Nimly have not updated since Home Assistant 2026.2
+([zha-device-handlers#5235](https://github.com/zigpy/zha-device-handlers/issues/5235));
+this integration receives every report and is what shows who and how.
 
 ## Requirements
 
@@ -89,6 +100,20 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 | `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant (diagnostic). The `slots` attribute lists names, names per credential kind and the end time of temporary codes, never the codes. |
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 | `sensor.…_last_report` | When the lock last sent an operation report (diagnostic): a quick way to see that reports arrive. |
+
+Lock control comes from ZHA's `lock.…` entity on the lock's ZHA device (the activity
+device above is linked to it). Battery, auto relock and sound volume come from ZHA's Nimly
+support; if ZHA does not show them for your lock, the integration adds them to its own
+device:
+
+| Entity | Description |
+| --- | --- |
+| `switch.…_auto_relock` | Auto relock on or off (configuration). |
+| `select.…_sound_volume` | Off, Low or Normal (configuration). |
+| `sensor.…_battery` | Battery level in percent (diagnostic). |
+
+They appear only while ZHA lacks them, and are removed automatically once ZHA shows its
+own, so nothing is doubled.
 
 Every lock event also fires `nimly_digital_lock_activity` on the event bus:
 
@@ -188,12 +213,13 @@ locks an open door, so it is off by default.
 
 ## Migrating from 1.x
 
-Version 1.x created its own lock, battery, RSSI, auto relock and volume entities, which
-duplicated ZHA's. When you upgrade, they and their "service" device are removed
-automatically. Use ZHA's entities for lock control, battery, auto relock and volume;
-the entities listed above are new. Automations that used the old `lock.nimly_…`,
+Version 1.x created its own lock, battery, RSSI, auto relock and volume entities next to
+ZHA's, so everything existed twice. When you upgrade, they and their "service" device
+are removed automatically. Lock control now comes from ZHA's lock entity; battery, auto
+relock and volume from ZHA, or from this integration when ZHA does not show them (see
+[What you get](#what-you-get)). Automations that used the old `lock.nimly_…`,
 `sensor.…_battery`, `switch.…_auto_relock` or `select.…_sound_volume` entities need
-to point to ZHA's entities instead. The `nimly_digital_lock.update` and
+to point to the current ones. The `nimly_digital_lock.update` and
 `nimly_digital_lock.export` actions are gone as well.
 
 ## Removing the integration
@@ -226,11 +252,12 @@ repair issues are removed with it. The lock itself stays in ZHA.
 
 ## Troubleshooting
 
-### ZHA does not show auto relock or volume
+### ZHA does not show auto relock, volume or battery
 
-Those come from ZHA's Nimly quirk. If ZHA applied no quirk to the lock, a repair issue
-says so. Update Home Assistant, then remove the lock from ZHA and pair it again (or use
-**Reconfigure** on the device in ZHA). This integration works either way.
+Those normally come from ZHA's Nimly quirk. When ZHA applied no quirk to the lock, this
+integration adds them to its own device and a repair issue says why. To get ZHA's own
+back, update Home Assistant, then remove the lock from ZHA and pair it again (or use
+**Reconfigure** on the device in ZHA); the integration then removes its copies.
 
 ### Repair issues
 
@@ -238,7 +265,7 @@ says so. Update Home Assistant, then remove the lock from ZHA and pair it again 
 | --- | --- |
 | Nimly lock events cannot be received | ZHA offers no way to listen to the lock (a Home Assistant update changed ZHA). Lock control in ZHA still works. |
 | *Lock* reports lock state but not who or how | Operation reports stopped, usually after a battery change. Reconfigure the device in ZHA with the lock awake. |
-| ZHA runs *lock* without its Nimly quirk | Auto relock and volume are missing in ZHA. See above. |
+| ZHA runs *lock* without its Nimly quirk | ZHA's auto relock, volume and battery are missing; the integration provides them. See above. |
 | Expired PIN code on *lock* is still active | A temporary code could not be removed yet; it may still open the door. Wake the lock or delete the code at the keypad. |
 
 If the lock is not in ZHA yet, or ZHA has not finished reading it, setup waits and

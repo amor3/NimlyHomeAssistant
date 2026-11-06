@@ -9,7 +9,7 @@ change is a change here only.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 import enum
 import logging
@@ -30,6 +30,9 @@ from .const import (
     CMD_SET_PIN,
     COMMAND_TIMEOUT_S,
     DOOR_LOCK_CLUSTER_ID,
+    FEATURE_AUTO_RELOCK,
+    FEATURE_BATTERY,
+    FEATURE_SOUND_VOLUME,
     MANUFACTURER,
     SEND_ATTEMPTS,
     SEND_RETRY_DELAY_S,
@@ -114,13 +117,13 @@ def _metadata(proxy: Any) -> tuple[str, str]:
     return getattr(device, "manufacturer", "") or "", getattr(device, "model", "") or ""
 
 
-def _walk_to_cluster(obj: Any) -> Any:
+def _walk_to_cluster(obj: Any, cluster_id: int = DOOR_LOCK_CLUSTER_ID) -> Any:
     for _ in range(_CHAIN_DEPTH):
         for ep_id, endpoint in getattr(obj, "endpoints", {}).items():
             if ep_id == 0:
                 continue
-            if DOOR_LOCK_CLUSTER_ID in (clusters := getattr(endpoint, "in_clusters", {})):
-                return clusters[DOOR_LOCK_CLUSTER_ID]
+            if cluster_id in (clusters := getattr(endpoint, "in_clusters", {})):
+                return clusters[cluster_id]
         if not hasattr(obj, "device"):
             break
         obj = obj.device
@@ -175,10 +178,43 @@ def quirk_status(hass: HomeAssistant, ieee: str) -> QuirkStatus | None:
 
 def find_door_lock_cluster(hass: HomeAssistant, ieee: str) -> Any:
     """The lock's zigpy Door Lock cluster, or None."""
+    return find_cluster(hass, ieee, DOOR_LOCK_CLUSTER_ID)
+
+
+def find_cluster(hass: HomeAssistant, ieee: str, cluster_id: int) -> Any:
+    """One of the lock's zigpy server clusters, or None."""
     for dev_ieee, proxy in _iter_device_proxies(hass):
         if dev_ieee == ieee.lower():
-            return _walk_to_cluster(proxy)
+            return _walk_to_cluster(proxy, cluster_id)
     return None
+
+
+def zha_features(hass: HomeAssistant, ieee: str) -> set[str]:
+    """Which of auto relock, sound volume and battery ZHA shows for the lock.
+
+    Read from ZHA's entities on its device, disabled ones included (a user
+    who turned one off made a choice). Matched three ways, so a change in
+    how ZHA forms unique ids does not make the integration duplicate them.
+    """
+    if (device := find_zha_device(hass, ieee)) is None:
+        return set()
+    features: set[str] = set()
+    for entry in er.async_entries_for_device(
+        er.async_get(hass), device.id, include_disabled_entities=True
+    ):
+        if entry.platform != ZHA_DOMAIN:
+            continue
+        key = f"{entry.translation_key or ''} {entry.unique_id}".lower()
+        if "auto_relock" in key:
+            features.add(FEATURE_AUTO_RELOCK)
+        if "sound_volume" in key:
+            features.add(FEATURE_SOUND_VOLUME)
+        # The percentage, not a battery voltage sensor next to it.
+        if entry.domain == "sensor" and (
+            entry.original_device_class == "battery" or "battery_percentage" in key
+        ):
+            features.add(FEATURE_BATTERY)
+    return features
 
 
 def find_zha_device(hass: HomeAssistant, ieee: str) -> dr.DeviceEntry | None:
@@ -273,41 +309,39 @@ class LockTransport:
         except Exception as err:  # noqa: BLE001 - a failed wake must not abort the retry
             _LOGGER.debug("Wake-up of %s failed: %s", self.ieee, type(err).__name__)
 
-    async def send(self, command: int, params: dict[str, Any]) -> SendOutcome:
-        """Send a Door Lock cluster command. Never raises.
+    async def _attempts(
+        self, what: str, cluster: Any, call: Callable[[Any], Awaitable[Any]]
+    ) -> Any:
+        """Run call(cluster) in bounded, retried attempts. Never raises.
 
-        Calls the zigpy cluster directly instead of ZHA's
-        issue_zigbee_cluster_command action, because every action call is
-        stored by the recorder and a PIN code would end up in the database.
-        Nothing logged here may contain params: they can hold a PIN code.
+        Returns the answer, or a SendOutcome when the lock was not reached.
+        Nothing logged here may contain the call's arguments: they can hold
+        a PIN code.
         """
-        if (cluster := self.cluster()) is None:
-            _LOGGER.warning("Door Lock cluster for %s not found in ZHA", self.ieee)
-            return UNREACHED
         for attempt in range(1, SEND_ATTEMPTS + 1):
             try:
                 # zigpy waits 28 s per try for an end device and retries
                 # timeouts itself; the parent drops the frame after 7.68 s
                 # anyway, so a bounded attempt fails fast and retries here.
                 async with asyncio.timeout(COMMAND_TIMEOUT_S):
-                    response = await cluster.command(command, **params)
+                    return await call(cluster)
             except IndexError:
                 # Older ZHA/zigpy fail to parse the lock's one-field
-                # response after it arrived, so the command got through.
+                # response after it arrived, so the request got through.
                 return DELIVERED
             except (TimeoutError, DeliveryError) as err:
                 if attempt == SEND_ATTEMPTS:
                     _LOGGER.warning(
-                        "Lock %s did not answer command 0x%02x after %d attempts: %s",
+                        "Lock %s did not answer %s after %d attempts: %s",
                         self.ieee,
-                        command,
+                        what,
                         attempt,
                         type(err).__name__,
                     )
                     return UNREACHED
                 _LOGGER.debug(
-                    "Command 0x%02x to %s: %s on attempt %d, retrying",
-                    command,
+                    "%s to %s: %s on attempt %d, retrying",
+                    what,
                     self.ieee,
                     type(err).__name__,
                     attempt,
@@ -315,26 +349,69 @@ class LockTransport:
                 if self.wake_with_lock and attempt == 1:
                     await self._wake()
                 await asyncio.sleep(SEND_RETRY_DELAY_S)
-                continue
             except ZigbeeException as err:
                 _LOGGER.warning(
-                    "Zigbee error sending command 0x%02x to %s: %s",
-                    command,
-                    self.ieee,
-                    redact_digits(err),
+                    "Zigbee error sending %s to %s: %s", what, self.ieee, redact_digits(err)
                 )
                 return UNREACHED
             except Exception as err:  # noqa: BLE001 - the message may quote the PIN
-                # Only the type is logged: a serialization error can echo params.
-                _LOGGER.error(
-                    "Unexpected %s sending command 0x%02x to %s",
-                    type(err).__name__,
-                    command,
-                    self.ieee,
-                )
+                # Only the type is logged: a serialization error can echo arguments.
+                _LOGGER.error("Unexpected %s sending %s to %s", type(err).__name__, what, self.ieee)
                 return UNREACHED
-            return self._outcome(command, response)
         return UNREACHED
+
+    async def send(self, command: int, params: dict[str, Any]) -> SendOutcome:
+        """Send a Door Lock cluster command. Never raises.
+
+        Calls the zigpy cluster directly instead of ZHA's
+        issue_zigbee_cluster_command action, because every action call is
+        stored by the recorder and a PIN code would end up in the database.
+        """
+        if (cluster := self.cluster()) is None:
+            _LOGGER.warning("Door Lock cluster for %s not found in ZHA", self.ieee)
+            return UNREACHED
+        response = await self._attempts(
+            f"command 0x{command:02x}", cluster, lambda c: c.command(command, **params)
+        )
+        if isinstance(response, SendOutcome):
+            return response
+        return self._outcome(command, response)
+
+    async def write_attribute(self, attribute_id: int, value: int) -> SendOutcome:
+        """Write a Door Lock attribute (auto relock, sound volume). Never raises."""
+        if (cluster := self.cluster()) is None:
+            return UNREACHED
+        response = await self._attempts(
+            f"write of 0x{attribute_id:04x}",
+            cluster,
+            lambda c: c.write_attributes({attribute_id: value}),
+        )
+        if isinstance(response, SendOutcome):
+            return response
+        # zigpy answers [records]; one record with SUCCESS means all were written.
+        records = response[0] if isinstance(response, list | tuple) and response else []
+        statuses = [getattr(record, "status", None) for record in records or []]
+        if statuses and all(status == Status.SUCCESS for status in statuses):
+            return DELIVERED
+        _LOGGER.warning(
+            "Lock %s refused writing 0x%04x: %s", self.ieee, attribute_id, statuses or response
+        )
+        return SendOutcome(Delivery.REJECTED, "lock_rejected")
+
+    async def read_attributes(self, cluster_id: int, attribute_ids: list[int]) -> dict[int, Any]:
+        """Read attributes once, bounded; what the lock answered, maybe nothing."""
+        if (cluster := find_cluster(self.hass, self.ieee, cluster_id)) is None:
+            return {}
+        try:
+            async with asyncio.timeout(COMMAND_TIMEOUT_S):
+                result = await cluster.read_attributes(attribute_ids)
+        except (TimeoutError, DeliveryError):
+            return {}
+        except Exception:  # noqa: BLE001 - one odd firmware must not break setup
+            _LOGGER.debug("Attribute read from %s failed", self.ieee, exc_info=True)
+            return {}
+        success = result[0] if isinstance(result, tuple) and result else {}
+        return {key: value for key, value in success.items() if isinstance(key, int)}
 
     def _outcome(self, command: int, response: Any) -> SendOutcome:
         if response is None:

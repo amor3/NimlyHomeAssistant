@@ -35,6 +35,21 @@
       "last_report": {
         "default": "mdi:access-point-check"
       }
+    },
+    "switch": {
+      "auto_relock": {
+        "default": "mdi:lock-clock"
+      }
+    },
+    "select": {
+      "sound_volume": {
+        "default": "mdi:volume-high",
+        "state": {
+          "off": "mdi:volume-off",
+          "low": "mdi:volume-low",
+          "normal": "mdi:volume-high"
+        }
+      }
     }
   },
   "services": {

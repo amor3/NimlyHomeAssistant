@@ -35,10 +35,26 @@ class FakeDoorLockCluster:
     """The parts of a zigpy Door Lock cluster the integration uses."""
 
     command: AsyncMock = field(default_factory=lambda: AsyncMock(return_value=None))
-    read_attributes: AsyncMock = field(
-        default_factory=lambda: AsyncMock(return_value=({0x0012: 50, 0x0017: 8, 0x0018: 4}, {}))
+    # What a read answers: 50 PIN users, 8 and 4 digits, auto relock on,
+    # volume normal.
+    values: dict[int, Any] = field(
+        default_factory=lambda: {0x0012: 50, 0x0017: 8, 0x0018: 4, 0x0023: 1, 0x0024: 2}
     )
+    read_attributes: AsyncMock = field(default_factory=AsyncMock)
     listeners: list[Callable[[Any], None]] = field(default_factory=list)
+
+    write_attributes: AsyncMock = field(
+        default_factory=lambda: AsyncMock(return_value=[[SimpleNamespace(status=0)]])
+    )
+
+    def __post_init__(self) -> None:
+        # Unless a test scripted the read, answer from the value table.
+        mock = self.read_attributes
+        if mock.side_effect is None and not isinstance(mock.return_value, tuple):
+            mock.side_effect = lambda ids, **_: (
+                {i: self.values[i] for i in ids if i in self.values},
+                {},
+            )
 
     def on_event(self, name: str, callback: Callable[[Any], None]) -> Callable[[], None]:
         assert name == "attribute_report"
@@ -57,8 +73,12 @@ def _device_proxy(
     manufacturer: str = MANUFACTURER,
     model: str = MODEL,
     quirk_applied: bool = True,
+    power: Any = None,
 ) -> Any:
-    endpoint = SimpleNamespace(in_clusters={0x0101: cluster} if cluster else {})
+    in_clusters = {0x0101: cluster} if cluster else {}
+    if power is not None:
+        in_clusters[0x0001] = power
+    endpoint = SimpleNamespace(in_clusters=in_clusters)
     zigpy_device = SimpleNamespace(endpoints={0: SimpleNamespace(in_clusters={}), 11: endpoint})
     zha_device = SimpleNamespace(
         manufacturer=manufacturer,
@@ -76,6 +96,7 @@ class FakeZha:
 
     cluster: FakeDoorLockCluster
     device_proxies: dict[str, Any]
+    power: FakeDoorLockCluster
     running: bool = True
 
 
@@ -83,7 +104,12 @@ class FakeZha:
 def fake_zha() -> Generator[FakeZha]:
     """ZHA with one paired Nimly lock."""
     cluster = FakeDoorLockCluster()
-    zha = FakeZha(cluster=cluster, device_proxies={IEEE: _device_proxy(cluster)})
+    power = FakeDoorLockCluster(values={0x0021: 87})
+    zha = FakeZha(
+        cluster=cluster,
+        device_proxies={IEEE: _device_proxy(cluster, power=power)},
+        power=power,
+    )
 
     def _get_proxy(hass: HomeAssistant) -> Any:
         if not zha.running:
@@ -147,3 +173,24 @@ def no_deprecated_usage(caplog: pytest.LogCaptureFixture) -> Generator[None]:
         if "Detected that custom integration 'nimly_digital_lock'" in record.getMessage()
     ]
     assert not reports, reports
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers", "zha_features(*features): what ZHA shows for the lock (default: all)"
+    )
+    config.addinivalue_line("markers", "real_zha_features: detect from the entity registry")
+
+
+@pytest.fixture(autouse=True)
+def zha_features(request: pytest.FixtureRequest) -> Generator[set[str]]:
+    """ZHA's quirk works unless a test says otherwise, so no fallbacks are made."""
+    from custom_components.nimly_digital_lock.const import FALLBACK_FEATURES  # noqa: PLC0415
+
+    marker = request.node.get_closest_marker("zha_features")
+    features = set(marker.args) if marker else set(FALLBACK_FEATURES)
+    if request.node.get_closest_marker("real_zha_features"):
+        yield features
+        return
+    with patch("custom_components.nimly_digital_lock.zha_features", return_value=features):
+        yield features

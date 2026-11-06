@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.sensor import RestoreSensor, SensorDeviceClass, SensorEntity
-from homeassistant.const import EntityCategory
+from homeassistant.components.sensor import (
+    RestoreSensor,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
+from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import rules
-from .const import LockAction, LockSource
+from .const import FEATURE_BATTERY, LockAction, LockSource
 from .entity import NimlyEntity, NimlyEventEntity
 from .manager import LockActivity, NimlyConfigEntry, NimlyLockManager
 
@@ -35,6 +40,8 @@ async def async_setup_entry(
             LastReportSensor(manager),
         ]
     )
+    if FEATURE_BATTERY in manager.fallbacks:
+        async_add_entities([BatterySensor(manager)])
 
 
 class _LockEventSensor(NimlyEventEntity, RestoreSensor):
@@ -144,6 +151,35 @@ class LastReportSensor(_LockEventSensor):
         self._attr_native_value = dt_util.utcnow()
         self._attr_extra_state_attributes = {"raw": f"0x{activity.event.raw:08x}"}
         return True
+
+
+class BatterySensor(NimlyEventEntity, RestoreSensor):
+    """Battery level, only when ZHA does not show one for the lock.
+
+    The lock reports percent where ZCL expects half-percent, and it presents
+    itself as mains powered, so without ZHA's Nimly quirk ZHA shows no
+    battery or half the real value.
+    """
+
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, manager: NimlyLockManager) -> None:
+        super().__init__(manager, "battery")
+        self._restored: int | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        if (last := await self.async_get_last_sensor_data()) is not None and isinstance(
+            last.native_value, int | float
+        ):
+            self._restored = int(last.native_value)
+
+    @property
+    def native_value(self) -> int | None:
+        return self.manager.battery if self.manager.battery is not None else self._restored
 
 
 class PinCodesSensor(NimlyEntity, SensorEntity):
