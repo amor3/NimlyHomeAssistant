@@ -15,6 +15,7 @@ htmlcov/
 *.zip
 .DS_Store
 
-# Local Claude Code skills
+# Local only: tooling, notes and drafts
 .claude/
 skills-lock.json
+local/

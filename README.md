@@ -79,11 +79,11 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 
 | Entity | Description |
 | --- | --- |
-| `event.…_activity` | Fires `lock` / `unlock` with `source`, `slot`, `user` and `system` attributes. |
+| `event.…_activity` | Fires `lock` / `unlock` with `source`, `slot`, `user`, `ha_user` and `system` attributes. The logbook shows the Home Assistant user for app commands. |
 | `sensor.…_last_action` | Locked / Unlocked. |
 | `sensor.…_last_operated_by` | Keypad, Key tag, Fingerprint, Button, Auto relock, Home Assistant / Zigbee, Other. |
 | `sensor.…_last_user` | The last person who operated the lock: the slot name for a code, tag or finger ("Slot N" if unnamed), or the Home Assistant user who locked or unlocked from the app. Auto relock and a palm lock from outside do not overwrite it. Survives restarts. |
-| `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant; slot names in the attributes (never the codes). |
+| `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant (diagnostic). The `slots` attribute lists names, names per credential kind and the end time of temporary codes, never the codes. |
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 | `sensor.…_last_report` | When the lock last sent an operation report (diagnostic): a quick way to see that reports arrive. |
 
@@ -117,7 +117,7 @@ actions:
   - action: notify.mobile_app_phone
     data:
       message: >
-        {{ trigger.event.data.user or 'Someone' }} unlocked the door
+        {{ trigger.event.data.user or trigger.event.data.ha_user or 'Someone' }} unlocked the door
         ({{ trigger.event.data.source }})
 ```
 
@@ -138,8 +138,9 @@ Codes entered in the Configure dialog go straight to the lock and are never stor
 Home Assistant. The same is available as actions for automations:
 `nimly_digital_lock.set_pin`, `nimly_digital_lock.clear_pin` and
 `nimly_digital_lock.set_slot_name`. Pick the lock with `device_id` (this integration's
-device or ZHA's) or `config_entry_id`; with a single lock set up, neither is needed. Note that Home Assistant's recorder stores the data
-of every action call, so a code passed to `set_pin` ends up in the database.
+device or ZHA's) or `config_entry_id`; with a single lock set up, neither is needed.
+Home Assistant's recorder stores the data of every action call, so a code passed to
+`set_pin` ends up in the database; use the Configure dialog to keep it out.
 
 **Temporary codes.** A code with an end time (`valid_until`, or `valid_for` such as
 `{"hours": 48}` in the action) is cleared from the lock automatically at that time, also
@@ -168,17 +169,9 @@ after 7.68 seconds. Each attempt is given 10 seconds (zigpy alone would wait up 
 or action gives up after about half a minute. If it still fails,
 wake the lock by turning the knob, or by entering a valid code and `#`, and try again
 within a few seconds. Touching the keypad only lights it up. A code you set is only
-confirmed by the lock answering; try it on the keypad. The
-**Wake the lock by locking it** setting instead sends a lock command through ZHA before
-retrying. That moves the bolt and locks an open door, so it is off by default.
-
-## Blueprint
-
-[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Famor3%2FNimlyHomeAssistant%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnimly_unlock_notification.yaml)
-
-**Notify who unlocked the door**: sends a phone notification such as
-"Anna unlocked the door with a code", optionally only for chosen methods. Auto relock and
-other system events are skipped.
+confirmed by the lock answering; try it on the keypad. The **Wake the lock by locking it**
+setting sends a lock command through ZHA before the first retry. That moves the bolt and
+locks an open door, so it is off by default.
 
 ## Privacy and security
 
@@ -197,6 +190,13 @@ the entities listed above are new. Automations that used the old `lock.nimly_…
 `sensor.…_battery`, `switch.…_auto_relock` or `select.…_sound_volume` entities need
 to point to ZHA's entities instead. The `nimly_digital_lock.update` and
 `nimly_digital_lock.export` actions are gone as well.
+
+## Removing the integration
+
+Clear the PIN codes that should stop working first: they live on the lock, and removing
+the integration leaves them there. Then delete the entry under **Settings → Devices &
+services → Nimly Digital Lock**. Slot names, temporary-code timers and the integration's
+repair issues are removed with it. The lock itself stays in ZHA.
 
 ## Limitations
 
@@ -227,6 +227,18 @@ Those come from ZHA's Nimly quirk. If ZHA applied no quirk to the lock, a repair
 says so. Update Home Assistant, then remove the lock from ZHA and pair it again (or use
 **Reconfigure** on the device in ZHA). This integration works either way.
 
+### Repair issues
+
+| Issue | Meaning |
+| --- | --- |
+| Lock events cannot be received | ZHA offers no way to listen to the lock (a Home Assistant update changed ZHA). Lock control in ZHA still works. |
+| Reports lock state but not who or how | Operation reports stopped, usually after a battery change. Reconfigure the device in ZHA with the lock awake. |
+| ZHA runs the lock without its Nimly quirk | Auto relock and volume are missing in ZHA. See above. |
+| Expired PIN code is still active | A temporary code could not be removed yet; it may still open the door. Wake the lock or delete the code at the keypad. |
+
+If the lock is not in ZHA yet, or ZHA has not finished reading it, setup waits and
+retries by itself.
+
 ### General
 
 Enable debug logging:
@@ -237,8 +249,10 @@ logger:
     custom_components.nimly_digital_lock: debug
 ```
 
-Download diagnostics from the integration's ⋮ menu when reporting an
-[issue](https://github.com/amor3/NimlyHomeAssistant/issues).
+The **Last report** sensor shows when the lock last sent an operation report. Download
+diagnostics from the integration's ⋮ menu when reporting an
+[issue](https://github.com/amor3/NimlyHomeAssistant/issues); they contain no PIN codes,
+addresses or slot names.
 
 ## Development
 
@@ -246,16 +260,19 @@ Download diagnostics from the integration's ⋮ menu when reporting an
 uv venv -p 3.14 .venv-test
 VIRTUAL_ENV=.venv-test uv pip install -r requirements_test.txt
 .venv-test/bin/ruff check custom_components tests
+.venv-test/bin/mypy --ignore-missing-imports --check-untyped-defs custom_components/nimly_digital_lock
 .venv-test/bin/pytest
 ```
 
+The oldest supported Home Assistant (2025.8, with the older zigpy that has no
+`Cluster.on_event`) is tested the same way with `requirements_test_min.txt` on Python 3.13.
+
 The tests run against a fake ZHA gateway, and `tests/test_real_zigpy.py` also runs the
 integration against a genuine zigpy Door Lock cluster with ZHA's Nimly quirk applied:
-frames sent to the lock are checked byte for byte against the module specification, and
+frames sent to the lock are checked byte for byte against the Zigbee module's format, and
 the lock's answers and reports are fed in as raw ZCL frames. CI runs everything on the
 current Home Assistant and on the oldest supported one.
 
-The Zigbee attributes and commands are documented in [docs/zigbee.md](docs/zigbee.md).
 
 ## Maintainer
 
