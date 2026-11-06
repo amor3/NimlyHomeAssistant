@@ -274,3 +274,47 @@ async def test_remove_entry_deletes_store(
     await hass.config_entries.async_remove(init_integration.entry_id)
     await hass.async_block_till_done()
     assert f"{DOMAIN}.{init_integration.entry_id}" not in hass_storage
+
+
+async def test_last_report_sensor(
+    hass: HomeAssistant, fake_zha: FakeZha, init_integration: MockConfigEntry, freezer
+) -> None:
+    entity_id = "sensor.nimlypro_activity_last_report"
+    assert hass.states.get(entity_id).state == STATE_UNKNOWN
+    freezer.move_to("2026-11-06 12:00:00+00:00")
+    fake_zha.cluster.report(0x0100, 0x02020005)
+    await hass.async_block_till_done()
+    state = hass.states.get(entity_id)
+    assert state.state == "2026-11-06T12:00:00+00:00"
+    assert state.attributes["raw"] == "0x02020005"
+
+
+async def test_last_report_restored(
+    hass: HomeAssistant, fake_zha: FakeZha, mock_zha_setup: None, mock_config_entry: MockConfigEntry
+) -> None:
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    from pytest_homeassistant_custom_component.common import mock_restore_cache_with_extra_data  # noqa: PLC0415
+
+    from homeassistant.core import State  # noqa: PLC0415
+
+    when = datetime(2026, 11, 5, 8, 30, tzinfo=UTC)
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (
+                State("sensor.nimlypro_activity_last_report", when.isoformat()),
+                {
+                    "native_value": {
+                        "__type": "<class 'datetime.datetime'>",
+                        "isoformat": when.isoformat(),
+                    },
+                    "native_unit_of_measurement": None,
+                },
+            )
+        ],
+    )
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.nimlypro_activity_last_report").state == when.isoformat()

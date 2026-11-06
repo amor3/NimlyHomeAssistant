@@ -63,6 +63,9 @@ PIN_LENGTH_SANE: Final = (4, 20)
 # Retries for a command that times out on a sleeping lock.
 SEND_ATTEMPTS: Final = 3
 SEND_RETRY_DELAY_S: Final = 2.0
+# One attempt at a command or read; longer gains nothing on a sleeping lock.
+COMMAND_TIMEOUT_S: Final = 10.0
+WAKE_TIMEOUT_S: Final = 15.0
 WAKE_ECHO_WINDOW_S: Final = 30.0
 
 EVENT_LOCK_ACTIVITY: Final = f"{DOMAIN}_activity"

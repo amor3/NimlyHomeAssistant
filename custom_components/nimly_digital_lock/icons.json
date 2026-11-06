@@ -31,6 +31,9 @@
       },
       "pin_capacity": {
         "default": "mdi:numeric"
+      },
+      "last_report": {
+        "default": "mdi:access-point-check"
       }
     }
   },

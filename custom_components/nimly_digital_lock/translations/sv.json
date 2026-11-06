@@ -140,6 +140,9 @@
       },
       "pin_capacity": {
         "name": "PIN-kapacitet"
+      },
+      "last_report": {
+        "name": "Senaste rapport"
       }
     }
   },

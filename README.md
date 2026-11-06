@@ -85,6 +85,7 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 | `sensor.…_last_user` | The last person who operated the lock: the slot name for a code, tag or finger ("Slot N" if unnamed), or the Home Assistant user who locked or unlocked from the app. Auto relock and a palm lock from outside do not overwrite it. Survives restarts. |
 | `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant; slot names in the attributes (never the codes). |
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
+| `sensor.…_last_report` | When the lock last sent an operation report (diagnostic): a quick way to see that reports arrive. |
 
 Every lock event also fires `nimly_digital_lock_activity` on the event bus:
 
@@ -162,7 +163,9 @@ the Code Pro has a single master slot). The highest slot comes from the lock's r
 PIN capacity.
 
 **Sleeping lock.** The lock's radio sleeps, and its parent router drops queued messages
-after 7.68 seconds. A command that times out is retried automatically. If it still fails,
+after 7.68 seconds. Each attempt is given 10 seconds (zigpy alone would wait up to
+84 seconds for a sleeping device), and a command that times out is retried, so a dialog
+or action gives up after about half a minute. If it still fails,
 wake the lock by turning the knob, or by entering a valid code and `#`, and try again
 within a few seconds. Touching the keypad only lights it up. A code you set is only
 confirmed by the lock answering; try it on the keypad. The
@@ -245,6 +248,12 @@ VIRTUAL_ENV=.venv-test uv pip install -r requirements_test.txt
 .venv-test/bin/ruff check custom_components tests
 .venv-test/bin/pytest
 ```
+
+The tests run against a fake ZHA gateway, and `tests/test_real_zigpy.py` also runs the
+integration against a genuine zigpy Door Lock cluster with ZHA's Nimly quirk applied:
+frames sent to the lock are checked byte for byte against the module specification, and
+the lock's answers and reports are fed in as raw ZCL frames. CI runs everything on the
+current Home Assistant and on the oldest supported one.
 
 The Zigbee attributes and commands are documented in [docs/zigbee.md](docs/zigbee.md).
 

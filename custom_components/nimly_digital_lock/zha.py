@@ -28,11 +28,13 @@ from .const import (
     ATTR_ID_MIN_PIN_LENGTH,
     ATTR_ID_NUM_PIN_USERS,
     CMD_SET_PIN,
+    COMMAND_TIMEOUT_S,
     DOOR_LOCK_CLUSTER_ID,
     MANUFACTURER,
     SEND_ATTEMPTS,
     SEND_RETRY_DELAY_S,
     WAKE_ECHO_WINDOW_S,
+    WAKE_TIMEOUT_S,
     ZHA_DOMAIN,
 )
 from .rules import redact_digits
@@ -259,9 +261,14 @@ class LockTransport:
         self._last_wake = time.monotonic()
         self.wake_context = Context()
         try:
-            await self.hass.services.async_call(
-                "lock", "lock", {"entity_id": entity_id}, blocking=True, context=self.wake_context
-            )
+            async with asyncio.timeout(WAKE_TIMEOUT_S):
+                await self.hass.services.async_call(
+                    "lock",
+                    "lock",
+                    {"entity_id": entity_id},
+                    blocking=True,
+                    context=self.wake_context,
+                )
         except Exception as err:  # noqa: BLE001 - a failed wake must not abort the retry
             _LOGGER.debug("Wake-up of %s failed: %s", self.ieee, type(err).__name__)
 
@@ -278,7 +285,11 @@ class LockTransport:
             return UNREACHED
         for attempt in range(1, SEND_ATTEMPTS + 1):
             try:
-                response = await cluster.command(command, **params)
+                # zigpy waits 28 s per try for an end device and retries
+                # timeouts itself; the parent drops the frame after 7.68 s
+                # anyway, so a bounded attempt fails fast and retries here.
+                async with asyncio.timeout(COMMAND_TIMEOUT_S):
+                    response = await cluster.command(command, **params)
             except IndexError:
                 # Older ZHA/zigpy fail to parse the lock's one-field
                 # response after it arrived, so the command got through.
@@ -358,9 +369,10 @@ class LockTransport:
         if (cluster := self.cluster()) is None:
             return None
         try:
-            result = await cluster.read_attributes(
-                [ATTR_ID_NUM_PIN_USERS, ATTR_ID_MAX_PIN_LENGTH, ATTR_ID_MIN_PIN_LENGTH]
-            )
+            async with asyncio.timeout(COMMAND_TIMEOUT_S):
+                result = await cluster.read_attributes(
+                    [ATTR_ID_NUM_PIN_USERS, ATTR_ID_MAX_PIN_LENGTH, ATTR_ID_MIN_PIN_LENGTH]
+                )
         except (TimeoutError, DeliveryError):
             return None
         except Exception:  # noqa: BLE001 - one odd firmware must not break setup

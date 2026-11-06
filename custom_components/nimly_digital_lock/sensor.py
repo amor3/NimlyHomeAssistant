@@ -8,6 +8,7 @@ from homeassistant.components.sensor import RestoreSensor, SensorDeviceClass, Se
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import rules
 from .const import LockAction, LockSource
@@ -31,6 +32,7 @@ async def async_setup_entry(
             LastUserSensor(manager),
             PinCodesSensor(manager),
             PinCapacitySensor(manager),
+            LastReportSensor(manager),
         ]
     )
 
@@ -122,6 +124,28 @@ class LastUserSensor(_LockEventSensor):
         return True
 
 
+class LastReportSensor(_LockEventSensor):
+    """When the lock last reported an operation; shows that reports arrive."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, manager: NimlyLockManager) -> None:
+        super().__init__(manager, "last_report")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Restored as text by RestoreSensor; a timestamp sensor needs a datetime.
+        if isinstance(self._attr_native_value, str):
+            self._attr_native_value = dt_util.parse_datetime(self._attr_native_value)
+        self._attr_extra_state_attributes = {}
+
+    def _apply(self, activity: LockActivity) -> bool:
+        self._attr_native_value = dt_util.utcnow()
+        self._attr_extra_state_attributes = {"raw": f"0x{activity.event.raw:08x}"}
+        return True
+
+
 class PinCodesSensor(NimlyEntity, SensorEntity):
     """How many slots have a PIN code set from Home Assistant."""
 
@@ -142,6 +166,7 @@ class PinCodesSensor(NimlyEntity, SensorEntity):
             "slots": {
                 str(number): {
                     "name": slot["name"],
+                    "names": slot["names"],
                     "has_pin": slot["has_pin"],
                     "expires": slot["expires"],
                 }
