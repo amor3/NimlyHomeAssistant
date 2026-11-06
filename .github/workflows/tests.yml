@@ -1,0 +1,43 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uvx ruff check custom_components tests
+      - run: uvx ruff format --check custom_components tests
+
+  tests:
+    name: tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: current
+            python: "3.14"
+            requirements: requirements_test.txt
+          - name: minimum
+            python: "3.13"
+            requirements: requirements_test_min.txt
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -r ${{ matrix.requirements }}
+      - name: Test
+        run: uv run --no-project pytest -q --cov=custom_components.nimly_digital_lock --cov-report=term-missing

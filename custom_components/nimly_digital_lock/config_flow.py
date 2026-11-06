@@ -1,222 +1,245 @@
+"""Config and options flow for Nimly Digital Lock."""
+
+from __future__ import annotations
+
+from typing import Any
+
 import voluptuous as vol
-import logging
-from homeassistant import config_entries
+
+from homeassistant.config_entries import (
+    ConfigEntryState,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
 from homeassistant.core import callback
-from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
-from .const import DOMAIN
+from . import rules
+from .const import (
+    CONF_IEEE,
+    CONF_MODEL,
+    CONF_RESERVED_SLOTS,
+    CONF_WAKE_WITH_LOCK,
+    DEFAULT_RESERVED_SLOTS,
+    DOMAIN,
+    MAX_SLOT,
+    RESERVED_SLOTS_MAX,
+    RESERVED_SLOTS_MIN,
+)
+from .manager import NimlyConfigEntry, NimlyLockManager
+from .zha import is_zha_running, iter_nimly_locks
 
-_LOGGER = logging.getLogger(__name__)
+CONF_SLOT = "slot"
+CONF_NAME = "name"
+CONF_PIN_CODE = "pin_code"
 
-class NimlyDigitalLockConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Config flow for Nimly Zigbee Digital Lock integration."""
-    VERSION = 1
-    _user_data: dict
 
-    def normalize_ieee(self, ieee: str):
-        ieee_no_colons = ieee.replace(':', '')
-        ieee_clean = ''.join(c for c in ieee_no_colons if c.lower() in '0123456789abcdef')
-        ieee_no_colons = ieee_clean.lower()
-        ieee_with_colons = ':'.join([ieee_clean[i:i+2] for i in range(0, len(ieee_clean), 2)]).lower()
+def _title(ieee: str, model: str) -> str:
+    tail = ieee.replace(":", "")[-4:].upper()
+    return f"{model or 'Nimly'} ({tail})"
 
-        return {
-            "original": ieee,
-            "no_colons": ieee_no_colons,
-            "with_colons": ieee_with_colons
+
+class NimlyConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Pick a Nimly lock that ZHA has already paired."""
+
+    VERSION = 2
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if not is_zha_running(self.hass):
+            return self.async_abort(reason="zha_not_running")
+
+        configured = {entry.unique_id for entry in self._async_current_entries()}
+        locks = {
+            ieee: model for ieee, model in iter_nimly_locks(self.hass) if ieee not in configured
         }
 
-    async def async_step_user(self, user_input=None):
-        errors = {}
-
-        # Get list of available ZigBee devices
-        zigbee_devices = await self._get_zigbee_devices()
-
         if user_input is not None:
-            # Check if using dropdown selection
-            if "device_selection" in user_input and user_input["device_selection"] != "manual" and "separator" not in user_input["device_selection"]:
-                # User selected a device from dropdown
-                selected_device = user_input["device_selection"]
-                _LOGGER.debug(f"Selected device from dropdown: {selected_device}")
-
-                # Parse IEEE from selection
-                # Format is "name (ieee)"
-                ieee = selected_device.split("(")[-1].strip(")")                
-                name = selected_device.split(" (")[0].strip()
-
-                # Use selected device info
-                user_input["ieee"] = ieee
-                if not user_input.get("name") or user_input["name"] == "Nimly Front Door":
-                    user_input["name"] = name
-            else:
-                # Manual entry mode - use the ieee field directly
-                ieee = user_input["ieee"]
-
-            # Validate IEEE address length
-            # Use the normalized IEEE functions from zha_mapping
-
-            ieee_formats = self.normalize_ieee(ieee)
-            ieee_clean = ieee_formats["no_colons"]
-
-            # IEEE addresses should be exactly 16 hex characters (64 bits)
-            if len(ieee_clean) != 16:
-                errors["device_selection" if "device_selection" in user_input else "ieee"] = "invalid_ieee_length"
-            else:
-                # Get formatted IEEE with colons for consistency
-                ieee_formatted = ieee_formats["with_colons"]
-
-                self._user_data = {
-                    "ieee": ieee_formatted,  # Store the formatted version
-                    "ieee_no_colons": ieee_clean,
-                    "ieee_with_colons": ieee_formatted,
-                    "name": user_input["name"],
-                }
-                return self.async_create_entry(
-                    title=user_input["name"],
-                    data=self._user_data,
-                )
-
-        # Prepare device selection options
-        device_options = {"manual": "Enter IEEE address manually"}
-
-        # Add all found zigbee devices, prioritizing Nordic ZBT-1 devices
-        nordic_devices = []
-        other_devices = []
-
-        for device_id, device_info in zigbee_devices.items():
-            name = device_info.get("name", "Unknown Device")
-            ieee = device_info.get("ieee")
-            manufacturer = device_info.get("manufacturer", "")
-            model = device_info.get("model", "")
-
-            # Create a readable selection option
-            display_name = f"{name}"
-            if manufacturer:
-                display_name += f" - {manufacturer}"
-            if model:
-                display_name += f" {model}"
-            display_name += f" ({ieee})"
-
-            # Check if this is a Nordic ZBT-1 device
-            is_nordic = False
-            if manufacturer and "nordic" in manufacturer.lower():
-                is_nordic = True
-            elif model and any(term in model.lower() for term in ["zbt-1", "zbt1", "safe4"]):
-                is_nordic = True
-            elif name and any(term in name.lower() for term in ["door lock", "nimly", "safe4"]):
-                is_nordic = True
-
-            # Add to appropriate list
-            if is_nordic:
-                nordic_devices.append((display_name, display_name))
-            else:
-                other_devices.append((display_name, display_name))
-
-            device_options[display_name] = display_name
-
-        if not user_input or errors:
-            # If we have zigbee devices, show dropdown first
-            if zigbee_devices:
-                data_schema = vol.Schema({
-                    vol.Required("device_selection", default="manual"): vol.In(device_options),
-                    vol.Optional("ieee"): cv.string,
-                    vol.Required("name", default="Nimly Front Door"): cv.string,
-                })
-            else:
-                # No devices found, just show manual entry
-                data_schema = vol.Schema({
-                    vol.Required("ieee"): cv.string,
-                    vol.Required("name", default="Nimly Front Door"): cv.string,
-                })
-
-            return self.async_show_form(
-                step_id="user",
-                data_schema=data_schema,
-                errors=errors,
-                description_placeholders={
-                    "device_count": str(len(zigbee_devices))
-                }
+            ieee = user_input[CONF_IEEE]
+            await self.async_set_unique_id(ieee)
+            self._abort_if_unique_id_configured()
+            model = locks.get(ieee, "")
+            return self.async_create_entry(
+                title=_title(ieee, model), data={CONF_IEEE: ieee, CONF_MODEL: model}
             )
 
-    async def _get_zigbee_devices(self):
-        """Get all ZigBee devices from both ZHA and Nabu Casa Zigbee integrations."""
-        zigbee_devices = {}
+        if not locks:
+            return self.async_abort(reason="no_locks")
 
-        # Get device registry
-        device_registry = dr.async_get(self.hass)
-
-        # Check for both ZHA and Zigbee (Nabu Casa) devices
-        for device_id, device in device_registry.devices.items():
-            # Check if this is a ZHA device
-            is_zha = any(identifier[0] == "zha" for identifier in device.identifiers)
-            is_zigbee = any(identifier[0] == "zigbee" for identifier in device.identifiers)
-
-            if is_zha or is_zigbee:
-                # Extract IEEE address from identifiers
-                for identifier in device.identifiers:
-                    if identifier[0] in ["zha", "zigbee"]:
-                        ieee = identifier[1]
-
-                        # Add to our device list
-                        zigbee_devices[device_id] = {
-                            "name": device.name or "Unknown Device",
-                            "ieee": ieee,
-                            "manufacturer": device.manufacturer,
-                            "model": device.model,
-                            "integration": "zha" if is_zha else "zigbee"
-                        }
-                        break
-
-        _LOGGER.debug(f"Found {len(zigbee_devices)} ZigBee devices")
-        return zigbee_devices
-
-    async def async_step_options(self, user_input=None):
-        errors = {}
-        if user_input is not None:
-            # We don't have access to config_entry here, just use the entry title from _user_data
-            return self.async_create_entry(title=self._user_data.get("name", "Nimly Front Door"), data=self._user_data, options=user_input)
-
-        # Use default values since we don't have access to existing options here
-        data_schema = vol.Schema({
-            vol.Optional("auto_relock_time", default=1): vol.All(int, vol.Range(min=0)),
-            vol.Optional("sound_volume", default=2): vol.All(int, vol.Range(min=0, max=2)),
-        })
+        options = [
+            SelectOptionDict(value=ieee, label=f"{model or 'Nimly'} ({ieee})")
+            for ieee, model in sorted(locks.items())
+        ]
         return self.async_show_form(
-            step_id="options",
-            data_schema=data_schema,
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_IEEE): SelectSelector(
+                        SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
+                    )
+                }
+            ),
+        )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: NimlyConfigEntry) -> NimlyOptionsFlow:
+        return NimlyOptionsFlow()
+
+
+def _slot_selector(low: int, high: int) -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(min=low, max=high, step=1, mode=NumberSelectorMode.BOX)
+    )
+
+
+class NimlyOptionsFlow(OptionsFlowWithReload):
+    """Settings and PIN management.
+
+    PIN codes entered here go straight to the lock and are not recorded,
+    unlike action calls, which the recorder stores with their data.
+    """
+
+    @property
+    def _manager(self) -> NimlyLockManager:
+        return self.config_entry.runtime_data
+
+    def _done(self) -> ConfigFlowResult:
+        return self.async_create_entry(data=dict(self.config_entry.options))
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            # PIN management needs the running lock; settings do not.
+            return await self.async_step_settings()
+        return self.async_show_menu(
+            step_id="init", menu_options=["set_pin", "clear_pin", "name_slot", "settings"]
+        )
+
+    async def async_step_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(
+                data={
+                    **self.config_entry.options,
+                    CONF_RESERVED_SLOTS: int(user_input[CONF_RESERVED_SLOTS]),
+                    CONF_WAKE_WITH_LOCK: user_input[CONF_WAKE_WITH_LOCK],
+                }
+            )
+        options = self.config_entry.options
+        return self.async_show_form(
+            step_id="settings",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_RESERVED_SLOTS,
+                        default=options.get(CONF_RESERVED_SLOTS, DEFAULT_RESERVED_SLOTS),
+                    ): _slot_selector(RESERVED_SLOTS_MIN, RESERVED_SLOTS_MAX),
+                    vol.Required(
+                        CONF_WAKE_WITH_LOCK, default=options.get(CONF_WAKE_WITH_LOCK, False)
+                    ): BooleanSelector(),
+                }
+            ),
+        )
+
+    async def async_step_set_pin(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        manager = self._manager
+        errors: dict[str, str] = {}
+        low, high = rules.pin_length_range(manager.capabilities)
+        if user_input is not None:
+            slot = int(user_input[CONF_SLOT])
+            code = str(user_input[CONF_PIN_CODE])
+            if not manager.first_user_slot <= slot <= manager.max_user_slot:
+                errors[CONF_SLOT] = "slot_out_of_range"
+            elif not rules.is_valid_pin(code, manager.capabilities):
+                errors[CONF_PIN_CODE] = "invalid_pin"
+            else:
+                # A blank name keeps the one the slot already has.
+                name = str(user_input.get(CONF_NAME, "")).strip() or None
+                outcome = await manager.async_set_pin(slot, code, name)
+                if outcome.delivered:
+                    return self._done()
+                errors["base"] = outcome.error_key or "lock_unreachable"
+        return self.async_show_form(
+            step_id="set_pin",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SLOT, default=manager.first_user_slot): _slot_selector(
+                        manager.first_user_slot, manager.max_user_slot
+                    ),
+                    vol.Optional(CONF_NAME, default=""): TextSelector(),
+                    vol.Required(CONF_PIN_CODE): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "first": str(manager.first_user_slot),
+                "min": str(low),
+                "max": str(high),
+            },
+        )
+
+    async def async_step_clear_pin(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        manager = self._manager
+        with_pin = {
+            number: slot
+            for number, slot in manager.slots.items()
+            if slot["has_pin"] and number >= manager.first_user_slot
+        }
+        if not with_pin:
+            return self.async_abort(reason="no_pin_codes")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            outcome = await manager.async_clear_pin(int(user_input[CONF_SLOT]))
+            if outcome.delivered:
+                return self._done()
+            errors["base"] = outcome.error_key or "lock_unreachable"
+        options = [
+            SelectOptionDict(
+                value=str(number),
+                label=f"{number}: {slot['name']}" if slot["name"] else str(number),
+            )
+            for number, slot in with_pin.items()
+        ]
+        return self.async_show_form(
+            step_id="clear_pin",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_SLOT): SelectSelector(SelectSelectorConfig(options=options))}
+            ),
             errors=errors,
         )
 
-    @config_entries.HANDLERS.register(DOMAIN)
-    class OptionsFlowHandler(config_entries.OptionsFlow):
-        def __init__(self, config_entry):
-            """Initialize options flow."""
-            self.config_entry = config_entry
-
-        async def async_step_init(self, user_input=None):
-            """Manage options."""
-            errors = {}
-            if user_input is not None:
-                return self.async_create_entry(title="", data=user_input)
-
-            data_schema = vol.Schema({
-                vol.Optional(
-                    "auto_relock_time",
-                    default=self.config_entry.options.get("auto_relock_time", 1)
-                ): vol.All(int, vol.Range(min=0)),
-                vol.Optional(
-                    "sound_volume",
-                    default=self.config_entry.options.get("sound_volume", 2)
-                ): vol.All(int, vol.Range(min=0, max=2)),
-            })
-            return self.async_show_form(
-                step_id="init",
-                data_schema=data_schema,
-                errors=errors,
-            )
-
-    # Properly implement options flow as a class method
-    @staticmethod
-    @callback
-    def async_get_options_flow(config_entry):
-        return NimlyDigitalLockConfigFlow.OptionsFlowHandler(config_entry)
+    async def async_step_name_slot(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        manager = self._manager
+        if user_input is not None:
+            manager.set_slot_name(int(user_input[CONF_SLOT]), user_input.get(CONF_NAME, ""))
+            return self._done()
+        return self.async_show_form(
+            step_id="name_slot",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SLOT): _slot_selector(0, MAX_SLOT),
+                    vol.Optional(CONF_NAME, default=""): TextSelector(),
+                }
+            ),
+        )

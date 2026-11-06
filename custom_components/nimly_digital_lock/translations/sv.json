@@ -1,0 +1,221 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Välj ditt Nimly-lås",
+        "description": "Lås som är parkopplade med ZHA men inte konfigurerade än. Låsstyrning, batteri, automatisk omlåsning och volym finns kvar i ZHA; det här lägger till vem och hur, samt PIN-hantering.",
+        "data": {
+          "ieee": "Lås"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Låset är redan konfigurerat.",
+      "no_locks": "Inget Nimly-lås hittades i ZHA. Parkoppla låsets Zigbee-modul med ZHA först (väck den med en kod och # på knappsatsen medan ZHA söker).",
+      "zha_not_running": "ZHA körs inte. Konfigurera Zigbee Home Automation först."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Hantera låset",
+        "menu_options": {
+          "set_pin": "Ange PIN-kod",
+          "clear_pin": "Ta bort PIN-kod",
+          "name_slot": "Namnge en plats",
+          "settings": "Inställningar"
+        }
+      },
+      "set_pin": {
+        "title": "Ange PIN-kod",
+        "description": "Användarplatser börjar på {first}. Koden ska vara {min}-{max} siffror. Den skickas direkt till låset och sparas inte i Home Assistant.",
+        "data": {
+          "slot": "Plats",
+          "name": "Namn",
+          "pin_code": "PIN-kod"
+        }
+      },
+      "clear_pin": {
+        "title": "Ta bort PIN-kod",
+        "data": {
+          "slot": "Plats"
+        }
+      },
+      "name_slot": {
+        "title": "Namnge en plats",
+        "description": "Namnge en plats så att händelser visar vem det är, till exempel en nyckelbricka eller ett fingeravtryck som registrerats på låset. Ett tomt namn tar bort det.",
+        "data": {
+          "slot": "Plats",
+          "name": "Namn"
+        }
+      },
+      "settings": {
+        "title": "Inställningar",
+        "data": {
+          "reserved_slots": "Reserverade masterplatser",
+          "wake_with_lock": "Väck låset genom att låsa det"
+        },
+        "data_description": {
+          "reserved_slots": "Hur många platser från 0 som har masterkoder. Home Assistant skriver aldrig en PIN-kod till dem.",
+          "wake_with_lock": "När ett kommando får timeout skickas ett låskommando via ZHA för att väcka radion innan nytt försök. Det rör regeln: en öppen dörr låses."
+        }
+      }
+    },
+    "error": {
+      "slot_out_of_range": "Den platsen kan inte skrivas från Home Assistant.",
+      "invalid_pin": "Koden får bara innehålla siffror och ha en längd som låset accepterar.",
+      "lock_unreachable": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen.",
+      "lock_rejected": "Låset avvisade kommandot.",
+      "lock_rejected_duplicate": "Låset avvisade koden: den används redan.",
+      "lock_rejected_memory_full": "Låset avvisade koden: minnet är fullt."
+    },
+    "abort": {
+      "no_pin_codes": "Ingen plats har en PIN-kod satt från Home Assistant."
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Aktivitet",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "lock": "Låst",
+              "unlock": "Upplåst",
+              "unknown": "Okänd"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "last_action": {
+        "name": "Senaste händelse",
+        "state": {
+          "lock": "Låst",
+          "unlock": "Upplåst",
+          "unknown": "Okänd"
+        }
+      },
+      "last_source": {
+        "name": "Senast manövrerat med",
+        "state": {
+          "zigbee": "Home Assistant / Zigbee",
+          "button": "Knapp",
+          "keypad": "Knappsats",
+          "fingerprint": "Fingeravtryck",
+          "rfid": "Nyckelbricka",
+          "unattributed": "Annat",
+          "auto": "Automatisk omlåsning",
+          "unknown": "Okänd"
+        }
+      },
+      "last_user": {
+        "name": "Senaste användare"
+      },
+      "pin_codes": {
+        "name": "PIN-koder"
+      },
+      "pin_capacity": {
+        "name": "PIN-kapacitet"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_running": {
+      "message": "ZHA körs inte än."
+    },
+    "lock_not_in_zha": {
+      "message": "Låset {ieee} finns inte i ZHA."
+    },
+    "cluster_missing": {
+      "message": "Låset {ieee} finns i ZHA men har inget Door Lock-kluster än. Vänta tills ZHA har läst in enheten, eller konfigurera om enheten i ZHA."
+    },
+    "entry_not_found": {
+      "message": "Inget Nimly-lås med den konfigurationen."
+    },
+    "entry_not_loaded": {
+      "message": "Nimly-låset är inte laddat."
+    },
+    "slot_out_of_range": {
+      "message": "Plats {slot} kan inte användas; tillåtna platser är {first}-{last}."
+    },
+    "invalid_pin": {
+      "message": "PIN-koden ska vara {min}-{max} siffror."
+    },
+    "lock_unreachable": {
+      "message": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen."
+    },
+    "lock_rejected": {
+      "message": "Låset avvisade kommandot."
+    },
+    "lock_rejected_duplicate": {
+      "message": "Låset avvisade koden: den används redan."
+    },
+    "lock_rejected_memory_full": {
+      "message": "Låset avvisade koden: minnet är fullt."
+    }
+  },
+  "issues": {
+    "zha_internals": {
+      "title": "Händelser från Nimly-låset kan inte tas emot",
+      "description": "ZHA erbjuder inte det integrationen behöver för att lyssna på låset ({detail}). Låsstyrningen i ZHA fungerar fortfarande. Uppdatera integrationen, eller rapportera din Home Assistant-version i ett ärende."
+    }
+  },
+  "services": {
+    "set_pin": {
+      "name": "Ange PIN-kod",
+      "description": "Skriver en PIN-kod till en plats på låset. Data i åtgärder sparas av recordern; använd integrationens Konfigurera-dialog för att hålla koden borta från databasen.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låset."
+        },
+        "slot": {
+          "name": "Plats",
+          "description": "Användarplats; de reserverade masterplatserna kan inte skrivas."
+        },
+        "pin_code": {
+          "name": "PIN-kod",
+          "description": "Endast siffror, den längd låset accepterar (oftast 4-8)."
+        },
+        "name": {
+          "name": "Namn",
+          "description": "Vem koden tillhör, visas i låshändelser."
+        }
+      }
+    },
+    "clear_pin": {
+      "name": "Ta bort PIN-kod",
+      "description": "Tar bort PIN-koden från en plats. Platsen behåller sitt namn.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låset."
+        },
+        "slot": {
+          "name": "Plats",
+          "description": "Platsen som ska rensas."
+        }
+      }
+    },
+    "set_slot_name": {
+      "name": "Namnge en plats",
+      "description": "Namnger en plats så att låshändelser visar vem det är. Ett tomt namn tar bort det.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låset."
+        },
+        "slot": {
+          "name": "Plats",
+          "description": "Platsen som ska namnges, masterplatser inräknade."
+        },
+        "name": {
+          "name": "Namn",
+          "description": "Namnet, eller tomt för att ta bort det."
+        }
+      }
+    }
+  }
+}

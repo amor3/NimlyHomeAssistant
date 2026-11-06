@@ -1,13 +1,13 @@
 {
   "domain": "nimly_digital_lock",
-  "name": "Nimly Lock",
-  "codeowners": [
-    "@amor3"
-  ],
+  "name": "Nimly Digital Lock",
+  "codeowners": ["@amor3"],
   "config_flow": true,
-  "dependencies": ["zha", "logbook"],
+  "dependencies": ["zha"],
   "documentation": "https://github.com/amor3/NimlyHomeAssistant",
+  "integration_type": "device",
   "iot_class": "local_push",
+  "issue_tracker": "https://github.com/amor3/NimlyHomeAssistant/issues",
   "requirements": [],
-  "version": "1.0.3"
+  "version": "2.0.0"
 }

@@ -1,115 +1,100 @@
+"""Actions for managing PIN codes and slot names."""
+
+from __future__ import annotations
+
 import voluptuous as vol
+
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
-import logging
-from datetime import datetime
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.service import async_register_admin_service
-from homeassistant.helpers.json import save_json
+from . import rules
+from .const import DOMAIN, MAX_SLOT, NimlyService, NimlyServiceArgument as Arg
+from .manager import NimlyConfigEntry, NimlyLockManager
+from .zha import SendOutcome
 
-from .const import DOMAIN, SERVICE_UPDATE, SERVICE_EXPORT, SERVICE_SCHEMAS
+_BASE = {
+    vol.Required(Arg.CONFIG_ENTRY_ID.value): cv.string,
+    vol.Required(Arg.SLOT.value): vol.All(vol.Coerce(int), vol.Range(min=0)),
+}
 
-_LOGGER = logging.getLogger(__name__)
-
-
-
-# Service schemas
-SEND_COMMAND_SCHEMA = vol.Schema({
-    vol.Required("ieee"): cv.string,
-    vol.Required("command"): vol.Any(int, str),  # Allow both int (0, 1) and string ('lock', 'unlock')
-    vol.Optional("endpoint", default=11): cv.positive_int,
-    vol.Optional("cluster_id", default=0x0101): cv.positive_int,
-    vol.Optional("retry_count", default=5): cv.positive_int
-})
+SET_PIN_SCHEMA = vol.Schema(
+    {**_BASE, vol.Required(Arg.PIN_CODE.value): cv.string, vol.Optional(Arg.NAME.value): cv.string}
+)
+CLEAR_PIN_SCHEMA = vol.Schema(_BASE)
+SET_SLOT_NAME_SCHEMA = vol.Schema({**_BASE, vol.Required(Arg.NAME.value): vol.Any(cv.string, "")})
 
 
-async def async_register_services(hass: HomeAssistant) -> None:
-    """Register services for ZHA Device Info."""
-
-    async def handle_update(call) -> None:
-        """Update device info."""
-        _LOGGER.info("AMMM Updating ZHA device info")
-        zha_data = hass.data.get("zha")
-
-        if not zha_data or not zha_data.gateway_proxy:
-            _LOGGER.info("AMMM ZHA gateway not found")
-            return
-
-        device_registry = {}
-        try:
-            for device in zha_data.gateway_proxy.gateway.devices.values():
-                if device is None:
-                    continue
-
-                try:
-                    last_seen = device.last_seen
-                    if isinstance(last_seen, float):
-                        last_seen = datetime.fromtimestamp(last_seen)
-
-                    nwk_hex = f"0x{device.nwk:04x}"
-                    device_info = {
-                        "ieee": str(device.ieee),
-                        "nwk": nwk_hex,
-                        "manufacturer": device.manufacturer,
-                        "model": device.model,
-                        "name": device.name,
-                        "quirk_applied": device.quirk_applied,
-                        "power_source": device.power_source,
-                        "lqi": device.lqi,
-                        "rssi": device.rssi,
-                        "last_seen": last_seen.isoformat() if last_seen else None,
-                        "available": device.available,
-                    }
-
-                    # Add quirk_class if quirk is applied
-                    if device.quirk_applied:
-                        quirk = device.quirk_class
-                        if isinstance(quirk, str):
-                            device_info["quirk_class"] = quirk
-                        elif hasattr(quirk, "__name__"):
-                            device_info["quirk_class"] = quirk.__name__
-                        else:
-                            device_info["quirk_class"] = str(quirk)
-
-                    device_registry[str(device.ieee)] = device_info
-
-                    _LOGGER.info("AMMMUpdated info for device %s", device.ieee)
-                    _LOGGER.info("AMMMUpdated DEVICE %s", device)
-                except Exception as dev_err:
-                    _LOGGER.info("AMMM Error processing device %s: %s", device.ieee, dev_err)
-
-            # Store updated registry
-            hass.data[DOMAIN]["device_registry"] = device_registry
-
-            # Update the state of each ZHA Device Info sensor
-            for entity in hass.data[DOMAIN]["entities"]:
-                entity.async_write_ha_state()
-
-        except Exception as err:
-            _LOGGER.exception("Error processing devices: %s", err)
-
-    async def handle_export(call) -> None:
-        """Export device info to JSON."""
-        path = call.data.get("path", hass.config.path("zha_devices.json"))
-        try:
-            device_registry = hass.data[DOMAIN]["device_registry"]
-            if device_registry:
-                await hass.async_add_executor_job(save_json, path, device_registry)
-                _LOGGER.info("Exported ZHA device info to %s", path)
-            else:
-                _LOGGER.error("No device registry data to export")
-        except Exception as err:
-            _LOGGER.error("Failed to export: %s", err)
-
-    # Register services
-    async_register_admin_service(
-        hass, DOMAIN, SERVICE_UPDATE, handle_update,
-        schema=SERVICE_SCHEMAS[SERVICE_UPDATE]
+def _manager(hass: HomeAssistant, call: ServiceCall) -> NimlyLockManager:
+    entry: NimlyConfigEntry | None = hass.config_entries.async_get_entry(
+        call.data[Arg.CONFIG_ENTRY_ID]
     )
-    _LOGGER.debug("Registered update service")
+    if entry is None or entry.domain != DOMAIN:
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="entry_not_found")
+    if entry.state is not ConfigEntryState.LOADED:
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="entry_not_loaded")
+    return entry.runtime_data
 
-    async_register_admin_service(
-        hass, DOMAIN, SERVICE_EXPORT, handle_export,
-        schema=SERVICE_SCHEMAS[SERVICE_EXPORT]
+
+def _check_slot(manager: NimlyLockManager, slot: int, highest: int) -> None:
+    if not manager.first_user_slot <= slot <= highest:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="slot_out_of_range",
+            translation_placeholders={
+                "slot": str(slot),
+                "first": str(manager.first_user_slot),
+                "last": str(highest),
+            },
+        )
+
+
+def _raise_for(outcome: SendOutcome) -> None:
+    if not outcome.delivered:
+        raise HomeAssistantError(translation_domain=DOMAIN, translation_key=outcome.error_key)
+
+
+@callback
+def async_setup_services(hass: HomeAssistant) -> None:
+    """Register the integration's actions."""
+
+    async def set_pin(call: ServiceCall) -> None:
+        manager = _manager(hass, call)
+        slot: int = call.data[Arg.SLOT]
+        code: str = call.data[Arg.PIN_CODE]
+        _check_slot(manager, slot, manager.max_user_slot)
+        if not rules.is_valid_pin(code, manager.capabilities):
+            low, high = rules.pin_length_range(manager.capabilities)
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_pin",
+                translation_placeholders={"min": str(low), "max": str(high)},
+            )
+        _raise_for(await manager.async_set_pin(slot, code, call.data.get(Arg.NAME)))
+
+    async def clear_pin(call: ServiceCall) -> None:
+        manager = _manager(hass, call)
+        slot: int = call.data[Arg.SLOT]
+        # A code may sit above the capacity reported later, so allow any slot.
+        _check_slot(manager, slot, MAX_SLOT)
+        _raise_for(await manager.async_clear_pin(slot))
+
+    async def set_slot_name(call: ServiceCall) -> None:
+        manager = _manager(hass, call)
+        slot: int = call.data[Arg.SLOT]
+        # Fingerprint and tag slots sit far above the PIN capacity, so any
+        # slot the lock can number may be named.
+        if not 0 <= slot <= MAX_SLOT:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="slot_out_of_range",
+                translation_placeholders={"slot": str(slot), "first": "0", "last": str(MAX_SLOT)},
+            )
+        manager.set_slot_name(slot, call.data[Arg.NAME])
+
+    hass.services.async_register(DOMAIN, NimlyService.SET_PIN, set_pin, SET_PIN_SCHEMA)
+    hass.services.async_register(DOMAIN, NimlyService.CLEAR_PIN, clear_pin, CLEAR_PIN_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, NimlyService.SET_SLOT_NAME, set_slot_name, SET_SLOT_NAME_SCHEMA
     )
-    _LOGGER.debug("Registered export service")

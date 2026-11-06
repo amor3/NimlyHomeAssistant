@@ -1,0 +1,6 @@
+pytest-homeassistant-custom-component
+zha
+zha-quirks
+aiousbwatcher
+ha-silabs-firmware-client
+ruff

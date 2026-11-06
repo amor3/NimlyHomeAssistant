@@ -1,0 +1,48 @@
+{
+  "entity": {
+    "event": {
+      "activity": {
+        "default": "mdi:door-closed-lock"
+      }
+    },
+    "sensor": {
+      "last_action": {
+        "default": "mdi:lock-clock",
+        "state": {
+          "lock": "mdi:lock",
+          "unlock": "mdi:lock-open-variant"
+        }
+      },
+      "last_source": {
+        "default": "mdi:gesture-tap",
+        "state": {
+          "keypad": "mdi:dialpad",
+          "fingerprint": "mdi:fingerprint",
+          "rfid": "mdi:nfc-variant",
+          "zigbee": "mdi:zigbee",
+          "auto": "mdi:timer-lock-outline"
+        }
+      },
+      "last_user": {
+        "default": "mdi:account-key"
+      },
+      "pin_codes": {
+        "default": "mdi:form-textbox-password"
+      },
+      "pin_capacity": {
+        "default": "mdi:numeric"
+      }
+    }
+  },
+  "services": {
+    "set_pin": {
+      "service": "mdi:form-textbox-password"
+    },
+    "clear_pin": {
+      "service": "mdi:lock-remove"
+    },
+    "set_slot_name": {
+      "service": "mdi:account-edit"
+    }
+  }
+}

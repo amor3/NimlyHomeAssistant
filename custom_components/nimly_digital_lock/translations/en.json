@@ -1,26 +1,221 @@
 {
-  "title": "Nimly Lock",
   "config": {
     "step": {
       "user": {
-        "title": "Configure Nimly Lock",
-        "description": "Found {device_count} Nimly devices. Select your lock from the dropdown or enter the IEEE address manually.",
+        "title": "Choose your Nimly lock",
+        "description": "Locks paired with ZHA that are not set up yet. Lock control, battery, auto relock and volume stay in ZHA; this adds who and how, and PIN management.",
         "data": {
-          "device_selection": "Select Nimly Lock",
-          "ieee": "IEEE Address (manual entry)",
-          "name": "Lock Name"
+          "ieee": "Lock"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This lock is already set up.",
+      "no_locks": "No Nimly lock found in ZHA. Pair the lock's Zigbee module with ZHA first (wake it with a code and # on the keypad while ZHA searches).",
+      "zha_not_running": "ZHA is not running. Set up Zigbee Home Automation first."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage the lock",
+        "menu_options": {
+          "set_pin": "Set PIN code",
+          "clear_pin": "Clear PIN code",
+          "name_slot": "Name a slot",
+          "settings": "Settings"
         }
       },
-      "options": {
-        "title": "Options",
+      "set_pin": {
+        "title": "Set PIN code",
+        "description": "User slots start at {first}. The code must be {min}-{max} digits. It is sent straight to the lock and not stored in Home Assistant.",
         "data": {
-          "auto_relock_time": "Auto Relock (s)",
-          "sound_volume": "Sound Volume"
+          "slot": "Slot",
+          "name": "Name",
+          "pin_code": "PIN code"
+        }
+      },
+      "clear_pin": {
+        "title": "Clear PIN code",
+        "data": {
+          "slot": "Slot"
+        }
+      },
+      "name_slot": {
+        "title": "Name a slot",
+        "description": "Name a slot so events show who it is, for example a key tag or fingerprint enrolled at the lock. An empty name removes it.",
+        "data": {
+          "slot": "Slot",
+          "name": "Name"
+        }
+      },
+      "settings": {
+        "title": "Settings",
+        "data": {
+          "reserved_slots": "Reserved master slots",
+          "wake_with_lock": "Wake the lock by locking it"
+        },
+        "data_description": {
+          "reserved_slots": "How many slots from 0 hold master codes. Home Assistant never writes a PIN to them.",
+          "wake_with_lock": "When a command times out, send a lock command through ZHA to wake the radio before retrying. This moves the bolt: an open door gets locked."
         }
       }
     },
     "error": {
-      "invalid_ieee_length": "Invalid IEEE address format. Must be 16 hex characters (with or without colons)."
+      "slot_out_of_range": "That slot cannot be written from Home Assistant.",
+      "invalid_pin": "The code must be digits only and the length the lock accepts.",
+      "lock_unreachable": "The lock did not answer. Press a key on the lock to wake it and try again.",
+      "lock_rejected": "The lock refused the command.",
+      "lock_rejected_duplicate": "The lock refused the code: it is already in use.",
+      "lock_rejected_memory_full": "The lock refused the code: its memory is full."
+    },
+    "abort": {
+      "no_pin_codes": "No slot has a PIN code set from Home Assistant."
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "lock": "Locked",
+              "unlock": "Unlocked",
+              "unknown": "Unknown"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "last_action": {
+        "name": "Last action",
+        "state": {
+          "lock": "Locked",
+          "unlock": "Unlocked",
+          "unknown": "Unknown"
+        }
+      },
+      "last_source": {
+        "name": "Last operated by",
+        "state": {
+          "zigbee": "Home Assistant / Zigbee",
+          "button": "Button",
+          "keypad": "Keypad",
+          "fingerprint": "Fingerprint",
+          "rfid": "Key tag",
+          "unattributed": "Other",
+          "auto": "Auto relock",
+          "unknown": "Unknown"
+        }
+      },
+      "last_user": {
+        "name": "Last user"
+      },
+      "pin_codes": {
+        "name": "PIN codes"
+      },
+      "pin_capacity": {
+        "name": "PIN capacity"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_running": {
+      "message": "ZHA is not running yet."
+    },
+    "lock_not_in_zha": {
+      "message": "The lock {ieee} is not in ZHA."
+    },
+    "cluster_missing": {
+      "message": "The lock {ieee} is in ZHA but has no Door Lock cluster yet. Wait for ZHA to finish its interview, or reconfigure the device in ZHA."
+    },
+    "entry_not_found": {
+      "message": "No Nimly lock with that config entry."
+    },
+    "entry_not_loaded": {
+      "message": "The Nimly lock is not loaded."
+    },
+    "slot_out_of_range": {
+      "message": "Slot {slot} cannot be used; allowed slots are {first}-{last}."
+    },
+    "invalid_pin": {
+      "message": "The PIN code must be {min}-{max} digits."
+    },
+    "lock_unreachable": {
+      "message": "The lock did not answer. Press a key on the lock to wake it and try again."
+    },
+    "lock_rejected": {
+      "message": "The lock refused the command."
+    },
+    "lock_rejected_duplicate": {
+      "message": "The lock refused the code: it is already in use."
+    },
+    "lock_rejected_memory_full": {
+      "message": "The lock refused the code: its memory is full."
+    }
+  },
+  "issues": {
+    "zha_internals": {
+      "title": "Nimly lock events cannot be received",
+      "description": "ZHA does not offer what this integration needs to listen to the lock ({detail}). Lock control in ZHA still works. Update the integration, or report your Home Assistant version as an issue."
+    }
+  },
+  "services": {
+    "set_pin": {
+      "name": "Set PIN code",
+      "description": "Writes a PIN code to a slot on the lock. Action data is stored by the recorder; use the integration's Configure dialog to keep the code out of the database.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lock",
+          "description": "The Nimly lock."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "User slot; the reserved master slots cannot be written."
+        },
+        "pin_code": {
+          "name": "PIN code",
+          "description": "Digits only, the length the lock accepts (usually 4-8)."
+        },
+        "name": {
+          "name": "Name",
+          "description": "Who the code belongs to, shown in lock events."
+        }
+      }
+    },
+    "clear_pin": {
+      "name": "Clear PIN code",
+      "description": "Removes the PIN code from a slot. The slot keeps its name.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lock",
+          "description": "The Nimly lock."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "The slot to clear."
+        }
+      }
+    },
+    "set_slot_name": {
+      "name": "Name a slot",
+      "description": "Names a slot so lock events show who it is. An empty name removes it.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lock",
+          "description": "The Nimly lock."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "The slot to name, master slots included."
+        },
+        "name": {
+          "name": "Name",
+          "description": "The name, or empty to remove it."
+        }
+      }
     }
   }
 }

@@ -1,12 +1,20 @@
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv*/
+.idea/
+.vscode/
 *.db
 *.log
 *.bak
 *.swp
 *.zip
 .DS_Store
-.idea/
-.vscode/
+
+# Local Claude Code skills
+.claude/
+skills-lock.json

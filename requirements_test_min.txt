@@ -1,0 +1,11 @@
+# The oldest Home Assistant hacs.json promises, with the ZHA and zigpy it ships.
+homeassistant==2025.8.3
+pytest-homeassistant-custom-component==0.13.272
+zha==0.0.68
+zha-quirks
+universal-silabs-flasher==0.0.31
+ha-silabs-firmware-client==0.2.0
+aiousbwatcher==1.1.1
+pyserial==3.5
+aiodns==3.5.0
+pycares<5

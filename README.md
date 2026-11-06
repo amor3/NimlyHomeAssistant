@@ -1,87 +1,187 @@
-# Nimly Lock Integration for Home Assistant
+# Nimly Digital Lock for Home Assistant
 
-This custom integration enables Home Assistant to control and monitor **Nimly** Zigbee-based digital locks through the **ZHA (Zigbee Home Automation)** integration.
+[![Validate](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/validate.yml/badge.svg)](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/validate.yml)
+[![Tests](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/tests.yml/badge.svg)](https://github.com/amor3/NimlyHomeAssistant/actions/workflows/tests.yml)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-## Features
+Tells you **who** locked or unlocked your Nimly door and **how** (code, key tag,
+fingerprint, button, auto relock, Home Assistant), and lets you **manage PIN codes**
+from Home Assistant. Everything runs locally over your own Zigbee network through ZHA.
 
-- 🔒 Lock and unlock your Nimly device via Home Assistant  
-- 🔋 Battery level monitoring  
-- 📶 RSSI diagnostics (signal strength)  
-- 📊 Attribute reporting for door state, lock status, and access method  
-- 🧠 Priority-based Zigbee command queue (lock/unlock overrides background polling)  
-- ⚙️ Background polling for diagnostics  
-- 🧪 Custom sensors for advanced lock status insights  
+## How it fits with ZHA
+
+The lock itself is handled by ZHA (Zigbee Home Automation). Its built-in Nimly quirk
+already gives you the lock entity, battery level, auto relock and sound volume, so this
+integration does **not** create those again. It adds what ZHA leaves out:
+
+| Feature | ZHA | This integration |
+| --- | --- | --- |
+| Lock / unlock, lock state | ✅ | – |
+| Battery, signal (LQI/RSSI) | ✅ | – |
+| Auto relock switch, sound volume | ✅ (quirk) | – |
+| Who operated the lock, by name | – | ✅ |
+| How it was operated (keypad, tag, fingerprint, auto relock…) | raw numbers | ✅ decoded |
+| Event entity and `nimly_digital_lock_activity` event for automations | – | ✅ |
+| Set and clear PIN codes, name slots | – | ✅ |
 
 ## Requirements
 
-To use this integration, you need the following:
+- Home Assistant 2025.8 or newer with **ZHA** set up (Zigbee2MQTT is not supported).
+- A Nimly lock with the **Nimly Zigbee module** (Connect Module) paired with ZHA.
+  Zigbee module firmware **4.7.79 (20240625) or newer** is recommended; older firmware
+  reports unreliably.
+- A Zigbee router close to the door helps a lot: the lock's metal casing weakens the signal.
 
-### Supported Locks (from Nimly)
-- **Nimly Code**
-- **Nimly Touch**
-- **Nimly Touch Pro**
-
-Each of these locks must be equipped with the **Nimly Zigbee Module**, which is sold separately.
-
-### Zigbee Coordinator (USB Stick)
-You also need a compatible Zigbee dongle plugged into your Home Assistant server. This integration is developed and tested with:
-
-- **Nabu Casa ZBT-1** USB Zigbee stick (recommended)
-
-### Software
-- Home Assistant (latest version recommended)
-- ZHA (Zigbee Home Automation) integration enabled and working
+Supported: every lock whose Zigbee module reports the manufacturer `Onesti Products AS`
+and has a Door Lock cluster. That includes NimlyCode, NimlyCodePRO, NimlyTouch, NimlyPRO
+(Touch Pro), NimlyPRO24, NimlyIn, NimlyShared, NimlyKeybox, NimlyTwist and the
+EasyAccess EasyCodeTouch / EasyFingerTouch.
 
 ## Installation
 
-### HACS (Recommended)
+### HACS (recommended)
 
-> **Note:** This integration is not yet in the default HACS store.
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/amor3/NimlyHomeAssistant`
+   as an **Integration**.
+2. Install **Nimly Digital Lock** and restart Home Assistant.
 
-1. Go to **HACS → Integrations** → ⋮ → **Custom Repositories**
-2. Add this GitHub repository as a custom integration
-3. Search for `Nimly Digital Lock` in HACS and install it
-4. Restart Home Assistant
+### Manual
 
-### Manual Installation
+Copy `custom_components/nimly_digital_lock` to `config/custom_components/` and restart.
 
-1. Download this repository as a ZIP and extract it
-2. Copy the `nimly_digital_lock` folder into `config/custom_components/`
-3. Restart Home Assistant
+## Setup
 
-## Configuration
+1. Pair the lock's Zigbee module with ZHA. The lock sleeps, so keep it awake during
+   pairing by entering a code and `#` on the keypad while ZHA searches.
+2. **Settings → Devices & services → Add integration → Nimly Digital Lock** and pick the
+   lock from the list.
 
-Once installed:
+## What you get
 
-1. Go to **Settings → Devices & Services → Add Integration**
-2. Search for `Nimly Digital Lock`
-3. Select your lock from the list (discovered via ZHA)
-4. Follow the prompts to complete setup
+A device called **"<lock name> activity"**, linked to ZHA's device for the lock, with:
 
-## Diagnostics
+| Entity | Description |
+| --- | --- |
+| `event.…_activity` | Fires `lock` / `unlock` with `source`, `slot`, `user` and `system` attributes. |
+| `sensor.…_last_action` | Locked / Unlocked. |
+| `sensor.…_last_operated_by` | Keypad, Key tag, Fingerprint, Button, Auto relock, Home Assistant / Zigbee, Other. |
+| `sensor.…_last_user` | The last person who used a code, tag or finger (slot name, or "Slot N"). Auto relock does not overwrite it. Survives restarts. |
+| `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant; slot names in the attributes (never the codes). |
+| `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 
-### Attributes Monitored
+Every lock event also fires `nimly_digital_lock_activity` on the event bus:
 
-- **Lock State** (Locked / Unlocked)  
-- **Battery Percentage**  
-- **Door State** (Open / Closed / Forced Open / Jammed / Error)  
-- **Actuator Enabled**  
-- **Event Logging** (PIN, RFID, Fingerprint, etc.)  
-- **RSSI (Signal Strength)**  
+```yaml
+event_type: nimly_digital_lock_activity
+data:
+  config_entry_id: "…"
+  ieee: "f4:ce:36:…"
+  action: unlock        # lock | unlock | unknown
+  source: keypad        # zigbee | button | keypad | fingerprint | rfid | auto | unattributed | unknown
+  slot: 5               # null when no user is involved
+  user: Anna            # slot name, or null
+  system: false         # true for auto relock and similar non-human events
+```
 
-## Developer Notes
+Example automation:
 
-- Lock/unlock commands are prioritized by canceling background polling tasks when triggered.
-- Real-time attribute updates are handled via ZHA cluster listeners.
-- Diagnostic sensors are dynamically registered based on available configuration.
+```yaml
+triggers:
+  - trigger: event
+    event_type: nimly_digital_lock_activity
+    event_data:
+      action: unlock
+conditions:
+  - condition: template
+    value_template: "{{ not trigger.event.data.system }}"
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: >
+        {{ trigger.event.data.user or 'Someone' }} unlocked the door
+        ({{ trigger.event.data.source }})
+```
 
-## Known Limitations
+## Managing PIN codes
 
-- Zigbee stack may timeout under heavy command queuing — ensure signal strength is good.
-- Only tested with Nimly ZBT-1 hardware.
-- PIN management and access user configuration are not yet supported.
+**Settings → Devices & services → Nimly Digital Lock → Configure**:
+
+- **Set PIN code**: pick a slot, give it a name and enter the code.
+- **Clear PIN code**: removes the code from a slot; the name stays.
+- **Name a slot**: name any slot (0–999), for example key tags and fingerprints
+  enrolled at the lock, so events show the person instead of "Slot 152".
+- **Settings**: number of reserved master slots, and the wake-up option below.
+
+Codes entered in the Configure dialog go straight to the lock and are never stored in
+Home Assistant. The same is available as actions for automations:
+`nimly_digital_lock.set_pin`, `nimly_digital_lock.clear_pin` and
+`nimly_digital_lock.set_slot_name`. Note that Home Assistant's recorder stores the data
+of every action call, so a code passed to `set_pin` ends up in the database.
+
+**Slots.** Slot 0 is the master code on every model, and most models reserve slots 0–2
+for master codes, so Home Assistant only writes PINs from slot 3 (configurable 1–3;
+the Code Pro has a single master slot). The highest slot comes from the lock's reported
+PIN capacity.
+
+**Sleeping lock.** The lock's radio sleeps. A command that times out is retried
+automatically. If it still fails, press a key on the lock to wake it and try again. The
+**Wake the lock by locking it** setting instead sends a lock command through ZHA before
+retrying. That moves the bolt and locks an open door, so it is off by default.
+
+## Privacy and security
+
+- The lock reports the last typed PIN in clear text on a manufacturer attribute
+  (0x0101). This integration never reads it, stores it or logs it. ZHA's own optional
+  "Last PIN code" sensor does show it; keep that sensor disabled.
+- Digit runs in error messages are masked before logging.
+- Diagnostics downloads contain no PIN codes, addresses or slot names.
+
+## Migrating from 1.x
+
+Version 1.x created its own lock, battery, RSSI, auto relock and volume entities, which
+duplicated ZHA's. When you upgrade, they and their "service" device are removed
+automatically. Use ZHA's entities for lock control, battery, auto relock and volume;
+the entities listed above are new. Automations that used the old `lock.nimly_…`,
+`sensor.…_battery`, `switch.…_auto_relock` or `select.…_sound_volume` entities need
+to point to ZHA's entities instead. The `nimly_digital_lock.update` and
+`nimly_digital_lock.export` actions are gone as well.
+
+## Limitations
+
+- **Key tags and fingerprints** are enrolled at the lock's keypad, not from Home
+  Assistant. Name their slots here to see who used them.
+- A code changed at the keypad is not seen by Home Assistant.
+- **Door open/closed** is not available: the lock has no door sensor (the module always
+  reports door state "unspecified"). Use a separate contact sensor.
+- ZHA has no public API for what this integration listens to. If an update breaks it, a
+  repair issue tells you, and lock control in ZHA keeps working.
+- If events stop after a battery change, reconfigure the device in ZHA.
+
+## Troubleshooting
+
+Enable debug logging:
+
+```yaml
+logger:
+  logs:
+    custom_components.nimly_digital_lock: debug
+```
+
+Download diagnostics from the integration's ⋮ menu when reporting an
+[issue](https://github.com/amor3/NimlyHomeAssistant/issues).
+
+## Development
+
+```bash
+uv venv -p 3.14 .venv-test
+VIRTUAL_ENV=.venv-test uv pip install -r requirements_test.txt
+.venv-test/bin/ruff check custom_components tests
+.venv-test/bin/pytest
+```
+
+The Zigbee attributes and commands are documented in [docs/zigbee.md](docs/zigbee.md).
 
 ## Maintainer
 
-Developed and maintained by **André @ RCO Security AB**  
-Pull requests, feedback, and issues are welcome!
+Developed and maintained by **André @ RCO Security AB**. Issues and pull requests are
+welcome.
