@@ -217,10 +217,11 @@ def subscribe_attribute_reports(
 ) -> Callable[[], None]:
     """Call handle(attribute_id, raw_value) for every attribute report."""
     if callable(on_event := getattr(cluster, "on_event", None)):
-        return on_event(
+        unsubscribe: Callable[[], None] = on_event(
             "attribute_report",
             lambda event: handle(event.attribute_id, event.raw_value),
         )
+        return unsubscribe
     add = getattr(cluster, "add_listener", None)
     remove = getattr(cluster, "remove_listener", None)
     if not callable(add) or not callable(remove):

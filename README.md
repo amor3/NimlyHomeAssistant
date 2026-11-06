@@ -42,6 +42,9 @@ This integration listens to the Door Lock cluster directly and receives every re
 - Do not leave the Zigbee module in a lock that is not paired: it keeps searching and
   drains the batteries.
 
+The integration is available in English, Swedish, Norwegian (bokmål) and Danish, following
+the Home Assistant language.
+
 Supported: every lock whose Zigbee module reports the manufacturer `Onesti Products AS`
 and has a Door Lock cluster. That includes NimlyCode, NimlyCodePRO, NimlyTouch, NimlyPRO
 (Touch Pro), NimlyPRO24, NimlyIn, NimlyShared, NimlyKeybox, NimlyTwist and the
@@ -260,7 +263,7 @@ addresses or slot names.
 uv venv -p 3.14 .venv-test
 VIRTUAL_ENV=.venv-test uv pip install -r requirements_test.txt
 .venv-test/bin/ruff check custom_components tests
-.venv-test/bin/mypy --ignore-missing-imports --check-untyped-defs custom_components/nimly_digital_lock
+.venv-test/bin/mypy --strict --ignore-missing-imports custom_components/nimly_digital_lock
 .venv-test/bin/pytest
 ```
 

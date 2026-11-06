@@ -78,8 +78,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
             entity_registry.async_remove(entity.entity_id)
         device_registry = dr.async_get(hass)
+        # The 1.x "service" device was ours alone (no connections, so never
+        # merged into ZHA's), so it can be removed outright.
         for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
-            device_registry.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+            device_registry.async_remove_device(device.id)
         # 1.x had no unique id, so the same lock could be added twice; only
         # the first entry migrated gets the address as its unique id.
         taken = any(

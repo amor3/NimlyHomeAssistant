@@ -19,6 +19,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
 )
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.translation import async_get_translations
 from homeassistant.util import dt as dt_util
 
 from . import rules
@@ -155,11 +156,18 @@ class NimlyLockManager:
         self._expiry_timers: dict[int, CALLBACK_TYPE] = {}
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[LockActivity], None]] = []
+        self._slot_label = "Slot {slot}"
         self._pin_lock = asyncio.Lock()
         self._capability_lock = asyncio.Lock()
 
     async def async_load(self) -> None:
         """Load stored slot names, expiries and capabilities."""
+        translations = await async_get_translations(
+            self.hass, self.hass.config.language, "exceptions", [DOMAIN]
+        )
+        self._slot_label = translations.get(
+            f"component.{DOMAIN}.exceptions.slot_fallback.message", "Slot {slot}"
+        )
         data = await self._store.async_load() or {}
         self._slots = {
             str(key): SlotData(
@@ -239,9 +247,13 @@ class NimlyLockManager:
     def slots(self) -> dict[int, SlotData]:
         """Copy of all slots Home Assistant has a name or PIN for."""
         return {
-            int(key): SlotData(**{**slot, "names": dict(slot["names"])})  # type: ignore[typeddict-item]
+            int(key): SlotData(**{**slot, "names": dict(slot["names"])})
             for key, slot in sorted(self._slots.items(), key=lambda i: int(i[0]))
         }
+
+    def slot_label(self, slot: int, credential: str | None = None) -> str:
+        """The slot's name, or "Slot N" in the user's language."""
+        return self.slot_name(slot, credential) or self._slot_label.replace("{slot}", str(slot))
 
     def slot_name(self, slot: int, credential: str | None = None) -> str | None:
         """The name for a slot, for one credential kind when it has its own."""
@@ -409,7 +421,7 @@ class NimlyLockManager:
                 translation_key=ISSUE_EXPIRED_PIN,
                 translation_placeholders={
                     "slot": str(slot),
-                    "name": self.slot_name(slot) or f"Slot {slot}",
+                    "name": self.slot_label(slot),
                     "title": self.entry.title,
                 },
             )

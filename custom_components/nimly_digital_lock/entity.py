@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from homeassistant.core import callback
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import DeviceEntry, DeviceInfo
 from homeassistant.helpers.entity import Entity
 
 from .const import CONF_MODEL, DOMAIN, MANUFACTURER, ZHA_DOMAIN
@@ -37,9 +37,15 @@ def build_device_info(manager: NimlyLockManager) -> DeviceInfo:
     if zha_device is not None:
         if _HAS_VIA_DEVICE_ID:
             info["via_device_id"] = zha_device.id
-        else:
-            info["via_device"] = (ZHA_DOMAIN, ieee)  # type: ignore[typeddict-unknown-key]
+        elif (via := _zha_identifier(zha_device)) is not None:
+            # Older Home Assistant links by identifier: use the one ZHA's
+            # device really has, or the link points at nothing.
+            info["via_device"] = via  # type: ignore[typeddict-unknown-key]
     return info
+
+
+def _zha_identifier(device: DeviceEntry) -> tuple[str, str] | None:
+    return next((ident for ident in device.identifiers if ident[0] == ZHA_DOMAIN), None)
 
 
 class NimlyEntity(Entity):

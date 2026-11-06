@@ -198,7 +198,8 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
 
     @property
     def _manager(self) -> NimlyLockManager:
-        return self.config_entry.runtime_data
+        manager: NimlyLockManager = self.config_entry.runtime_data
+        return manager
 
     def _done(self) -> ConfigFlowResult:
         return self.async_create_entry(data=dict(self.config_entry.options))

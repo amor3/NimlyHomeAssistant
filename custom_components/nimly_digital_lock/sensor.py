@@ -115,7 +115,7 @@ class LastUserSensor(_LockEventSensor):
             return True
         if not event.credits_user or event.slot is None:
             return False
-        self._attr_native_value = activity.user or f"Slot {event.slot}"
+        self._attr_native_value = activity.user or self.manager.slot_label(event.slot)
         self._attr_extra_state_attributes = {
             "slot": event.slot,
             "source": event.source.value,

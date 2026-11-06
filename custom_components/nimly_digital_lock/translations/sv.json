@@ -185,6 +185,9 @@
     },
     "lock_required": {
       "message": "Fler än ett Nimly-lås är konfigurerat; välj låset (konfigurationspost eller enhet)."
+    },
+    "slot_fallback": {
+      "message": "Plats {slot}"
     }
   },
   "issues": {

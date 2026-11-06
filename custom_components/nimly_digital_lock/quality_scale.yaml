@@ -67,4 +67,4 @@ rules:
   inject-websession:
     status: exempt
     comment: No HTTP.
-  strict-typing: todo
+  strict-typing: done

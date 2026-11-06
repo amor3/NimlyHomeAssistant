@@ -11,7 +11,7 @@ from custom_components.nimly_digital_lock.const import (
     CONF_WAKE_WITH_LOCK,
     DOMAIN,
 )
-from homeassistant.config_entries import SOURCE_USER
+from homeassistant.config_entries import SOURCE_IGNORE, SOURCE_USER
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
@@ -165,3 +165,14 @@ async def test_options_set_pin_blank_name_keeps_name(
     assert init_integration.runtime_data.slots == {
         5: {"name": "Anna", "has_pin": True, "expires": None, "names": {}}
     }
+
+
+async def test_ignored_lock_can_be_added_by_hand(
+    hass: HomeAssistant, fake_zha: FakeZha, mock_zha_setup: None
+) -> None:
+    MockConfigEntry(domain=DOMAIN, source=SOURCE_IGNORE, unique_id=IEEE, data={}).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"ieee": IEEE})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    entries = hass.config_entries.async_entries(DOMAIN, include_ignore=True)
+    assert [entry.source for entry in entries] == [SOURCE_USER]

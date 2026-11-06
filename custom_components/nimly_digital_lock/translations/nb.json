@@ -1,0 +1,301 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Velg Nimly-låsen din",
+        "description": "Låser som er paret med ZHA, men ikke satt opp ennå. Låsestyring, batteri, automatisk låsing og volum blir værende i ZHA; dette legger til hvem og hvordan, og PIN-håndtering.",
+        "data": {
+          "ieee": "Lås"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Nimly-lås funnet",
+        "description": "ZHA har paret {name} ({ieee}). Sett den opp for å se hvem som låser og låser opp, og for å håndtere PIN-koder."
+      },
+      "reconfigure": {
+        "title": "Bytt Zigbee-modul",
+        "description": "Velg låsen på nytt etter at Zigbee-modulen er byttet. Plassnavn, PIN-koder og entiteter beholdes.",
+        "data": {
+          "ieee": "Lås"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Låsen er allerede satt opp.",
+      "no_locks": "Fant ingen Nimly-lås i ZHA. Par låsens Zigbee-modul med ZHA først (hold den våken med en kode og # på tastaturet mens ZHA søker).",
+      "zha_not_running": "ZHA kjører ikke. Sett opp Zigbee Home Automation først.",
+      "reconfigure_successful": "Låsen bruker nå den valgte Zigbee-modulen."
+    },
+    "flow_title": "{name}"
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Administrer låsen",
+        "menu_options": {
+          "set_pin": "Sett PIN-kode",
+          "clear_pin": "Fjern PIN-kode",
+          "name_slot": "Gi en plass navn",
+          "settings": "Innstillinger"
+        }
+      },
+      "set_pin": {
+        "title": "Sett PIN-kode",
+        "description": "Brukerplasser starter på {first}. Koden må være {min}-{max} sifre. Den sendes rett til låsen og lagres ikke i Home Assistant.",
+        "data": {
+          "slot": "Plass",
+          "name": "Navn",
+          "pin_code": "PIN-kode",
+          "valid_until": "Gyldig til"
+        },
+        "data_description": {
+          "valid_until": "Valgfritt. Koden fjernes fra låsen på dette tidspunktet. La stå tomt for en permanent kode."
+        }
+      },
+      "clear_pin": {
+        "title": "Fjern PIN-kode",
+        "data": {
+          "slot": "Plass"
+        }
+      },
+      "name_slot": {
+        "title": "Gi en plass navn",
+        "description": "Gi en plass navn slik at hendelser viser hvem det er, for eksempel en nøkkelbrikke eller et fingeravtrykk registrert på låsen. Et tomt navn fjerner det.",
+        "data": {
+          "slot": "Plass",
+          "name": "Navn",
+          "credential": "Legitimasjonstype"
+        },
+        "data_description": {
+          "credential": "Gi bare denne typen på plassen navn. Fingeravtrykk nummereres separat fra koder og brikker, så fingeravtrykk 5 kan være en annen enn kode 5."
+        }
+      },
+      "settings": {
+        "title": "Innstillinger",
+        "data": {
+          "reserved_slots": "Reserverte masterplasser",
+          "wake_with_lock": "Vekk låsen ved å låse den"
+        },
+        "data_description": {
+          "reserved_slots": "Hvor mange plasser fra 0 som har masterkoder. Home Assistant skriver aldri en PIN-kode til dem.",
+          "wake_with_lock": "Når en kommando får tidsavbrudd, sendes en låsekommando via ZHA for å vekke radioen før nytt forsøk. Dette flytter låsefallen: en åpen dør blir låst."
+        }
+      }
+    },
+    "error": {
+      "slot_out_of_range": "Den plassen kan ikke skrives fra Home Assistant.",
+      "invalid_pin": "Koden kan bare inneholde sifre og må ha en lengde låsen godtar.",
+      "lock_unreachable": "Låsen svarte ikke; radioen sover. Vekk den ved å vri på vrideren, eller tast en gyldig kode og #, og prøv igjen innen noen sekunder. Å bare berøre tastaturet tenner bare lyset.",
+      "lock_rejected": "Låsen avviste kommandoen.",
+      "lock_rejected_duplicate": "Låsen avviste koden: den er allerede i bruk.",
+      "lock_rejected_memory_full": "Låsen avviste koden: minnet er fullt.",
+      "expiry_in_past": "Sluttidspunktet må være i fremtiden."
+    },
+    "abort": {
+      "no_pin_codes": "Ingen plass har en PIN-kode satt fra Home Assistant."
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Aktivitet",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "lock": "Låst",
+              "unlock": "Låst opp",
+              "unknown": "Ukjent"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "last_action": {
+        "name": "Siste hendelse",
+        "state": {
+          "lock": "Låst",
+          "unlock": "Låst opp",
+          "unknown": "Ukjent"
+        }
+      },
+      "last_source": {
+        "name": "Sist betjent med",
+        "state": {
+          "zigbee": "Home Assistant / Zigbee",
+          "button": "Knapp",
+          "keypad": "Tastatur",
+          "fingerprint": "Fingeravtrykk",
+          "rfid": "Nøkkelbrikke",
+          "unattributed": "Annet",
+          "auto": "Automatisk låsing",
+          "unknown": "Ukjent"
+        }
+      },
+      "last_user": {
+        "name": "Siste bruker"
+      },
+      "pin_codes": {
+        "name": "PIN-koder"
+      },
+      "pin_capacity": {
+        "name": "PIN-kapasitet"
+      },
+      "last_report": {
+        "name": "Siste rapport"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_running": {
+      "message": "ZHA kjører ikke ennå."
+    },
+    "lock_not_in_zha": {
+      "message": "Låsen {ieee} finnes ikke i ZHA."
+    },
+    "cluster_missing": {
+      "message": "Låsen {ieee} finnes i ZHA, men har ingen Door Lock-klynge ennå. Vent til ZHA har lest inn enheten, eller rekonfigurer enheten i ZHA."
+    },
+    "entry_not_found": {
+      "message": "Ingen Nimly-lås med den konfigurasjonen."
+    },
+    "entry_not_loaded": {
+      "message": "Nimly-låsen er ikke lastet."
+    },
+    "slot_out_of_range": {
+      "message": "Plass {slot} kan ikke brukes; tillatte plasser er {first}-{last}."
+    },
+    "invalid_pin": {
+      "message": "PIN-koden må være {min}-{max} sifre."
+    },
+    "lock_unreachable": {
+      "message": "Låsen svarte ikke; radioen sover. Vekk den ved å vri på vrideren, eller tast en gyldig kode og #, og prøv igjen innen noen sekunder. Å bare berøre tastaturet tenner bare lyset."
+    },
+    "lock_rejected": {
+      "message": "Låsen avviste kommandoen."
+    },
+    "lock_rejected_duplicate": {
+      "message": "Låsen avviste koden: den er allerede i bruk."
+    },
+    "lock_rejected_memory_full": {
+      "message": "Låsen avviste koden: minnet er fullt."
+    },
+    "expiry_in_past": {
+      "message": "Sluttidspunktet må være i fremtiden."
+    },
+    "lock_required": {
+      "message": "Mer enn én Nimly-lås er satt opp; velg låsen (konfigurasjonsoppføring eller enhet)."
+    },
+    "slot_fallback": {
+      "message": "Plass {slot}"
+    }
+  },
+  "issues": {
+    "zha_internals": {
+      "title": "Hendelser fra Nimly-låsen kan ikke mottas",
+      "description": "ZHA tilbyr ikke det integrasjonen trenger for å lytte på låsen ({detail}). Låsestyringen i ZHA virker fortsatt. Oppdater integrasjonen, eller rapporter Home Assistant-versjonen din i en sak."
+    },
+    "quirk_missing": {
+      "title": "ZHA kjører {title} uten Nimly-quirken",
+      "description": "ZHA har ikke brukt noen enhets-quirk på låsen, så automatisk låsing og lydvolum mangler i ZHA, og batterinivået kan bli feil. Sørg for at ZHA er oppdatert, og fjern og par låsen på nytt i ZHA (eller rekonfigurer den). Låseaktivitet og PIN-håndtering i denne integrasjonen virker uansett."
+    },
+    "expired_pin_not_cleared": {
+      "title": "Utløpt PIN-kode på {title} er fortsatt aktiv",
+      "description": "Den midlertidige koden for {name} (plass {slot}) har utløpt, men låsen har ikke fjernet den ennå, så den kan fortsatt åpne døren. Home Assistant prøver igjen hvert tiende minutt. Vri på vrideren for å vekke låsen, eller slett koden på tastaturet."
+    },
+    "events_missing": {
+      "title": "{title} rapporterer låsestatus, men ikke hvem eller hvordan",
+      "description": "Låsen rapporterer når den låses og låses opp, men hendelsene om hvem og hvordan har sluttet å komme. Dette skjer ofte etter et batteribytte. Åpne låsens enhet i ZHA og velg Rekonfigurer mens låsen er våken (vri på vrideren eller tast en kode og # først). Hvis det mislykkes, vent noen timer, eller fjern og par låsen på nytt i ZHA."
+    }
+  },
+  "services": {
+    "set_pin": {
+      "name": "Sett PIN-kode",
+      "description": "Skriver en PIN-kode til en plass på låsen. Data i handlinger lagres av recorderen; bruk integrasjonens Konfigurer-dialog for å holde koden ute av databasen.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låsen. Trengs ikke når bare én lås er satt opp."
+        },
+        "slot": {
+          "name": "Plass",
+          "description": "Brukerplass; de reserverte masterplassene kan ikke skrives."
+        },
+        "pin_code": {
+          "name": "PIN-kode",
+          "description": "Bare sifre, i en lengde låsen godtar (vanligvis 4-8)."
+        },
+        "name": {
+          "name": "Navn",
+          "description": "Hvem koden tilhører, vises i låsehendelser."
+        },
+        "valid_until": {
+          "name": "Gyldig til",
+          "description": "Fjern koden på dette tidspunktet (midlertidig kode). Kan ikke kombineres med gyldig i."
+        },
+        "valid_for": {
+          "name": "Gyldig i",
+          "description": "Fjern koden etter så lang tid (midlertidig kode). Kan ikke kombineres med gyldig til."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsens enhet (denne integrasjonens eller ZHAs). Trengs ikke når bare én lås er satt opp."
+        }
+      }
+    },
+    "clear_pin": {
+      "name": "Fjern PIN-kode",
+      "description": "Fjerner PIN-koden fra en plass. Plassen beholder navnet sitt.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låsen. Trengs ikke når bare én lås er satt opp."
+        },
+        "slot": {
+          "name": "Plass",
+          "description": "Plassen som skal tømmes."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsens enhet (denne integrasjonens eller ZHAs). Trengs ikke når bare én lås er satt opp."
+        }
+      }
+    },
+    "set_slot_name": {
+      "name": "Gi en plass navn",
+      "description": "Gir en plass navn slik at låsehendelser viser hvem det er. Et tomt navn fjerner det.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låsen. Trengs ikke når bare én lås er satt opp."
+        },
+        "slot": {
+          "name": "Plass",
+          "description": "Plassen som skal få navn, masterplasser inkludert."
+        },
+        "name": {
+          "name": "Navn",
+          "description": "Navnet, eller tomt for å fjerne det."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsens enhet (denne integrasjonens eller ZHAs). Trengs ikke når bare én lås er satt opp."
+        },
+        "credential": {
+          "name": "Legitimasjonstype",
+          "description": "Gi bare denne typen på plassen navn (pin, rfid eller fingerprint). Utelat for å gi plassen navn for alle typer."
+        }
+      }
+    }
+  },
+  "selector": {
+    "credential": {
+      "options": {
+        "any": "Alle typer",
+        "pin": "PIN-kode",
+        "rfid": "Nøkkelbrikke",
+        "fingerprint": "Fingeravtrykk"
+      }
+    }
+  }
+}

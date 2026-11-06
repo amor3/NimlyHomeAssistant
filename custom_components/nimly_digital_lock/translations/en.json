@@ -185,6 +185,9 @@
     },
     "lock_required": {
       "message": "More than one Nimly lock is set up; choose the lock (config entry or device)."
+    },
+    "slot_fallback": {
+      "message": "Slot {slot}"
     }
   },
   "issues": {

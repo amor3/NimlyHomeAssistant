@@ -134,3 +134,16 @@ async def init_integration(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     return mock_config_entry
+
+
+@pytest.fixture(autouse=True)
+def no_deprecated_usage(caplog: pytest.LogCaptureFixture) -> Generator[None]:
+    """Fail a test in which Home Assistant reports deprecated use by us."""
+    yield
+    reports = [
+        record.getMessage()
+        for phase in ("setup", "call")
+        for record in caplog.get_records(phase)
+        if "Detected that custom integration 'nimly_digital_lock'" in record.getMessage()
+    ]
+    assert not reports, reports

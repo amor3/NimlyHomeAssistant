@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_DEVICE_ID
@@ -83,7 +83,8 @@ def _manager(hass: HomeAssistant, call: ServiceCall) -> NimlyLockManager:
 
 def _expiry(call: ServiceCall) -> datetime | None:
     """When a temporary code should be cleared, as aware UTC, or None."""
-    if (period := call.data.get(Arg.VALID_FOR)) is not None:
+    period: timedelta | None = call.data.get(Arg.VALID_FOR)
+    if period is not None:
         return dt_util.utcnow() + period
     if (until := call.data.get(Arg.VALID_UNTIL)) is None:
         return None

@@ -318,3 +318,19 @@ async def test_last_report_restored(
     await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.nimlypro_activity_last_report").state == when.isoformat()
+
+
+async def test_unnamed_slot_in_swedish(
+    hass: HomeAssistant, fake_zha: FakeZha, mock_zha_setup: None, mock_config_entry: MockConfigEntry
+) -> None:
+    hass.config.language = "sv"
+    mock_config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    fake_zha.cluster.report(0x0100, 0x02020009)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{mock_config_entry.entry_id}-last_user"
+    )
+    assert entity_id is not None
+    assert hass.states.get(entity_id).state == "Plats 9"

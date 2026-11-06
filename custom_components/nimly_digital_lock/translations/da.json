@@ -1,0 +1,301 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Vælg din Nimly-lås",
+        "description": "Låse, der er parret med ZHA, men endnu ikke sat op. Låsestyring, batteri, automatisk genlåsning og lydstyrke bliver i ZHA; dette tilføjer hvem og hvordan samt PIN-håndtering.",
+        "data": {
+          "ieee": "Lås"
+        }
+      },
+      "discovery_confirm": {
+        "title": "Nimly-lås fundet",
+        "description": "ZHA har parret {name} ({ieee}). Sæt den op for at se, hvem der låser og låser op, og for at håndtere PIN-koder."
+      },
+      "reconfigure": {
+        "title": "Skift Zigbee-modul",
+        "description": "Vælg låsen igen, efter at Zigbee-modulet er skiftet. Pladsnavne, PIN-koder og entiteter bevares.",
+        "data": {
+          "ieee": "Lås"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Låsen er allerede sat op.",
+      "no_locks": "Der blev ikke fundet nogen Nimly-lås i ZHA. Par låsens Zigbee-modul med ZHA først (hold den vågen med en kode og # på tastaturet, mens ZHA søger).",
+      "zha_not_running": "ZHA kører ikke. Sæt Zigbee Home Automation op først.",
+      "reconfigure_successful": "Låsen bruger nu det valgte Zigbee-modul."
+    },
+    "flow_title": "{name}"
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Administrer låsen",
+        "menu_options": {
+          "set_pin": "Angiv PIN-kode",
+          "clear_pin": "Fjern PIN-kode",
+          "name_slot": "Navngiv en plads",
+          "settings": "Indstillinger"
+        }
+      },
+      "set_pin": {
+        "title": "Angiv PIN-kode",
+        "description": "Brugerpladser starter ved {first}. Koden skal være {min}-{max} cifre. Den sendes direkte til låsen og gemmes ikke i Home Assistant.",
+        "data": {
+          "slot": "Plads",
+          "name": "Navn",
+          "pin_code": "PIN-kode",
+          "valid_until": "Gyldig til"
+        },
+        "data_description": {
+          "valid_until": "Valgfrit. Koden fjernes fra låsen på dette tidspunkt. Lad feltet stå tomt for en permanent kode."
+        }
+      },
+      "clear_pin": {
+        "title": "Fjern PIN-kode",
+        "data": {
+          "slot": "Plads"
+        }
+      },
+      "name_slot": {
+        "title": "Navngiv en plads",
+        "description": "Navngiv en plads, så hændelser viser, hvem det er, for eksempel en nøglebrik eller et fingeraftryk registreret på låsen. Et tomt navn fjerner det.",
+        "data": {
+          "slot": "Plads",
+          "name": "Navn",
+          "credential": "Legitimationstype"
+        },
+        "data_description": {
+          "credential": "Navngiv kun denne type på pladsen. Fingeraftryk nummereres adskilt fra koder og brikker, så fingeraftryk 5 kan være en anden end kode 5."
+        }
+      },
+      "settings": {
+        "title": "Indstillinger",
+        "data": {
+          "reserved_slots": "Reserverede masterpladser",
+          "wake_with_lock": "Væk låsen ved at låse den"
+        },
+        "data_description": {
+          "reserved_slots": "Hvor mange pladser fra 0, der har masterkoder. Home Assistant skriver aldrig en PIN-kode til dem.",
+          "wake_with_lock": "Når en kommando får timeout, sendes en låsekommando via ZHA for at vække radioen før næste forsøg. Det flytter låsepalen: en åben dør bliver låst."
+        }
+      }
+    },
+    "error": {
+      "slot_out_of_range": "Den plads kan ikke skrives fra Home Assistant.",
+      "invalid_pin": "Koden må kun indeholde cifre og have en længde, låsen accepterer.",
+      "lock_unreachable": "Låsen svarede ikke; radioen sover. Væk den ved at dreje på drejeknappen eller indtaste en gyldig kode og #, og prøv igen inden for få sekunder. At røre ved tastaturet tænder kun lyset.",
+      "lock_rejected": "Låsen afviste kommandoen.",
+      "lock_rejected_duplicate": "Låsen afviste koden: den er allerede i brug.",
+      "lock_rejected_memory_full": "Låsen afviste koden: hukommelsen er fuld.",
+      "expiry_in_past": "Sluttidspunktet skal ligge i fremtiden."
+    },
+    "abort": {
+      "no_pin_codes": "Ingen plads har en PIN-kode angivet fra Home Assistant."
+    }
+  },
+  "entity": {
+    "event": {
+      "activity": {
+        "name": "Aktivitet",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "lock": "Låst",
+              "unlock": "Låst op",
+              "unknown": "Ukendt"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "last_action": {
+        "name": "Seneste hændelse",
+        "state": {
+          "lock": "Låst",
+          "unlock": "Låst op",
+          "unknown": "Ukendt"
+        }
+      },
+      "last_source": {
+        "name": "Senest betjent med",
+        "state": {
+          "zigbee": "Home Assistant / Zigbee",
+          "button": "Knap",
+          "keypad": "Tastatur",
+          "fingerprint": "Fingeraftryk",
+          "rfid": "Nøglebrik",
+          "unattributed": "Andet",
+          "auto": "Automatisk genlåsning",
+          "unknown": "Ukendt"
+        }
+      },
+      "last_user": {
+        "name": "Seneste bruger"
+      },
+      "pin_codes": {
+        "name": "PIN-koder"
+      },
+      "pin_capacity": {
+        "name": "PIN-kapacitet"
+      },
+      "last_report": {
+        "name": "Seneste rapport"
+      }
+    }
+  },
+  "exceptions": {
+    "zha_not_running": {
+      "message": "ZHA kører ikke endnu."
+    },
+    "lock_not_in_zha": {
+      "message": "Låsen {ieee} findes ikke i ZHA."
+    },
+    "cluster_missing": {
+      "message": "Låsen {ieee} findes i ZHA, men har endnu ingen Door Lock-klynge. Vent, til ZHA har indlæst enheden, eller genkonfigurer enheden i ZHA."
+    },
+    "entry_not_found": {
+      "message": "Ingen Nimly-lås med den konfiguration."
+    },
+    "entry_not_loaded": {
+      "message": "Nimly-låsen er ikke indlæst."
+    },
+    "slot_out_of_range": {
+      "message": "Plads {slot} kan ikke bruges; tilladte pladser er {first}-{last}."
+    },
+    "invalid_pin": {
+      "message": "PIN-koden skal være {min}-{max} cifre."
+    },
+    "lock_unreachable": {
+      "message": "Låsen svarede ikke; radioen sover. Væk den ved at dreje på drejeknappen eller indtaste en gyldig kode og #, og prøv igen inden for få sekunder. At røre ved tastaturet tænder kun lyset."
+    },
+    "lock_rejected": {
+      "message": "Låsen afviste kommandoen."
+    },
+    "lock_rejected_duplicate": {
+      "message": "Låsen afviste koden: den er allerede i brug."
+    },
+    "lock_rejected_memory_full": {
+      "message": "Låsen afviste koden: hukommelsen er fuld."
+    },
+    "expiry_in_past": {
+      "message": "Sluttidspunktet skal ligge i fremtiden."
+    },
+    "lock_required": {
+      "message": "Mere end én Nimly-lås er sat op; vælg låsen (konfigurationspost eller enhed)."
+    },
+    "slot_fallback": {
+      "message": "Plads {slot}"
+    }
+  },
+  "issues": {
+    "zha_internals": {
+      "title": "Hændelser fra Nimly-låsen kan ikke modtages",
+      "description": "ZHA tilbyder ikke det, integrationen har brug for til at lytte på låsen ({detail}). Låsestyringen i ZHA virker stadig. Opdater integrationen, eller rapporter din Home Assistant-version i en sag."
+    },
+    "quirk_missing": {
+      "title": "ZHA kører {title} uden Nimly-quirken",
+      "description": "ZHA har ikke anvendt nogen enheds-quirk på låsen, så automatisk genlåsning og lydstyrke mangler i ZHA, og batteriniveauet kan blive forkert. Sørg for, at ZHA er opdateret, og fjern og par låsen igen i ZHA (eller genkonfigurer den). Låseaktivitet og PIN-håndtering i denne integration virker under alle omstændigheder."
+    },
+    "expired_pin_not_cleared": {
+      "title": "Udløbet PIN-kode på {title} er stadig aktiv",
+      "description": "Den midlertidige kode for {name} (plads {slot}) er udløbet, men låsen har endnu ikke fjernet den, så den kan stadig åbne døren. Home Assistant prøver igen hvert tiende minut. Drej på drejeknappen for at vække låsen, eller slet koden på tastaturet."
+    },
+    "events_missing": {
+      "title": "{title} rapporterer låsestatus, men ikke hvem eller hvordan",
+      "description": "Låsen rapporterer, når den låses og låses op, men hændelserne om hvem og hvordan er holdt op med at komme. Det sker ofte efter et batteriskift. Åbn låsens enhed i ZHA, og vælg Genkonfigurer, mens låsen er vågen (drej på drejeknappen eller indtast en kode og # først). Hvis det mislykkes, så vent nogle timer, eller fjern og par låsen igen i ZHA."
+    }
+  },
+  "services": {
+    "set_pin": {
+      "name": "Angiv PIN-kode",
+      "description": "Skriver en PIN-kode til en plads på låsen. Data i handlinger gemmes af recorderen; brug integrationens Konfigurer-dialog for at holde koden ude af databasen.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låsen. Behøves ikke, når kun én lås er sat op."
+        },
+        "slot": {
+          "name": "Plads",
+          "description": "Brugerplads; de reserverede masterpladser kan ikke skrives."
+        },
+        "pin_code": {
+          "name": "PIN-kode",
+          "description": "Kun cifre, i en længde låsen accepterer (normalt 4-8)."
+        },
+        "name": {
+          "name": "Navn",
+          "description": "Hvem koden tilhører; vises i låsehændelser."
+        },
+        "valid_until": {
+          "name": "Gyldig til",
+          "description": "Fjern koden på dette tidspunkt (midlertidig kode). Kan ikke kombineres med gyldig i."
+        },
+        "valid_for": {
+          "name": "Gyldig i",
+          "description": "Fjern koden efter så lang tid (midlertidig kode). Kan ikke kombineres med gyldig til."
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Låsens enhed (denne integrations eller ZHA's). Behøves ikke, når kun én lås er sat op."
+        }
+      }
+    },
+    "clear_pin": {
+      "name": "Fjern PIN-kode",
+      "description": "Fjerner PIN-koden fra en plads. Pladsen beholder sit navn.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låsen. Behøves ikke, når kun én lås er sat op."
+        },
+        "slot": {
+          "name": "Plads",
+          "description": "Pladsen, der skal ryddes."
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Låsens enhed (denne integrations eller ZHA's). Behøves ikke, når kun én lås er sat op."
+        }
+      }
+    },
+    "set_slot_name": {
+      "name": "Navngiv en plads",
+      "description": "Navngiver en plads, så låsehændelser viser, hvem det er. Et tomt navn fjerner det.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låsen. Behøves ikke, når kun én lås er sat op."
+        },
+        "slot": {
+          "name": "Plads",
+          "description": "Pladsen, der skal navngives, masterpladser inklusive."
+        },
+        "name": {
+          "name": "Navn",
+          "description": "Navnet, eller tomt for at fjerne det."
+        },
+        "device_id": {
+          "name": "Enhed",
+          "description": "Låsens enhed (denne integrations eller ZHA's). Behøves ikke, når kun én lås er sat op."
+        },
+        "credential": {
+          "name": "Legitimationstype",
+          "description": "Navngiv kun denne type på pladsen (pin, rfid eller fingerprint). Udelad for at navngive pladsen for alle typer."
+        }
+      }
+    }
+  },
+  "selector": {
+    "credential": {
+      "options": {
+        "any": "Alle typer",
+        "pin": "PIN-kode",
+        "rfid": "Nøglebrik",
+        "fingerprint": "Fingeraftryk"
+      }
+    }
+  }
+}
