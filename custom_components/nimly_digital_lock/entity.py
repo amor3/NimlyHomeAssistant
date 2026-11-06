@@ -26,7 +26,9 @@ def build_device_info(manager: NimlyLockManager) -> DeviceInfo:
     zha_device = find_zha_device(manager.hass, ieee)
     base_name = (zha_device.name_by_user or zha_device.name) if zha_device else None
     info = DeviceInfo(
-        identifiers={(DOMAIN, ieee)},
+        # Keyed on the entry, so a replaced Zigbee module (new address)
+        # keeps the same device and entities after Reconfigure.
+        identifiers={(DOMAIN, manager.entry.entry_id)},
         name=f"{base_name or model or 'Nimly'} activity",
         manufacturer=MANUFACTURER,
         model=model,
@@ -36,7 +38,7 @@ def build_device_info(manager: NimlyLockManager) -> DeviceInfo:
         if _HAS_VIA_DEVICE_ID:
             info["via_device_id"] = zha_device.id
         else:
-            info["via_device"] = (ZHA_DOMAIN, ieee)
+            info["via_device"] = (ZHA_DOMAIN, ieee)  # type: ignore[typeddict-unknown-key]
     return info
 
 
@@ -48,7 +50,7 @@ class NimlyEntity(Entity):
 
     def __init__(self, manager: NimlyLockManager, key: str) -> None:
         self.manager = manager
-        self._attr_unique_id = f"{manager.ieee}-{key}"
+        self._attr_unique_id = f"{manager.entry.entry_id}-{key}"
         self._attr_translation_key = key
         self._attr_device_info = build_device_info(manager)
 

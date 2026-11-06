@@ -39,5 +39,8 @@ jobs:
         run: |
           uv venv
           uv pip install -r ${{ matrix.requirements }}
+      - name: Type check
+        if: matrix.name == 'current'
+        run: uv run --no-project mypy --ignore-missing-imports --check-untyped-defs custom_components/nimly_digital_lock
       - name: Test
         run: uv run --no-project pytest -q --cov=custom_components.nimly_digital_lock --cov-report=term-missing

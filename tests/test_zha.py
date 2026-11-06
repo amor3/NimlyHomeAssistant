@@ -54,7 +54,7 @@ async def test_device_linked_to_zha(
 
     [ours] = dr.async_entries_for_config_entry(device_registry, mock_config_entry.entry_id)
     [zha] = dr.async_entries_for_config_entry(device_registry, zha_entry.entry_id)
-    assert (DOMAIN, IEEE) in ours.identifiers
+    assert (DOMAIN, mock_config_entry.entry_id) in ours.identifiers
     assert ours.id != zha.id
     assert ours.via_device_id == zha.id
     assert ours.name == "Front door activity"

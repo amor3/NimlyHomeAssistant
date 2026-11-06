@@ -7,13 +7,26 @@
         "data": {
           "ieee": "Lock"
         }
+      },
+      "discovery_confirm": {
+        "title": "Nimly lock found",
+        "description": "ZHA has paired {name} ({ieee}). Set it up to see who locks and unlocks it and to manage its PIN codes."
+      },
+      "reconfigure": {
+        "title": "Change Zigbee module",
+        "description": "Pick the lock again after replacing its Zigbee module. Slot names, PIN codes and entities stay.",
+        "data": {
+          "ieee": "Lock"
+        }
       }
     },
     "abort": {
       "already_configured": "This lock is already set up.",
       "no_locks": "No Nimly lock found in ZHA. Pair the lock's Zigbee module with ZHA first (wake it with a code and # on the keypad while ZHA searches).",
-      "zha_not_running": "ZHA is not running. Set up Zigbee Home Automation first."
-    }
+      "zha_not_running": "ZHA is not running. Set up Zigbee Home Automation first.",
+      "reconfigure_successful": "The lock now uses the selected Zigbee module."
+    },
+    "flow_title": "{name}"
   },
   "options": {
     "step": {
@@ -32,7 +45,11 @@
         "data": {
           "slot": "Slot",
           "name": "Name",
-          "pin_code": "PIN code"
+          "pin_code": "PIN code",
+          "valid_until": "Valid until"
+        },
+        "data_description": {
+          "valid_until": "Optional. The code is removed from the lock at this time. Leave empty for a permanent code."
         }
       },
       "clear_pin": {
@@ -67,7 +84,8 @@
       "lock_unreachable": "The lock did not answer. Press a key on the lock to wake it and try again.",
       "lock_rejected": "The lock refused the command.",
       "lock_rejected_duplicate": "The lock refused the code: it is already in use.",
-      "lock_rejected_memory_full": "The lock refused the code: its memory is full."
+      "lock_rejected_memory_full": "The lock refused the code: its memory is full.",
+      "expiry_in_past": "The end time must be in the future."
     },
     "abort": {
       "no_pin_codes": "No slot has a PIN code set from Home Assistant."
@@ -154,12 +172,23 @@
     },
     "lock_rejected_memory_full": {
       "message": "The lock refused the code: its memory is full."
+    },
+    "expiry_in_past": {
+      "message": "The end time must be in the future."
     }
   },
   "issues": {
     "zha_internals": {
       "title": "Nimly lock events cannot be received",
       "description": "ZHA does not offer what this integration needs to listen to the lock ({detail}). Lock control in ZHA still works. Update the integration, or report your Home Assistant version as an issue."
+    },
+    "quirk_missing": {
+      "title": "ZHA runs {title} without its Nimly quirk",
+      "description": "ZHA did not apply a device quirk to this lock, so auto relock and sound volume are missing in ZHA and the battery level may be wrong. Make sure ZHA is up to date, then remove and re-pair the lock in ZHA (or reconfigure it). Lock activity and PIN management in this integration work either way."
+    },
+    "expired_pin_not_cleared": {
+      "title": "Expired PIN code on {title} is still active",
+      "description": "The temporary code for {name} (slot {slot}) has expired, but the lock has not removed it yet, so it may still open the door. Home Assistant keeps trying every 10 minutes. Press a key on the lock to wake it, or delete the code at the keypad."
     }
   },
   "services": {
@@ -182,6 +211,14 @@
         "name": {
           "name": "Name",
           "description": "Who the code belongs to, shown in lock events."
+        },
+        "valid_until": {
+          "name": "Valid until",
+          "description": "Remove the code at this time (temporary code). Cannot be combined with valid for."
+        },
+        "valid_for": {
+          "name": "Valid for",
+          "description": "Remove the code after this long (temporary code). Cannot be combined with valid until."
         }
       }
     },

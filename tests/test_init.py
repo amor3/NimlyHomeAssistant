@@ -155,7 +155,7 @@ async def test_one_capability_read_at_a_time(
     await hass.async_block_till_done(wait_background_tasks=False)
     for _ in range(5):
         fake_zha.cluster.report(0x0100, 0x00010000)
-    await asyncio.sleep(0)
+    await hass.async_block_till_done(wait_background_tasks=False)
     assert fake_zha.cluster.read_attributes.await_count == 1
     release.set()
     await hass.async_block_till_done()

@@ -66,6 +66,10 @@ WAKE_ECHO_WINDOW_S: Final = 30.0
 
 EVENT_LOCK_ACTIVITY: Final = f"{DOMAIN}_activity"
 
+ISSUE_ZHA_INTERNALS: Final = "zha_internals"
+ISSUE_QUIRK_MISSING: Final = "quirk_missing"
+ISSUE_EXPIRED_PIN: Final = "expired_pin_not_cleared"
+
 STORAGE_VERSION: Final = 1
 
 
@@ -109,3 +113,5 @@ class NimlyServiceArgument(StrEnum):
     SLOT = "slot"
     PIN_CODE = "pin_code"
     NAME = "name"
+    VALID_UNTIL = "valid_until"
+    VALID_FOR = "valid_for"

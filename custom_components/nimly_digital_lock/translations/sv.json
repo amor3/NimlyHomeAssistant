@@ -7,13 +7,26 @@
         "data": {
           "ieee": "Lås"
         }
+      },
+      "discovery_confirm": {
+        "title": "Nimly-lås hittat",
+        "description": "ZHA har parkopplat {name} ({ieee}). Konfigurera det för att se vem som låser och låser upp och för att hantera PIN-koder."
+      },
+      "reconfigure": {
+        "title": "Byt Zigbee-modul",
+        "description": "Välj låset igen efter att Zigbee-modulen har bytts. Platsnamn, PIN-koder och entiteter finns kvar.",
+        "data": {
+          "ieee": "Lås"
+        }
       }
     },
     "abort": {
       "already_configured": "Låset är redan konfigurerat.",
       "no_locks": "Inget Nimly-lås hittades i ZHA. Parkoppla låsets Zigbee-modul med ZHA först (väck den med en kod och # på knappsatsen medan ZHA söker).",
-      "zha_not_running": "ZHA körs inte. Konfigurera Zigbee Home Automation först."
-    }
+      "zha_not_running": "ZHA körs inte. Konfigurera Zigbee Home Automation först.",
+      "reconfigure_successful": "Låset använder nu den valda Zigbee-modulen."
+    },
+    "flow_title": "{name}"
   },
   "options": {
     "step": {
@@ -32,7 +45,11 @@
         "data": {
           "slot": "Plats",
           "name": "Namn",
-          "pin_code": "PIN-kod"
+          "pin_code": "PIN-kod",
+          "valid_until": "Giltig till"
+        },
+        "data_description": {
+          "valid_until": "Valfritt. Koden tas bort från låset vid den här tidpunkten. Lämna tomt för en permanent kod."
         }
       },
       "clear_pin": {
@@ -67,7 +84,8 @@
       "lock_unreachable": "Låset svarade inte. Tryck på en knapp på låset för att väcka det och försök igen.",
       "lock_rejected": "Låset avvisade kommandot.",
       "lock_rejected_duplicate": "Låset avvisade koden: den används redan.",
-      "lock_rejected_memory_full": "Låset avvisade koden: minnet är fullt."
+      "lock_rejected_memory_full": "Låset avvisade koden: minnet är fullt.",
+      "expiry_in_past": "Sluttiden måste ligga i framtiden."
     },
     "abort": {
       "no_pin_codes": "Ingen plats har en PIN-kod satt från Home Assistant."
@@ -154,12 +172,23 @@
     },
     "lock_rejected_memory_full": {
       "message": "Låset avvisade koden: minnet är fullt."
+    },
+    "expiry_in_past": {
+      "message": "Sluttiden måste ligga i framtiden."
     }
   },
   "issues": {
     "zha_internals": {
       "title": "Händelser från Nimly-låset kan inte tas emot",
       "description": "ZHA erbjuder inte det integrationen behöver för att lyssna på låset ({detail}). Låsstyrningen i ZHA fungerar fortfarande. Uppdatera integrationen, eller rapportera din Home Assistant-version i ett ärende."
+    },
+    "quirk_missing": {
+      "title": "ZHA kör {title} utan Nimly-quirken",
+      "description": "ZHA har inte tillämpat någon enhets-quirk på låset, så automatisk omlåsning och ljudvolym saknas i ZHA och batterinivån kan bli fel. Se till att ZHA är uppdaterat och ta sedan bort och parkoppla om låset i ZHA (eller konfigurera om det). Låsaktivitet och PIN-hantering i den här integrationen fungerar ändå."
+    },
+    "expired_pin_not_cleared": {
+      "title": "Utgången PIN-kod på {title} är fortfarande aktiv",
+      "description": "Den tillfälliga koden för {name} (plats {slot}) har gått ut, men låset har inte tagit bort den än, så den kan fortfarande öppna dörren. Home Assistant försöker igen var tionde minut. Tryck på en knapp på låset för att väcka det, eller ta bort koden på knappsatsen."
     }
   },
   "services": {
@@ -182,6 +211,14 @@
         "name": {
           "name": "Namn",
           "description": "Vem koden tillhör, visas i låshändelser."
+        },
+        "valid_until": {
+          "name": "Giltig till",
+          "description": "Ta bort koden vid den här tidpunkten (tillfällig kod). Kan inte kombineras med giltig i."
+        },
+        "valid_for": {
+          "name": "Giltig i",
+          "description": "Ta bort koden efter så här lång tid (tillfällig kod). Kan inte kombineras med giltig till."
         }
       }
     },

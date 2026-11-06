@@ -52,10 +52,21 @@ class FakeDoorLockCluster:
             callback(event)
 
 
-def _device_proxy(cluster: Any, manufacturer: str = MANUFACTURER, model: str = MODEL) -> Any:
+def _device_proxy(
+    cluster: Any,
+    manufacturer: str = MANUFACTURER,
+    model: str = MODEL,
+    quirk_applied: bool = True,
+) -> Any:
     endpoint = SimpleNamespace(in_clusters={0x0101: cluster} if cluster else {})
     zigpy_device = SimpleNamespace(endpoints={0: SimpleNamespace(in_clusters={}), 11: endpoint})
-    zha_device = SimpleNamespace(manufacturer=manufacturer, model=model, device=zigpy_device)
+    zha_device = SimpleNamespace(
+        manufacturer=manufacturer,
+        model=model,
+        device=zigpy_device,
+        quirk_applied=quirk_applied,
+        quirk_class="zhaquirks.nimly.lock:NimlyPRO" if quirk_applied else "zigpy.device.Device",
+    )
     return SimpleNamespace(device=zha_device)
 
 

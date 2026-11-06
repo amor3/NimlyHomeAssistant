@@ -18,7 +18,15 @@ from homeassistant.helpers import (
 )
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_IEEE, CONF_MODEL, DOMAIN, ZHA_DOMAIN
+from .const import (
+    CONF_IEEE,
+    CONF_MODEL,
+    DOMAIN,
+    ISSUE_QUIRK_MISSING,
+    ISSUE_ZHA_INTERNALS,
+    ZHA_DOMAIN,
+)
+from .discovery import async_discover_locks, async_setup_discovery
 from .manager import NimlyConfigEntry, NimlyLockManager, lock_store
 from .services import async_setup_services
 from .zha import (
@@ -27,6 +35,7 @@ from .zha import (
     is_zha_running,
     lock_in_zha,
     model_in_zha,
+    quirk_status,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,12 +43,11 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-ISSUE_ZHA_INTERNALS = "zha_internals"
-
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the actions once for all locks."""
+    """Register the actions and the discovery watch once for all locks."""
     async_setup_services(hass)
+    async_setup_discovery(hass)
     return True
 
 
@@ -107,11 +115,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> boo
     manager = NimlyLockManager(hass, entry)
     await manager.async_load()
     entry.runtime_data = manager
+    entry.async_on_unload(manager.async_shutdown)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _start_listening(hass, entry, manager, cluster)
+    _check_quirk(hass, entry)
     _watch_zha(hass, entry)
+    manager.async_schedule_expiries()
     manager.schedule_capability_refresh()
+    async_discover_locks(hass)
     return True
 
 
@@ -124,6 +136,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> bo
 async def async_remove_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> None:
     """Remove stored slot names when the lock is deleted."""
     await lock_store(hass, entry).async_remove()
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: NimlyConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow removing a device only when it is not this entry's lock."""
+    return (DOMAIN, entry.entry_id) not in device_entry.identifiers
 
 
 @callback
@@ -151,6 +170,35 @@ def _start_listening(
 
 
 @callback
+def _check_quirk(hass: HomeAssistant, entry: NimlyConfigEntry) -> None:
+    """Warn when ZHA runs the lock without a device quirk.
+
+    Without the Nimly quirk ZHA shows no auto relock or volume control and
+    may get the battery wrong. This integration works either way.
+    """
+    issue_id = f"{ISSUE_QUIRK_MISSING}_{entry.entry_id}"
+    status = quirk_status(hass, entry.data[CONF_IEEE])
+    if status is None or status.applied:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    _LOGGER.warning(
+        "ZHA applied no quirk to lock %s (%s); auto relock and volume are missing in ZHA",
+        entry.data[CONF_IEEE],
+        status.quirk_class,
+    )
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=ISSUE_QUIRK_MISSING,
+        translation_placeholders={"title": entry.title},
+        learn_more_url="https://github.com/amor3/NimlyHomeAssistant#zha-does-not-show-auto-relock-or-volume",
+    )
+
+
+@callback
 def _watch_zha(hass: HomeAssistant, entry: NimlyConfigEntry) -> None:
     """Reload when ZHA reloads: its new zigpy objects need a new listener."""
 
@@ -165,8 +213,9 @@ def _watch_zha(hass: HomeAssistant, entry: NimlyConfigEntry) -> None:
             entry.runtime_data.async_update_listeners()
 
     for zha_entry in hass.config_entries.async_entries(ZHA_DOMAIN):
-        entry.async_on_unload(
-            zha_entry.async_on_state_change(
-                lambda zha_entry=zha_entry: _on_zha_state_change(zha_entry)
-            )
-        )
+
+        @callback
+        def _state_changed(zha_entry: ConfigEntry = zha_entry) -> None:
+            _on_zha_state_change(zha_entry)
+
+        entry.async_on_unload(zha_entry.async_on_state_change(_state_changed))

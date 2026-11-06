@@ -4,3 +4,4 @@ zha-quirks
 aiousbwatcher
 ha-silabs-firmware-client
 ruff
+mypy

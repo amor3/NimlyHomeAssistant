@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
-
-import voluptuous as vol
 
 from homeassistant.config_entries import (
     ConfigEntryState,
@@ -15,6 +14,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    DateTimeSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -26,8 +26,10 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.util import dt as dt_util
 
 from . import rules
+from .compat import vol
 from .const import (
     CONF_IEEE,
     CONF_MODEL,
@@ -39,12 +41,20 @@ from .const import (
     RESERVED_SLOTS_MAX,
     RESERVED_SLOTS_MIN,
 )
-from .manager import NimlyConfigEntry, NimlyLockManager
+from .manager import NimlyConfigEntry, NimlyLockManager, to_utc
 from .zha import is_zha_running, iter_nimly_locks
 
 CONF_SLOT = "slot"
 CONF_NAME = "name"
 CONF_PIN_CODE = "pin_code"
+CONF_VALID_UNTIL = "valid_until"
+
+
+def _parse_local(value: object) -> datetime | None:
+    """A date-time selector value (local, naive) as an aware UTC datetime."""
+    if not value or (parsed := dt_util.parse_datetime(str(value))) is None:
+        return None
+    return to_utc(parsed)
 
 
 def _title(ieee: str, model: str) -> str:
@@ -57,14 +67,37 @@ class NimlyConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 2
 
+    _discovered: dict[str, str]
+
+    def _unconfigured_locks(self, keep: str | None = None) -> dict[str, str]:
+        """Nimly locks in ZHA without an entry (plus keep), as ieee -> model."""
+        configured = {
+            entry.unique_id for entry in self._async_current_entries(include_ignore=False)
+        }
+        return {
+            ieee: model
+            for ieee, model in iter_nimly_locks(self.hass)
+            if ieee not in configured or ieee == keep
+        }
+
+    @staticmethod
+    def _lock_schema(locks: dict[str, str], default: str | None = None) -> vol.Schema:
+        options = [
+            SelectOptionDict(value=ieee, label=f"{model or 'Nimly'} ({ieee})")
+            for ieee, model in sorted(locks.items())
+        ]
+        return vol.Schema(
+            {
+                vol.Required(CONF_IEEE, default=default or vol.UNDEFINED): SelectSelector(
+                    SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
+                )
+            }
+        )
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if not is_zha_running(self.hass):
             return self.async_abort(reason="zha_not_running")
-
-        configured = {entry.unique_id for entry in self._async_current_entries()}
-        locks = {
-            ieee: model for ieee, model in iter_nimly_locks(self.hass) if ieee not in configured
-        }
+        locks = self._unconfigured_locks()
 
         if user_input is not None:
             ieee = user_input[CONF_IEEE]
@@ -77,20 +110,66 @@ class NimlyConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if not locks:
             return self.async_abort(reason="no_locks")
+        return self.async_show_form(step_id="user", data_schema=self._lock_schema(locks))
 
-        options = [
-            SelectOptionDict(value=ieee, label=f"{model or 'Nimly'} ({ieee})")
-            for ieee, model in sorted(locks.items())
-        ]
+    async def async_step_integration_discovery(
+        self, discovery_info: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """A Nimly lock ZHA paired after the first one was set up."""
+        ieee = str(discovery_info[CONF_IEEE]).lower()
+        await self.async_set_unique_id(ieee)
+        self._abort_if_unique_id_configured()
+        self._discovered = {CONF_IEEE: ieee, CONF_MODEL: str(discovery_info.get(CONF_MODEL, ""))}
+        self.context["title_placeholders"] = {"name": _title(ieee, self._discovered[CONF_MODEL])}
+        return await self.async_step_discovery_confirm()
+
+    async def async_step_discovery_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        ieee, model = self._discovered[CONF_IEEE], self._discovered[CONF_MODEL]
+        if user_input is not None:
+            # Another entry may have taken the address meanwhile (Reconfigure).
+            self._abort_if_unique_id_configured()
+            return self.async_create_entry(title=_title(ieee, model), data=self._discovered)
+        self._set_confirm_only()
         return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_IEEE): SelectSelector(
-                        SelectSelectorConfig(options=options, mode=SelectSelectorMode.LIST)
-                    )
-                }
-            ),
+            step_id="discovery_confirm",
+            description_placeholders={"name": _title(ieee, model), "ieee": ieee},
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Point the entry at another Zigbee module, e.g. after replacing it.
+
+        Names, PIN state and entities stay, since they are keyed on the entry.
+        """
+        entry = self._get_reconfigure_entry()
+        current = entry.data[CONF_IEEE]
+        if not is_zha_running(self.hass):
+            return self.async_abort(reason="zha_not_running")
+        locks = self._unconfigured_locks(keep=current)
+
+        if user_input is not None:
+            ieee = user_input[CONF_IEEE]
+            if ieee != current:
+                # A pending discovery card for the new module must not block
+                # this; it aborts itself once the address is taken.
+                await self.async_set_unique_id(ieee, raise_on_progress=False)
+                self._abort_if_unique_id_configured()
+            model = locks.get(ieee, "")
+            return self.async_update_reload_and_abort(
+                entry,
+                unique_id=ieee,
+                title=_title(ieee, model),
+                data={CONF_IEEE: ieee, CONF_MODEL: model},
+            )
+
+        if not locks:
+            return self.async_abort(reason="no_locks")
+        default = current if current in locks else None
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=self._lock_schema(locks, default)
         )
 
     @staticmethod
@@ -167,10 +246,14 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                 errors[CONF_SLOT] = "slot_out_of_range"
             elif not rules.is_valid_pin(code, manager.capabilities):
                 errors[CONF_PIN_CODE] = "invalid_pin"
+            elif (expires := _parse_local(user_input.get(CONF_VALID_UNTIL))) is not None and (
+                expires <= dt_util.utcnow()
+            ):
+                errors[CONF_VALID_UNTIL] = "expiry_in_past"
             else:
                 # A blank name keeps the one the slot already has.
                 name = str(user_input.get(CONF_NAME, "")).strip() or None
-                outcome = await manager.async_set_pin(slot, code, name)
+                outcome = await manager.async_set_pin(slot, code, name, expires)
                 if outcome.delivered:
                     return self._done()
                 errors["base"] = outcome.error_key or "lock_unreachable"
@@ -185,6 +268,7 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                     vol.Required(CONF_PIN_CODE): TextSelector(
                         TextSelectorConfig(type=TextSelectorType.PASSWORD)
                     ),
+                    vol.Optional(CONF_VALID_UNTIL): DateTimeSelector(),
                 }
             ),
             errors=errors,

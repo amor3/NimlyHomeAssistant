@@ -128,7 +128,11 @@ class PinCodesSensor(NimlyEntity, SensorEntity):
         return {
             "first_user_slot": self.manager.first_user_slot,
             "slots": {
-                str(number): {"name": slot["name"], "has_pin": slot["has_pin"]}
+                str(number): {
+                    "name": slot["name"],
+                    "has_pin": slot["has_pin"],
+                    "expires": slot["expires"],
+                }
                 for number, slot in self.manager.slots.items()
             },
         }

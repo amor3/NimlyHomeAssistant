@@ -24,6 +24,17 @@ set_pin:
       example: "Anna"
       selector:
         text:
+    valid_until:
+      required: false
+      example: "2026-12-24 18:00:00"
+      selector:
+        datetime:
+    valid_for:
+      required: false
+      example: "48:00:00"
+      selector:
+        duration:
+          enable_day: true
 
 clear_pin:
   fields:

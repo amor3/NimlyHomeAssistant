@@ -93,7 +93,9 @@ async def test_options_set_and_clear_pin(
     fake_zha.cluster.command.assert_awaited_once_with(
         0x05, user_id=3, user_status=1, user_type=0, pin_code="123456"
     )
-    assert init_integration.runtime_data.slots == {3: {"name": "Anna", "has_pin": True}}
+    assert init_integration.runtime_data.slots == {
+        3: {"name": "Anna", "has_pin": True, "expires": None}
+    }
     # Nothing about the code is kept in the entry.
     assert "123456" not in str(init_integration.as_dict())
 
@@ -104,7 +106,9 @@ async def test_options_set_and_clear_pin(
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"slot": "3"})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     fake_zha.cluster.command.assert_awaited_with(0x07, user_id=3)
-    assert init_integration.runtime_data.slots == {3: {"name": "Anna", "has_pin": False}}
+    assert init_integration.runtime_data.slots == {
+        3: {"name": "Anna", "has_pin": False, "expires": None}
+    }
 
 
 async def test_options_set_pin_unreachable(
@@ -158,4 +162,6 @@ async def test_options_set_pin_blank_name_keeps_name(
         result["flow_id"], {"slot": 5, "name": "  ", "pin_code": "4321"}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert init_integration.runtime_data.slots == {5: {"name": "Anna", "has_pin": True}}
+    assert init_integration.runtime_data.slots == {
+        5: {"name": "Anna", "has_pin": True, "expires": None}
+    }

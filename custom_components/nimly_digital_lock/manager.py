@@ -5,12 +5,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 import logging
 from typing import Any, TypedDict
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import (
+    async_call_later,
+    async_track_point_in_utc_time,
+    async_track_time_interval,
+)
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from . import rules
 from .const import (
@@ -24,13 +32,21 @@ from .const import (
     DEFAULT_RESERVED_SLOTS,
     DOMAIN,
     EVENT_LOCK_ACTIVITY,
+    ISSUE_EXPIRED_PIN,
+    ISSUE_ZHA_INTERNALS,
     MAX_SLOT,
     STORAGE_VERSION,
 )
 from .rules import LockEvent
-from .zha import LockTransport, SendOutcome, subscribe_attribute_reports
+from .zha import LockTransport, SendOutcome, ZhaInternalsMissing, subscribe_attribute_reports
 
 _LOGGER = logging.getLogger(__name__)
+
+# How often to check that ZHA still uses the cluster object we listen to.
+# ZHA can rebind a device (after a rejoin or re-interview) without reloading.
+CLUSTER_CHECK_INTERVAL = timedelta(seconds=60)
+# How long to wait before trying again to clear an expired PIN code.
+EXPIRY_RETRY_S = 600
 
 
 class SlotData(TypedDict):
@@ -38,6 +54,12 @@ class SlotData(TypedDict):
 
     name: str
     has_pin: bool
+    # ISO 8601 UTC time when the PIN code is cleared, or None.
+    expires: str | None
+
+
+def _empty_slot() -> SlotData:
+    return SlotData(name="", has_pin=False, expires=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +83,13 @@ class LockActivity:
 type NimlyConfigEntry = ConfigEntry[NimlyLockManager]
 
 
+def to_utc(value: datetime) -> datetime:
+    """An aware UTC datetime; a naive one is read as Home Assistant's local time."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=dt_util.get_default_time_zone())
+    return dt_util.as_utc(value)
+
+
 def lock_store(hass: HomeAssistant, entry: ConfigEntry) -> Store[dict[str, Any]]:
     """The store holding one lock's slot names and capabilities."""
     return Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
@@ -82,16 +111,24 @@ class NimlyLockManager:
         self.capabilities_read = False
         self.listening = False
         self.last_event: LockEvent | None = None
+        self._cluster: Any = None
+        self._unsubscribe: Callable[[], None] | None = None
+        self._failed_cluster: Any = None
+        self._expiry_timers: dict[int, CALLBACK_TYPE] = {}
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[LockActivity], None]] = []
         self._pin_lock = asyncio.Lock()
         self._capability_lock = asyncio.Lock()
 
     async def async_load(self) -> None:
-        """Load stored slot names and capabilities."""
+        """Load stored slot names, expiries and capabilities."""
         data = await self._store.async_load() or {}
         self._slots = {
-            str(key): SlotData(name=str(value.get("name", "")), has_pin=bool(value.get("has_pin")))
+            str(key): SlotData(
+                name=str(value.get("name", "")),
+                has_pin=bool(value.get("has_pin")),
+                expires=value.get("expires") if value.get("has_pin") else None,
+            )
             for key, value in data.get("slots", {}).items()
         }
         if isinstance(caps := data.get("capabilities"), dict):
@@ -111,6 +148,13 @@ class NimlyLockManager:
     async def async_flush(self) -> None:
         """Write pending changes now, before an unload drops the delayed save."""
         await self._store.async_save(self._data_to_save())
+
+    @callback
+    def async_shutdown(self) -> None:
+        """Cancel timers when the entry unloads."""
+        for cancel in self._expiry_timers.values():
+            cancel()
+        self._expiry_timers.clear()
 
     # Listeners for entities
 
@@ -153,13 +197,15 @@ class NimlyLockManager:
 
     def slot_name(self, slot: int) -> str | None:
         """The name given to a slot, or None."""
-        return self._slots.get(str(slot), {}).get("name") or None
+        if (data := self._slots.get(str(slot))) is None:
+            return None
+        return data["name"] or None
 
     @callback
     def set_slot_name(self, slot: int, name: str) -> None:
         """Name a slot; an empty name removes it."""
         key = str(slot)
-        current = self._slots.get(key, SlotData(name="", has_pin=False))
+        current = self._slots.get(key, _empty_slot())
         current["name"] = name.strip()
         if not current["name"] and not current["has_pin"]:
             self._slots.pop(key, None)
@@ -172,8 +218,19 @@ class NimlyLockManager:
         if not self.first_user_slot <= slot <= highest:
             raise ValueError(f"slot {slot} is outside the writable range")
 
-    async def async_set_pin(self, slot: int, code: str, name: str | None = None) -> SendOutcome:
-        """Write a PIN code to a slot; a name of None keeps the current one."""
+    async def async_set_pin(
+        self,
+        slot: int,
+        code: str,
+        name: str | None = None,
+        expires: datetime | None = None,
+    ) -> SendOutcome:
+        """Write a PIN code to a slot.
+
+        A name of None keeps the current one. With expires, the code is
+        cleared from the lock at that time; without, any earlier expiry
+        for the slot is dropped.
+        """
         self._check_writable(slot, self.max_user_slot)
         async with self._pin_lock:
             outcome = await self._send(
@@ -181,11 +238,13 @@ class NimlyLockManager:
                 {"user_id": slot, "user_status": 1, "user_type": 0, "pin_code": code},
             )
             if outcome.delivered:
-                current = self._slots.get(str(slot), SlotData(name="", has_pin=False))
+                current = self._slots.get(str(slot), _empty_slot())
                 current["has_pin"] = True
                 if name is not None:
                     current["name"] = name.strip()
+                current["expires"] = dt_util.as_utc(expires).isoformat() if expires else None
                 self._slots[str(slot)] = current
+                self._schedule_expiry(slot)
                 self._schedule_save()
                 self.async_update_listeners()
             return outcome
@@ -197,14 +256,26 @@ class NimlyLockManager:
         code may have been written before the capacity was known.
         """
         self._check_writable(slot, MAX_SLOT)
+        return await self._async_clear(slot)
+
+    async def _async_clear(self, slot: int) -> SendOutcome:
+        """Clear a slot without the reserved-slot check.
+
+        Only for codes Home Assistant wrote itself: an expiring code must
+        still be removed after the reserved-slot setting was raised.
+        """
         async with self._pin_lock:
             outcome = await self._send(CMD_CLEAR_PIN, {"user_id": slot})
-            if outcome.delivered and (current := self._slots.get(str(slot))) is not None:
-                current["has_pin"] = False
-                if not current["name"]:
-                    self._slots.pop(str(slot))
-                self._schedule_save()
-                self.async_update_listeners()
+            if outcome.delivered:
+                if (cancel := self._expiry_timers.pop(slot, None)) is not None:
+                    cancel()
+                if (current := self._slots.get(str(slot))) is not None:
+                    current["has_pin"] = False
+                    current["expires"] = None
+                    if not current["name"]:
+                        self._slots.pop(str(slot))
+                    self._schedule_save()
+                    self.async_update_listeners()
             return outcome
 
     async def _send(self, command: int, params: dict[str, Any]) -> SendOutcome:
@@ -213,6 +284,83 @@ class NimlyLockManager:
             # The radio is awake right now; the best moment for a read.
             self.schedule_capability_refresh()
         return outcome
+
+    # Temporary PIN codes
+
+    @callback
+    def async_schedule_expiries(self) -> None:
+        """Arm a timer for every stored PIN code with an expiry."""
+        for key in self._slots:
+            self._schedule_expiry(int(key))
+
+    @callback
+    def _schedule_expiry(self, slot: int) -> None:
+        if (cancel := self._expiry_timers.pop(slot, None)) is not None:
+            cancel()
+        data = self._slots.get(str(slot))
+        if data is None or not data["has_pin"] or not data["expires"]:
+            return
+        if (when := dt_util.parse_datetime(data["expires"])) is None:
+            return
+        # A time already passed (Home Assistant was down) fires right away.
+        when = max(when, dt_util.utcnow())
+
+        @callback
+        def _expired(_now: datetime) -> None:
+            self._expiry_timers.pop(slot, None)
+            self.entry.async_create_background_task(
+                self.hass, self._async_expire(slot), f"{DOMAIN} PIN expiry {self.ieee} {slot}"
+            )
+
+        self._expiry_timers[slot] = async_track_point_in_utc_time(self.hass, _expired, when)
+
+    def _expiry_issue_id(self, slot: int) -> str:
+        return f"{ISSUE_EXPIRED_PIN}_{self.entry.entry_id}_{slot}"
+
+    async def _async_expire(self, slot: int, attempt: int = 1) -> None:
+        """Clear an expired PIN code; keep trying while it is not removed.
+
+        From the second failed attempt a repair issue says the code may
+        still open the door, and it goes away once the code is cleared.
+        """
+        outcome = await self._async_clear(slot)
+        if outcome.delivered:
+            _LOGGER.info("Expired PIN code in slot %s on %s was cleared", slot, self.ieee)
+            ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
+            return
+        _LOGGER.log(
+            logging.WARNING if attempt <= 2 else logging.DEBUG,
+            "Could not clear the expired PIN code in slot %s on %s (%s); retrying in %s min",
+            slot,
+            self.ieee,
+            outcome.error_key,
+            EXPIRY_RETRY_S // 60,
+        )
+        if attempt == 2:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                self._expiry_issue_id(slot),
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=ISSUE_EXPIRED_PIN,
+                translation_placeholders={
+                    "slot": str(slot),
+                    "name": self.slot_name(slot) or f"Slot {slot}",
+                    "title": self.entry.title,
+                },
+            )
+
+        @callback
+        def _retry(_now: datetime) -> None:
+            self._expiry_timers.pop(slot, None)
+            self.entry.async_create_background_task(
+                self.hass,
+                self._async_expire(slot, attempt + 1),
+                f"{DOMAIN} PIN expiry {self.ieee} {slot}",
+            )
+
+        self._expiry_timers[slot] = async_call_later(self.hass, EXPIRY_RETRY_S, _retry)
 
     # Capabilities
 
@@ -248,17 +396,70 @@ class NimlyLockManager:
 
     @callback
     def async_start_listening(self, cluster: Any) -> Callable[[], None]:
-        """Subscribe to the cluster's attribute reports."""
-        unsubscribe = subscribe_attribute_reports(cluster, self._handle_report)
-        self.listening = True
-        self.async_update_listeners()
+        """Subscribe to the cluster's reports and follow ZHA rebinding it.
+
+        Raises ZhaInternalsMissing when the cluster has no event hook.
+        """
+        self._subscribe(cluster)
+        cancel_check = async_track_time_interval(
+            self.hass, self._async_check_cluster, CLUSTER_CHECK_INTERVAL
+        )
 
         @callback
         def _stop() -> None:
-            unsubscribe()
+            cancel_check()
+            self._unsubscribe_cluster()
             self.listening = False
 
         return _stop
+
+    def _subscribe(self, cluster: Any) -> None:
+        self._unsubscribe = subscribe_attribute_reports(cluster, self._handle_report)
+        self._cluster = cluster
+        self.listening = True
+        self.async_update_listeners()
+
+    def _unsubscribe_cluster(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+        self._unsubscribe = None
+        self._cluster = None
+
+    @callback
+    def _async_check_cluster(self, _now: datetime | None = None) -> None:
+        """Move the subscription when ZHA has replaced the lock's cluster."""
+        current = self.transport.cluster()
+        if current is self._cluster:
+            return
+        self._unsubscribe_cluster()
+        if current is None:
+            if self.listening:
+                _LOGGER.info("Lock %s left ZHA; waiting for it to return", self.ieee)
+                self.listening = False
+                self.async_update_listeners()
+            return
+        if current is self._failed_cluster:
+            return  # already reported; wait for ZHA to offer another one
+        try:
+            self._subscribe(current)
+        except ZhaInternalsMissing as err:
+            _LOGGER.error("Cannot listen to lock %s again: %s", self.ieee, err)
+            self._failed_cluster = current
+            self.listening = False
+            self.async_update_listeners()
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                f"{ISSUE_ZHA_INTERNALS}_{self.entry.entry_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key=ISSUE_ZHA_INTERNALS,
+                translation_placeholders={"detail": str(err), "ieee": self.ieee},
+            )
+            return
+        self._failed_cluster = None
+        ir.async_delete_issue(self.hass, DOMAIN, f"{ISSUE_ZHA_INTERNALS}_{self.entry.entry_id}")
+        _LOGGER.info("ZHA rebound lock %s; listening to its new cluster", self.ieee)
 
     @callback
     def _handle_report(self, attribute_id: int, raw: Any) -> None:

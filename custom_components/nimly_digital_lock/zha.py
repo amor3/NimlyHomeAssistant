@@ -150,6 +150,27 @@ def model_in_zha(hass: HomeAssistant, ieee: str) -> str:
     return ""
 
 
+@dataclass(frozen=True, slots=True)
+class QuirkStatus:
+    """Whether ZHA applied a device quirk to the lock, and which."""
+
+    applied: bool
+    quirk_class: str
+
+
+def quirk_status(hass: HomeAssistant, ieee: str) -> QuirkStatus | None:
+    """ZHA's quirk status for the lock, or None when ZHA cannot tell."""
+    for dev_ieee, proxy in _iter_device_proxies(hass):
+        if dev_ieee != ieee.lower():
+            continue
+        device = getattr(proxy, "device", None)
+        applied = getattr(device, "quirk_applied", None)
+        if not isinstance(applied, bool):
+            return None
+        return QuirkStatus(applied, str(getattr(device, "quirk_class", "")))
+    return None
+
+
 def find_door_lock_cluster(hass: HomeAssistant, ieee: str) -> Any:
     """The lock's zigpy Door Lock cluster, or None."""
     for dev_ieee, proxy in _iter_device_proxies(hass):

@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONF_IEEE
 from .manager import NimlyConfigEntry
-from .zha import find_door_lock_cluster, find_lock_entity_id, is_zha_running
+from .zha import find_door_lock_cluster, find_lock_entity_id, is_zha_running, quirk_status
 
 TO_REDACT = {CONF_IEEE, "unique_id", "title"}
 
@@ -21,6 +21,7 @@ async def async_get_config_entry_diagnostics(
     manager = entry.runtime_data
     cluster = find_door_lock_cluster(hass, manager.ieee)
     last = manager.last_event
+    quirk = quirk_status(hass, manager.ieee)
     return {
         "entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "zha": {
@@ -28,13 +29,19 @@ async def async_get_config_entry_diagnostics(
             "door_lock_cluster": type(cluster).__name__ if cluster is not None else None,
             "has_on_event": callable(getattr(cluster, "on_event", None)),
             "zha_lock_entity": find_lock_entity_id(hass, manager.ieee) is not None,
+            "quirk_applied": quirk.applied if quirk else None,
+            "quirk_class": quirk.quirk_class if quirk else None,
         },
         "listening": manager.listening,
         "capabilities": manager.capabilities,
         "capabilities_read": manager.capabilities_read,
         "first_user_slot": manager.first_user_slot,
         "slots": {
-            str(number): {"named": bool(slot["name"]), "has_pin": slot["has_pin"]}
+            str(number): {
+                "named": bool(slot["name"]),
+                "has_pin": slot["has_pin"],
+                "expires": slot["expires"],
+            }
             for number, slot in manager.slots.items()
         },
         "last_event": (

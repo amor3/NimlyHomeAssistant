@@ -30,7 +30,9 @@ async def test_set_pin(
     fake_zha.cluster.command.assert_awaited_once_with(
         0x05, user_id=4, user_status=1, user_type=0, pin_code="2468"
     )
-    assert init_integration.runtime_data.slots == {4: {"name": "Bo", "has_pin": True}}
+    assert init_integration.runtime_data.slots == {
+        4: {"name": "Bo", "has_pin": True, "expires": None}
+    }
     assert hass.states.get("sensor.nimlypro_activity_pin_codes").state == "1"
 
 
@@ -107,7 +109,9 @@ async def test_clear_pin_keeps_name(
     await _call(hass, init_integration, NimlyService.SET_PIN, slot=4, pin_code="1234", name="Bo")
     await _call(hass, init_integration, NimlyService.CLEAR_PIN, slot=4)
     fake_zha.cluster.command.assert_awaited_with(0x07, user_id=4)
-    assert init_integration.runtime_data.slots == {4: {"name": "Bo", "has_pin": False}}
+    assert init_integration.runtime_data.slots == {
+        4: {"name": "Bo", "has_pin": False, "expires": None}
+    }
 
 
 async def test_set_slot_name(hass: HomeAssistant, init_integration: MockConfigEntry) -> None:
@@ -137,7 +141,7 @@ async def test_slots_persist_across_reload(
     await hass.config_entries.async_reload(init_integration.entry_id)
     await hass.async_block_till_done()
     manager = init_integration.runtime_data
-    assert manager.slots == {4: {"name": "Bo", "has_pin": True}}
+    assert manager.slots == {4: {"name": "Bo", "has_pin": True, "expires": None}}
     assert manager.capabilities_read is True
 
 

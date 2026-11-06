@@ -23,6 +23,7 @@ integration does **not** create those again. It adds what ZHA leaves out:
 | How it was operated (keypad, tag, fingerprint, auto relock…) | raw numbers | ✅ decoded |
 | Event entity and `nimly_digital_lock_activity` event for automations | – | ✅ |
 | Set and clear PIN codes, name slots | – | ✅ |
+| Temporary PIN codes that remove themselves | – | ✅ |
 
 ## Requirements
 
@@ -55,6 +56,13 @@ Copy `custom_components/nimly_digital_lock` to `config/custom_components/` and r
    pairing by entering a code and `#` on the keypad while ZHA searches.
 2. **Settings → Devices & services → Add integration → Nimly Digital Lock** and pick the
    lock from the list.
+
+Only the first lock is added by hand. After that, every Nimly lock ZHA pairs shows up
+under **Discovered** on the integrations page.
+
+**Replaced the Zigbee module?** Pair the new module with ZHA, then choose
+**Reconfigure** on the integration entry and pick it. Slot names, PIN state, entities
+and their history stay. Remove the old module from ZHA afterwards.
 
 ## What you get
 
@@ -106,7 +114,8 @@ actions:
 
 **Settings → Devices & services → Nimly Digital Lock → Configure**:
 
-- **Set PIN code**: pick a slot, give it a name and enter the code.
+- **Set PIN code**: pick a slot, give it a name and enter the code. Set **Valid until**
+  for a temporary code.
 - **Clear PIN code**: removes the code from a slot; the name stays.
 - **Name a slot**: name any slot (0–999), for example key tags and fingerprints
   enrolled at the lock, so events show the person instead of "Slot 152".
@@ -118,6 +127,23 @@ Home Assistant. The same is available as actions for automations:
 `nimly_digital_lock.set_slot_name`. Note that Home Assistant's recorder stores the data
 of every action call, so a code passed to `set_pin` ends up in the database.
 
+**Temporary codes.** A code with an end time (`valid_until`, or `valid_for` such as
+`{"hours": 48}` in the action) is cleared from the lock automatically at that time, also
+if Home Assistant was down then (it is cleared at the next start). If the lock cannot be
+reached, it is retried every 10 minutes until it succeeds. The end time is shown in the
+`slots` attribute of the PIN codes sensor.
+
+```yaml
+action: nimly_digital_lock.set_pin
+data:
+  config_entry_id: 01J...   # pick the lock in the action editor
+  slot: 10
+  pin_code: "482913"
+  name: Plumber
+  valid_for:
+    hours: 8
+```
+
 **Slots.** Slot 0 is the master code on every model, and most models reserve slots 0–2
 for master codes, so Home Assistant only writes PINs from slot 3 (configurable 1–3;
 the Code Pro has a single master slot). The highest slot comes from the lock's reported
@@ -127,6 +153,14 @@ PIN capacity.
 automatically. If it still fails, press a key on the lock to wake it and try again. The
 **Wake the lock by locking it** setting instead sends a lock command through ZHA before
 retrying. That moves the bolt and locks an open door, so it is off by default.
+
+## Blueprint
+
+[![Import blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Famor3%2FNimlyHomeAssistant%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnimly_unlock_notification.yaml)
+
+**Notify who unlocked the door**: sends a phone notification such as
+"Anna unlocked the door with a code", optionally only for chosen methods. Auto relock and
+other system events are skipped.
 
 ## Privacy and security
 
@@ -155,9 +189,18 @@ to point to ZHA's entities instead. The `nimly_digital_lock.update` and
   reports door state "unspecified"). Use a separate contact sensor.
 - ZHA has no public API for what this integration listens to. If an update breaks it, a
   repair issue tells you, and lock control in ZHA keeps working.
-- If events stop after a battery change, reconfigure the device in ZHA.
+- If ZHA replaces the lock's device object (after a rejoin, a re-interview or a battery
+  change), the integration notices within a minute and listens again.
 
 ## Troubleshooting
+
+### ZHA does not show auto relock or volume
+
+Those come from ZHA's Nimly quirk. If ZHA applied no quirk to the lock, a repair issue
+says so. Update Home Assistant, then remove the lock from ZHA and pair it again (or use
+**Reconfigure** on the device in ZHA). This integration works either way.
+
+### General
 
 Enable debug logging:
 
