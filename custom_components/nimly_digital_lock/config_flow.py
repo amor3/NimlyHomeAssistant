@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from typing import Any
 
 from homeassistant.config_entries import (
@@ -25,6 +25,7 @@ from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
+    TimeSelector,
 )
 from homeassistant.util import dt as dt_util
 
@@ -37,20 +38,26 @@ from .const import (
     CONF_WAKE_WITH_LOCK,
     DEFAULT_RESERVED_SLOTS,
     DOMAIN,
+    MAX_NAME_LENGTH,
     MAX_SLOT,
     RESERVED_SLOTS_MAX,
     RESERVED_SLOTS_MIN,
 )
-from .manager import NimlyConfigEntry, NimlyLockManager, to_utc
+from .manager import NimlyConfigEntry, NimlyLockManager, PinSchedule, to_utc
 from .rules import CREDENTIAL_KINDS
-from .zha import is_zha_running, iter_nimly_locks
+from .zha import SendOutcome, is_zha_running, iter_nimly_locks
 
 CONF_SLOT = "slot"
 CONF_NAME = "name"
 CONF_PIN_CODE = "pin_code"
 CONF_VALID_UNTIL = "valid_until"
 CONF_CREDENTIAL = "credential"
+CONF_VALID_FROM = "valid_from"
+CONF_WEEKDAYS = "weekdays"
+CONF_START_TIME = "start_time"
+CONF_END_TIME = "end_time"
 CREDENTIAL_ANY = "any"
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 def _parse_local(value: object) -> datetime | None:
@@ -196,6 +203,11 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
     unlike action calls, which the recorder stores with their data.
     """
 
+    # A code generated in this dialog, and a credential being enrolled,
+    # carried to the step that shows them.
+    _generated: tuple[int, str]
+    _enrolling: tuple[int, str]
+
     @property
     def _manager(self) -> NimlyLockManager:
         manager: NimlyLockManager = self.config_entry.runtime_data
@@ -209,7 +221,16 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
             # PIN management needs the running lock; settings do not.
             return await self.async_step_settings()
         return self.async_show_menu(
-            step_id="init", menu_options=["set_pin", "clear_pin", "name_slot", "settings"]
+            step_id="init",
+            menu_options=[
+                "set_pin",
+                "schedule_pin",
+                "clear_pin",
+                "name_slot",
+                "enroll_credential",
+                "remove_credential",
+                "settings",
+            ],
         )
 
     async def async_step_settings(
@@ -239,6 +260,36 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
             ),
         )
 
+    def _pin_fields(self, manager: NimlyLockManager) -> dict[Any, Any]:
+        return {
+            vol.Required(CONF_SLOT, default=manager.first_user_slot): _slot_selector(
+                manager.first_user_slot, manager.max_user_slot
+            ),
+            vol.Optional(CONF_NAME, default=""): TextSelector(),
+            # Left empty: a code is generated and shown once.
+            vol.Optional(CONF_PIN_CODE, default=""): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD)
+            ),
+        }
+
+    def _check_pin_input(
+        self, manager: NimlyLockManager, user_input: dict[str, Any], errors: dict[str, str]
+    ) -> tuple[int, str, str | None, bool]:
+        """Slot, code (generated if blank), name and whether it was generated."""
+        slot = int(user_input[CONF_SLOT])
+        code = str(user_input.get(CONF_PIN_CODE) or "")
+        generated = not code
+        if generated:
+            code = rules.generate_pin(manager.capabilities)
+        name = str(user_input.get(CONF_NAME, "")).strip() or None
+        if not manager.first_user_slot <= slot <= manager.max_user_slot:
+            errors[CONF_SLOT] = "slot_out_of_range"
+        elif not rules.is_valid_pin(code, manager.capabilities):
+            errors[CONF_PIN_CODE] = "invalid_pin"
+        elif name is not None and len(name) > MAX_NAME_LENGTH:
+            errors[CONF_NAME] = "name_too_long"
+        return slot, code, name, generated
+
     async def async_step_set_pin(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -246,34 +297,30 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
         errors: dict[str, str] = {}
         low, high = rules.pin_length_range(manager.capabilities)
         if user_input is not None:
-            slot = int(user_input[CONF_SLOT])
-            code = str(user_input[CONF_PIN_CODE])
-            if not manager.first_user_slot <= slot <= manager.max_user_slot:
-                errors[CONF_SLOT] = "slot_out_of_range"
-            elif not rules.is_valid_pin(code, manager.capabilities):
-                errors[CONF_PIN_CODE] = "invalid_pin"
-            elif (expires := _parse_local(user_input.get(CONF_VALID_UNTIL))) is not None and (
-                expires <= dt_util.utcnow()
-            ):
+            slot, code, name, generated = self._check_pin_input(manager, user_input, errors)
+            start = _parse_local(user_input.get(CONF_VALID_FROM))
+            expires = _parse_local(user_input.get(CONF_VALID_UNTIL))
+            if not errors and expires is not None and expires <= dt_util.utcnow():
                 errors[CONF_VALID_UNTIL] = "expiry_in_past"
-            else:
-                # A blank name keeps the one the slot already has.
-                name = str(user_input.get(CONF_NAME, "")).strip() or None
-                outcome = await manager.async_set_pin(slot, code, name, expires)
-                if outcome.delivered:
-                    return self._done()
+            elif not errors and start and expires and expires <= start:
+                errors[CONF_VALID_UNTIL] = "end_before_start"
+            if not errors:
+                outcome: SendOutcome | None
+                if start is not None and start > dt_util.utcnow():
+                    outcome = await manager.async_schedule_pin(
+                        slot, PinSchedule(code=code, name=name, start=start, until=expires)
+                    )
+                else:
+                    outcome = await manager.async_set_pin(slot, code, name, expires)
+                if outcome is None or outcome.delivered:
+                    return await self._finish_pin(slot, code if generated else None)
                 errors["base"] = outcome.error_key or "lock_unreachable"
         return self.async_show_form(
             step_id="set_pin",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_SLOT, default=manager.first_user_slot): _slot_selector(
-                        manager.first_user_slot, manager.max_user_slot
-                    ),
-                    vol.Optional(CONF_NAME, default=""): TextSelector(),
-                    vol.Required(CONF_PIN_CODE): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                    ),
+                    **self._pin_fields(manager),
+                    vol.Optional(CONF_VALID_FROM): DateTimeSelector(),
                     vol.Optional(CONF_VALID_UNTIL): DateTimeSelector(),
                 }
             ),
@@ -283,6 +330,145 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                 "min": str(low),
                 "max": str(high),
             },
+        )
+
+    async def async_step_schedule_pin(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """A code that works on chosen weekdays between two times."""
+        manager = self._manager
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            slot, code, name, generated = self._check_pin_input(manager, user_input, errors)
+            starts = dt_time.fromisoformat(user_input[CONF_START_TIME])
+            ends = dt_time.fromisoformat(user_input[CONF_END_TIME])
+            until = _parse_local(user_input.get(CONF_VALID_UNTIL))
+            if not errors and starts == ends:
+                errors[CONF_END_TIME] = "empty_window"
+            elif not errors and until is not None and until <= dt_util.utcnow():
+                errors[CONF_VALID_UNTIL] = "expiry_in_past"
+            if not errors:
+                schedule = PinSchedule(
+                    code=code,
+                    name=name,
+                    start=_parse_local(user_input.get(CONF_VALID_FROM)),
+                    until=until,
+                    days=frozenset(WEEKDAYS.index(day) for day in user_input[CONF_WEEKDAYS]),
+                    time_from=starts,
+                    time_to=ends,
+                )
+                outcome = await manager.async_schedule_pin(slot, schedule)
+                if outcome is None or outcome.delivered:
+                    return await self._finish_pin(slot, code if generated else None)
+                errors["base"] = outcome.error_key or "lock_unreachable"
+        return self.async_show_form(
+            step_id="schedule_pin",
+            data_schema=vol.Schema(
+                {
+                    **self._pin_fields(manager),
+                    vol.Required(CONF_WEEKDAYS): SelectSelector(
+                        SelectSelectorConfig(
+                            options=list(WEEKDAYS), multiple=True, translation_key="weekday"
+                        )
+                    ),
+                    vol.Required(CONF_START_TIME, default="08:00:00"): TimeSelector(),
+                    vol.Required(CONF_END_TIME, default="16:00:00"): TimeSelector(),
+                    vol.Optional(CONF_VALID_FROM): DateTimeSelector(),
+                    vol.Optional(CONF_VALID_UNTIL): DateTimeSelector(),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def _finish_pin(self, slot: int, generated: str | None) -> ConfigFlowResult:
+        if generated is None:
+            return self._done()
+        self._generated = (slot, generated)
+        return await self.async_step_pin_generated()
+
+    async def async_step_pin_generated(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show a generated code once; it is not kept anywhere for display."""
+        if user_input is not None:
+            return self._done()
+        slot, code = self._generated
+        return self.async_show_form(
+            step_id="pin_generated",
+            data_schema=vol.Schema({}),
+            description_placeholders={"slot": str(slot), "pin": code},
+        )
+
+    def _credential_schema(self, manager: NimlyLockManager) -> vol.Schema:
+        return vol.Schema(
+            {
+                vol.Required(CONF_CREDENTIAL, default="rfid"): SelectSelector(
+                    SelectSelectorConfig(
+                        options=["rfid", "fingerprint"], translation_key="physical_credential"
+                    )
+                ),
+                vol.Required(CONF_SLOT, default=manager.first_user_slot): _slot_selector(
+                    manager.first_user_slot, MAX_SLOT
+                ),
+            }
+        )
+
+    async def async_step_enroll_credential(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Start enrolment of a key tag or finger; then present it at the lock."""
+        manager = self._manager
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            kind = user_input[CONF_CREDENTIAL]
+            slot = int(user_input[CONF_SLOT])
+            low, high = manager.credential_slot_range(kind)
+            if not low <= slot <= high:
+                errors[CONF_SLOT] = "slot_out_of_range"
+            else:
+                outcome = await manager.async_enroll(slot, kind)
+                if outcome.delivered:
+                    self._enrolling = (slot, kind)
+                    return await self.async_step_enroll_started()
+                errors["base"] = outcome.error_key or "lock_unreachable"
+        return self.async_show_form(
+            step_id="enroll_credential",
+            data_schema=self._credential_schema(manager),
+            errors=errors,
+        )
+
+    async def async_step_enroll_started(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self._done()
+        slot, kind = self._enrolling
+        return self.async_show_form(
+            step_id="enroll_started",
+            data_schema=vol.Schema({}),
+            description_placeholders={"slot": str(slot), "kind": kind},
+        )
+
+    async def async_step_remove_credential(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        manager = self._manager
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            kind = user_input[CONF_CREDENTIAL]
+            slot = int(user_input[CONF_SLOT])
+            low, high = manager.credential_slot_range(kind)
+            if not low <= slot <= high:
+                errors[CONF_SLOT] = "slot_out_of_range"
+            else:
+                outcome = await manager.async_remove_credential(slot, kind)
+                if outcome.delivered:
+                    return self._done()
+                errors["base"] = outcome.error_key or "lock_unreachable"
+        return self.async_show_form(
+            step_id="remove_credential",
+            data_schema=self._credential_schema(manager),
+            errors=errors,
         )
 
     async def async_step_clear_pin(
@@ -321,7 +507,13 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         manager = self._manager
-        if user_input is not None:
+        errors: dict[str, str] = {}
+        if (
+            user_input is not None
+            and len(str(user_input.get(CONF_NAME, "")).strip()) > MAX_NAME_LENGTH
+        ):
+            errors[CONF_NAME] = "name_too_long"
+        elif user_input is not None:
             credential = user_input.get(CONF_CREDENTIAL, CREDENTIAL_ANY)
             manager.set_slot_name(
                 int(user_input[CONF_SLOT]),
@@ -343,4 +535,5 @@ class NimlyOptionsFlow(OptionsFlowWithReload):
                     ),
                 }
             ),
+            errors=errors,
         )

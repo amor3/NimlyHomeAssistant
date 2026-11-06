@@ -34,11 +34,20 @@
       },
       "last_report": {
         "default": "mdi:access-point-check"
+      },
+      "parent_router": {
+        "default": "mdi:router-wireless"
       }
     },
     "switch": {
       "auto_relock": {
         "default": "mdi:lock-clock"
+      },
+      "keypad_programming": {
+        "default": "mdi:dialpad",
+        "state": {
+          "off": "mdi:lock-outline"
+        }
       }
     },
     "select": {
@@ -49,6 +58,11 @@
           "low": "mdi:volume-low",
           "normal": "mdi:volume-high"
         }
+      }
+    },
+    "binary_sensor": {
+      "battery_low": {
+        "default": "mdi:battery-alert"
       }
     }
   },
@@ -61,6 +75,12 @@
     },
     "set_slot_name": {
       "service": "mdi:account-edit"
+    },
+    "enroll_credential": {
+      "service": "mdi:card-account-details-outline"
+    },
+    "remove_credential": {
+      "service": "mdi:card-remove-outline"
     }
   }
 }

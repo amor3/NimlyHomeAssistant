@@ -48,7 +48,13 @@ from .zha import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.EVENT, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.EVENT,
+    Platform.SELECT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 # Fallback entity unique id key per feature, as entity.py builds them.
 _FALLBACK_KEYS = {
@@ -151,6 +157,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimlyConfigEntry) -> boo
     _watch_zha(hass, entry)
     _watch_lock_commands(hass, entry, manager)
     manager.async_schedule_expiries()
+    manager.async_arm_schedules()
     manager.schedule_capability_refresh()
     async_discover_locks(hass)
     return True

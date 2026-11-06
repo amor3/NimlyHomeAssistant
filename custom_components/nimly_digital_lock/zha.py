@@ -9,14 +9,17 @@ change is a change here only.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+import contextlib
 from dataclasses import dataclass
 import enum
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 from zigpy.exceptions import DeliveryError, ZigbeeException
+import zigpy.types as t
+from zigpy.zcl import foundation
 from zigpy.zcl.foundation import Status
 
 from homeassistant.components.zha.helpers import get_zha_gateway_proxy
@@ -140,6 +143,22 @@ def iter_nimly_locks(hass: HomeAssistant) -> Iterator[tuple[str, str]]:
         manufacturer, model = _metadata(proxy)
         if manufacturer == MANUFACTURER and _walk_to_cluster(proxy) is not None:
             yield ieee, model
+
+
+def device_for_nwk(hass: HomeAssistant, nwk: int) -> tuple[str, str] | None:
+    """(ieee, name) of the ZHA device with this network address, if known."""
+    if nwk == 0x0000:
+        return None  # the coordinator itself; named by the caller
+    for ieee, proxy in _iter_device_proxies(hass):
+        device = getattr(proxy, "device", proxy)
+        if getattr(device, "nwk", None) != nwk:
+            continue
+        registry_device = find_zha_device(hass, ieee)
+        name = (
+            (registry_device.name_by_user or registry_device.name) if registry_device else None
+        ) or getattr(device, "name", None)
+        return ieee, str(name or ieee)
+    return None
 
 
 def lock_in_zha(hass: HomeAssistant, ieee: str) -> bool:
@@ -267,12 +286,70 @@ def subscribe_attribute_reports(
     return lambda: remove(listener)
 
 
+def _raw_values(response: Any) -> tuple[dict[int, Any], set[int]]:
+    """Values and answered attributes from a raw Read Attributes answer."""
+    records = getattr(response, "status_records", None)
+    if records is None and isinstance(response, list | tuple) and response:
+        records = response[0]
+    values: dict[int, Any] = {}
+    answered: set[int] = set()
+    for record in records or ():
+        answered.add(int(record.attrid))
+        if getattr(record, "status", None) != Status.SUCCESS:
+            continue
+        value = getattr(record, "value", None)
+        values[int(record.attrid)] = getattr(value, "value", value)
+    return values, answered
+
+
+class RadioGate:
+    """One radio operation at a time per lock; a person's command goes first.
+
+    A sleeping lock answers only briefly after it wakes, and its parent
+    router holds little for it, so overlapping requests make each other
+    fail. Background reads wait while any command is queued, and step
+    aside again if one arrives while they wait for the lock.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._users = 0
+        self._no_users = asyncio.Event()
+        self._no_users.set()
+
+    @contextlib.asynccontextmanager
+    async def user(self) -> AsyncIterator[None]:
+        self._users += 1
+        self._no_users.clear()
+        try:
+            async with self._lock:
+                yield
+        finally:
+            self._users -= 1
+            if not self._users:
+                self._no_users.set()
+
+    @contextlib.asynccontextmanager
+    async def background(self) -> AsyncIterator[None]:
+        while True:
+            await self._no_users.wait()
+            await self._lock.acquire()
+            if not self._users:
+                break
+            self._lock.release()  # a command arrived meanwhile: it goes first
+        try:
+            yield
+        finally:
+            self._lock.release()
+
+
 class LockTransport:
     """Sends commands to, and reads from, one lock's Door Lock cluster."""
 
     def __init__(self, hass: HomeAssistant, ieee: str) -> None:
         self.hass = hass
         self.ieee = ieee
+        self.gate = RadioGate()
         self.wake_with_lock = False
         self._last_wake: float | None = None
         # The context of our own wake-up call, so it is not taken for a
@@ -318,6 +395,12 @@ class LockTransport:
         Nothing logged here may contain the call's arguments: they can hold
         a PIN code.
         """
+        async with self.gate.user():
+            return await self._attempts_locked(what, cluster, call)
+
+    async def _attempts_locked(
+        self, what: str, cluster: Any, call: Callable[[Any], Awaitable[Any]]
+    ) -> Any:
         for attempt in range(1, SEND_ATTEMPTS + 1):
             try:
                 # zigpy waits 28 s per try for an end device and retries
@@ -377,6 +460,31 @@ class LockTransport:
             return response
         return self._outcome(command, response)
 
+    async def send_custom(self, command: int, params: dict[str, Any]) -> SendOutcome:
+        """Send one of the lock's own commands (0x70-0x74). Never raises.
+
+        zigpy does not know these, nor the lock's answer to them, so the
+        command goes out with the radio's delivery receipt only: DELIVERED
+        means the lock received it, not that it acted on it.
+        """
+        if (cluster := self.cluster()) is None:
+            return UNREACHED
+        schema: Any = dict.fromkeys(params, t.uint16_t)  # compiled just below
+        definition = foundation.ZCLCommandDef(
+            id=cast(t.uint8_t, command),
+            schema=schema,
+            direction=foundation.Direction.Client_to_Server,
+            name=f"nimly_0x{command:02x}",
+        ).with_compiled_schema()
+        response = await self._attempts(
+            f"command 0x{command:02x}",
+            cluster,
+            lambda c: c.request(False, command, definition.schema, expect_reply=False, **params),
+        )
+        if isinstance(response, SendOutcome) and not response.delivered:
+            return response
+        return DELIVERED
+
     async def write_attribute(self, attribute_id: int, value: int) -> SendOutcome:
         """Write a Door Lock attribute (auto relock, sound volume). Never raises."""
         if (cluster := self.cluster()) is None:
@@ -398,20 +506,41 @@ class LockTransport:
         )
         return SendOutcome(Delivery.REJECTED, "lock_rejected")
 
-    async def read_attributes(self, cluster_id: int, attribute_ids: list[int]) -> dict[int, Any]:
-        """Read attributes once, bounded; what the lock answered, maybe nothing."""
+    async def read_attributes(
+        self, cluster_id: int, attribute_ids: list[int]
+    ) -> tuple[dict[int, Any], set[int]]:
+        """Read attributes once, bounded.
+
+        Returns the values the lock gave and every attribute it answered
+        for, values or "unsupported": those need not be asked again.
+        """
         if (cluster := find_cluster(self.hass, self.ieee, cluster_id)) is None:
-            return {}
+            return {}, set()
+        # zigpy only reads attributes the cluster defines; others (the
+        # lock's own 0x0103 and 0x9000 with most quirks) go out raw, so one
+        # unknown attribute cannot sink the read of the rest.
+        defined = getattr(cluster, "attributes", None)
+        known = [a for a in attribute_ids if defined is None or a in defined]
+        raw = [a for a in attribute_ids if a not in known]
+        values: dict[int, Any] = {}
+        answered: set[int] = set()
         try:
-            async with asyncio.timeout(COMMAND_TIMEOUT_S):
-                result = await cluster.read_attributes(attribute_ids)
+            async with self.gate.background(), asyncio.timeout(COMMAND_TIMEOUT_S):
+                if known:
+                    result = await cluster.read_attributes(known)
+                    success = result[0] if isinstance(result, tuple) and result else {}
+                    failure = result[1] if isinstance(result, tuple) and len(result) > 1 else {}
+                    values.update({k: v for k, v in success.items() if isinstance(k, int)})
+                    answered.update(k for k in (*success, *failure) if isinstance(k, int))
+                if raw:
+                    raw_values, raw_answered = _raw_values(await cluster.read_attributes_raw(raw))
+                    values.update(raw_values)
+                    answered.update(raw_answered)
         except (TimeoutError, DeliveryError):
-            return {}
+            pass
         except Exception:  # noqa: BLE001 - one odd firmware must not break setup
             _LOGGER.debug("Attribute read from %s failed", self.ieee, exc_info=True)
-            return {}
-        success = result[0] if isinstance(result, tuple) and result else {}
-        return {key: value for key, value in success.items() if isinstance(key, int)}
+        return values, answered
 
     def _outcome(self, command: int, response: Any) -> SendOutcome:
         if response is None:
@@ -447,7 +576,7 @@ class LockTransport:
         if (cluster := self.cluster()) is None:
             return None
         try:
-            async with asyncio.timeout(COMMAND_TIMEOUT_S):
+            async with self.gate.background(), asyncio.timeout(COMMAND_TIMEOUT_S):
                 result = await cluster.read_attributes(
                     [ATTR_ID_NUM_PIN_USERS, ATTR_ID_MAX_PIN_LENGTH, ATTR_ID_MIN_PIN_LENGTH]
                 )

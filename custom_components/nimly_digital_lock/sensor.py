@@ -19,6 +19,7 @@ from . import rules
 from .const import FEATURE_BATTERY, LockAction, LockSource
 from .entity import NimlyEntity, NimlyEventEntity
 from .manager import LockActivity, NimlyConfigEntry, NimlyLockManager
+from .zha import device_for_nwk
 
 PARALLEL_UPDATES = 0
 
@@ -38,6 +39,7 @@ async def async_setup_entry(
             PinCodesSensor(manager),
             PinCapacitySensor(manager),
             LastReportSensor(manager),
+            ParentRouterSensor(manager),
         ]
     )
     if FEATURE_BATTERY in manager.fallbacks:
@@ -182,6 +184,40 @@ class BatterySensor(NimlyEventEntity, RestoreSensor):
         return self.manager.battery if self.manager.battery is not None else self._restored
 
 
+class ParentRouterSensor(NimlyEventEntity, SensorEntity):
+    """The Zigbee router the lock talks through, and the signal to it.
+
+    Most dropouts on these locks are range: this shows which device the
+    lock depends on (attribute 0x0103).
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, manager: NimlyLockManager) -> None:
+        super().__init__(manager, "parent_router")
+
+    @property
+    def native_value(self) -> str | None:
+        if (parent := self.manager.parent) is None:
+            return None
+        if parent.nwk == 0x0000:
+            return "Coordinator"
+        if (found := device_for_nwk(self.hass, parent.nwk)) is not None:
+            return found[1]
+        return f"0x{parent.nwk:04X}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        if (parent := self.manager.parent) is None:
+            return {}
+        found = device_for_nwk(self.hass, parent.nwk)
+        return {
+            "nwk": f"0x{parent.nwk:04X}",
+            "ieee": found[0] if found else None,
+            "rssi_dbm": parent.rssi_dbm,
+        }
+
+
 class PinCodesSensor(NimlyEntity, SensorEntity):
     """How many slots have a PIN code set from Home Assistant."""
 
@@ -199,6 +235,11 @@ class PinCodesSensor(NimlyEntity, SensorEntity):
         # Names and whether a code is set; never the code itself.
         return {
             "first_user_slot": self.manager.first_user_slot,
+            # When scheduled codes are written; never the codes.
+            "schedules": {
+                str(number): schedule.summary()
+                for number, schedule in self.manager.schedules.items()
+            },
             "slots": {
                 str(number): {
                     "name": slot["name"],

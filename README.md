@@ -19,11 +19,16 @@ cloud, no Nimly hub.
   never hides who opened the door.
 - **PIN codes.** Set, clear and name codes from Home Assistant, by slot, with the lock's
   own limits. Codes entered in the dialog never reach the Home Assistant database.
-- **Temporary codes.** Give the plumber a code for eight hours; it removes itself, also
-  if Home Assistant was off at the time.
-- **Settings.** Auto relock on or off, and the sound volume.
-- **Automations.** An event entity and the `nimly_digital_lock_activity` event carry who,
-  how and whether it was the lock itself, ready for notifications and routines.
+- **Temporary and scheduled codes.** Give the plumber a code for eight hours, start a
+  guest's code on Friday, or let the cleaner in on Mondays and Thursdays 08–16. Codes add
+  and remove themselves, also around a restart. Home Assistant can generate the code.
+- **Key tags and fingerprints** *(experimental)*. Start enrolment and remove them from
+  Home Assistant, and lock the keypad against adding new ones.
+- **Settings and health.** Auto relock, sound volume, battery level and a battery-low
+  warning, and the Zigbee router the lock depends on.
+- **Automations.** Device triggers ("Unlocked with a code", "Locked automatically"…), an
+  event entity and the `nimly_digital_lock_activity` event carry who, how and whether it
+  was the lock itself, ready for notifications and routines.
 - **Looks after itself.** Retries a sleeping lock, follows Zigbee changes, finds new
   locks, survives a replaced Zigbee module, and raises a clear repair issue when
   something needs you. Diagnostics never contain codes, addresses or names.
@@ -100,6 +105,9 @@ A device called **"<lock name> activity"**, linked to ZHA's device for the lock,
 | `sensor.…_pin_codes` | Number of slots with a PIN set from Home Assistant (diagnostic). The `slots` attribute lists names, names per credential kind and the end time of temporary codes, never the codes. |
 | `sensor.…_pin_capacity` | PIN slots and code length the lock reports (diagnostic, disabled by default). |
 | `sensor.…_last_report` | When the lock last sent an operation report (diagnostic): a quick way to see that reports arrive. |
+| `binary_sensor.…_battery_low` | On when the lock says its batteries need replacing (diagnostic). |
+| `sensor.…_parent_router` | The Zigbee router the lock talks through, by name, with the signal in dBm (diagnostic). Most dropouts are range: this shows which device the door depends on. |
+| `switch.…_keypad_programming` | *Experimental.* Off stops anyone adding codes, tags or fingers at the keypad. The lock cannot be asked, so it shows the last setting sent (assumed state). |
 
 Lock control comes from ZHA's `lock.…` entity on the lock's ZHA device (the activity
 device above is linked to it). Battery, auto relock and sound volume come from ZHA's Nimly
@@ -127,10 +135,15 @@ data:
   slot: 5               # null when no user is involved
   user: Anna            # slot name, or null
   ha_user: null         # the Home Assistant user, when the command came from the app
+  remote: false         # true when it answers a lock/unlock from Home Assistant
   system: false         # true for auto relock and similar non-human events
 ```
 
-Example automation:
+The device also offers **device triggers** in the automation editor: locked or unlocked
+by a person, unlocked with a code, key tag or fingerprint, unlocked from Home Assistant,
+and locked automatically.
+
+Example automation with the event:
 
 ```yaml
 triggers:
@@ -153,30 +166,47 @@ actions:
 
 **Settings → Devices & services → Nimly Digital Lock → Configure**:
 
-- **Set PIN code**: pick a slot, give it a name and enter the code. Set **Valid until**
-  for a temporary code.
+- **Set PIN code**: pick a slot, give it a name and enter the code, or leave the code
+  empty to have one generated (shown once). Set **Valid from** and **Valid until** for a
+  temporary code.
+- **Weekly PIN code**: a code that works on chosen weekdays between two times, for
+  example Monday and Thursday 08:00–16:00, optionally from a first to a last day.
 - **Clear PIN code**: removes the code from a slot; the name stays.
 - **Name a slot**: name any slot (0–999), for example key tags and fingerprints
   enrolled at the lock, so events show the person instead of "Slot 152". Codes and key
   tags share one numbering, but fingerprints have their own (000–199): fingerprint 5 can
   be someone else than code 5. Pick a credential kind to give it its own name.
+- **Enroll key tag or fingerprint** *(experimental)*: pick a slot; the lock starts
+  scanning and you present the tag or finger at the lock right away.
+- **Remove key tag or fingerprint**: removes it from a slot.
 - **Settings**: number of reserved master slots, and the wake-up option below.
 
 Codes entered in the Configure dialog go straight to the lock and are never stored in
-Home Assistant. The same is available as actions for automations:
-`nimly_digital_lock.set_pin`, `nimly_digital_lock.clear_pin` and
-`nimly_digital_lock.set_slot_name`. Pick the lock with `device_id` (this integration's
+Home Assistant, with one exception: a code that is written later (Valid from) or weekly
+has to be kept in Home Assistant's storage (`.storage`) until it is written, since the
+lock cannot hold a code switched off. A code written later is removed from storage once
+it is on the lock; a weekly code stays there while the schedule runs.
+
+The same is available as actions for automations: `nimly_digital_lock.set_pin`,
+`clear_pin`, `set_slot_name`, `enroll_credential` and `remove_credential`. Pick the lock with `device_id` (this integration's
 device or ZHA's) or `config_entry_id`; with a single lock set up, neither is needed.
 `set_slot_name` takes an optional `credential` (`pin`, `rfid` or `fingerprint`) to name
 only that kind on the slot.
 Home Assistant's recorder stores the data of every action call, so a code passed to
 `set_pin` ends up in the database; use the Configure dialog to keep it out.
 
-**Temporary codes.** A code with an end time (`valid_until`, or `valid_for` such as
-`{"hours": 48}` in the action) is cleared from the lock automatically at that time, also
-if Home Assistant was down then (it is cleared at the next start). If the lock cannot be
-reached, it is retried every 10 minutes until it succeeds. The end time is shown in the
-`slots` attribute of the PIN codes sensor.
+**Temporary and scheduled codes.** A code with an end time (`valid_until`, or
+`valid_for` such as `{"hours": 48}`) is cleared from the lock at that time, also if Home
+Assistant was down then (it is cleared at the next start). `valid_from` writes it later.
+`weekdays` with `start_time` and `end_time` makes it weekly: written when each window
+opens and cleared when it closes; a window that passed while Home Assistant was down is
+skipped. If the lock cannot be reached, it is retried after 10 minutes, then 20, 40…
+up to every 6 hours. End times and schedules (never the codes) are in the attributes of
+the PIN codes sensor.
+
+**Generated codes.** Leave out `pin_code` and call the action with a response: a random
+code the lock accepts (no 1234 or 0000) is written and returned, and stays out of the
+action's recorded data.
 
 ```yaml
 action: nimly_digital_lock.set_pin
@@ -186,6 +216,17 @@ data:
   name: Plumber
   valid_for:
     hours: 8
+```
+
+```yaml
+action: nimly_digital_lock.set_pin
+data:
+  slot: 11
+  name: Cleaner
+  weekdays: [mon, thu]
+  start_time: "08:00:00"
+  end_time: "16:00:00"
+response_variable: result   # result.pin_code holds the generated code
 ```
 
 **Slots.** Slot 0 is the master code on every model, and most models reserve slots 0–2
@@ -206,10 +247,15 @@ locks an open door, so it is off by default.
 ## Privacy and security
 
 - The lock reports the last typed PIN in clear text on a manufacturer attribute
-  (0x0101). This integration never reads it, stores it or logs it. ZHA's own optional
-  "Last PIN code" sensor does show it; keep that sensor disabled.
+  (0x0101), and the last key tag on another (0x0102). This integration never reads them,
+  stores them or logs them. ZHA's own optional "Last PIN code" sensor does show the PIN;
+  keep that sensor disabled.
+- Codes written later or weekly are kept in Home Assistant's storage until written (see
+  [Managing PIN codes](#managing-pin-codes)); all other codes never are.
 - Digit runs in error messages are masked before logging.
-- Diagnostics downloads contain no PIN codes, addresses or slot names.
+- Diagnostics downloads contain no PIN codes, addresses or slot names. They include the
+  last 20 raw lock reports (lock state and who/how, never codes or tags), which help
+  when reporting an issue.
 
 ## Migrating from 1.x
 
@@ -231,8 +277,11 @@ repair issues are removed with it. The lock itself stays in ZHA.
 
 ## Limitations
 
-- **Key tags and fingerprints** are enrolled at the lock's keypad, not from Home
-  Assistant. Name their slots here to see who used them.
+- **Experimental features.** Enrolling and removing key tags and fingerprints, and keypad
+  programming, use the Zigbee module's own commands from its specification. The bytes
+  sent are checked against it, but the lock's behaviour is not yet confirmed on every
+  model, and the lock does not confirm that a tag or finger was stored: try it at the
+  door. Without these, tags and fingers are enrolled at the keypad as before.
 - A code changed at the keypad is not seen by Home Assistant.
 - **Door open/closed** is not available: the lock has no door sensor (the module always
   reports door state "unspecified"). Use a separate contact sensor.

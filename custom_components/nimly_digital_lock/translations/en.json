@@ -34,8 +34,11 @@
         "title": "Manage the lock",
         "menu_options": {
           "set_pin": "Set PIN code",
+          "schedule_pin": "Weekly PIN code",
           "clear_pin": "Clear PIN code",
           "name_slot": "Name a slot",
+          "enroll_credential": "Enroll key tag or fingerprint",
+          "remove_credential": "Remove key tag or fingerprint",
           "settings": "Settings"
         }
       },
@@ -46,10 +49,13 @@
           "slot": "Slot",
           "name": "Name",
           "pin_code": "PIN code",
-          "valid_until": "Valid until"
+          "valid_until": "Valid until",
+          "valid_from": "Valid from"
         },
         "data_description": {
-          "valid_until": "Optional. The code is removed from the lock at this time. Leave empty for a permanent code."
+          "valid_until": "Optional. The code is removed from the lock at this time. Leave empty for a permanent code.",
+          "valid_from": "Optional. The code is written to the lock at this time. Until then it is kept in Home Assistant's storage.",
+          "pin_code": "Leave empty to have a code generated; it is shown once."
         }
       },
       "clear_pin": {
@@ -80,6 +86,49 @@
           "reserved_slots": "How many slots from 0 hold master codes. Home Assistant never writes a PIN to them.",
           "wake_with_lock": "When a command times out, send a lock command through ZHA to wake the radio before retrying. This moves the bolt: an open door gets locked."
         }
+      },
+      "schedule_pin": {
+        "title": "Weekly PIN code",
+        "description": "The code works on the chosen days between the two times, for example for a cleaner. Home Assistant writes it to the lock when each window opens and removes it when it closes, so it keeps the code in its storage while the schedule runs.",
+        "data": {
+          "slot": "Slot",
+          "name": "Name",
+          "pin_code": "PIN code",
+          "weekdays": "Days",
+          "start_time": "From",
+          "end_time": "To",
+          "valid_from": "First day",
+          "valid_until": "Last day"
+        },
+        "data_description": {
+          "pin_code": "Leave empty to have a code generated; it is shown once.",
+          "valid_from": "Optional. The schedule starts on this date.",
+          "valid_until": "Optional. The schedule and the code end at this time."
+        }
+      },
+      "pin_generated": {
+        "title": "New PIN code",
+        "description": "The code for slot {slot} is **{pin}**. Note it now: it is not shown again."
+      },
+      "enroll_credential": {
+        "title": "Enroll key tag or fingerprint",
+        "description": "Experimental: uses the Zigbee module's own commands, not yet confirmed on every lock. The lock is told to scan; you then present the tag or finger at the lock.",
+        "data": {
+          "credential": "Kind",
+          "slot": "Slot"
+        }
+      },
+      "enroll_started": {
+        "title": "Present it at the lock",
+        "description": "The lock is scanning for slot {slot} ({kind}). Hold the key tag to the reader or place the finger on the sensor now, as the lock's manual describes. Name the slot afterwards so events show who it is."
+      },
+      "remove_credential": {
+        "title": "Remove key tag or fingerprint",
+        "description": "Removes the key tag or fingerprint in a slot from the lock. Fingerprints use experimental commands.",
+        "data": {
+          "credential": "Kind",
+          "slot": "Slot"
+        }
       }
     },
     "error": {
@@ -89,7 +138,10 @@
       "lock_rejected": "The lock refused the command.",
       "lock_rejected_duplicate": "The lock refused the code: it is already in use.",
       "lock_rejected_memory_full": "The lock refused the code: its memory is full.",
-      "expiry_in_past": "The end time must be in the future."
+      "expiry_in_past": "The end time must be in the future.",
+      "name_too_long": "The name is too long (at most 64 characters).",
+      "end_before_start": "The end must be after the start.",
+      "empty_window": "From and To cannot be the same time."
     },
     "abort": {
       "no_pin_codes": "No slot has a PIN code set from Home Assistant."
@@ -146,6 +198,9 @@
       },
       "battery": {
         "name": "Battery"
+      },
+      "parent_router": {
+        "name": "Parent router"
       }
     },
     "select": {
@@ -161,6 +216,14 @@
     "switch": {
       "auto_relock": {
         "name": "Auto relock"
+      },
+      "keypad_programming": {
+        "name": "Keypad programming"
+      }
+    },
+    "binary_sensor": {
+      "battery_low": {
+        "name": "Battery low"
       }
     }
   },
@@ -206,6 +269,15 @@
     },
     "slot_fallback": {
       "message": "Slot {slot}"
+    },
+    "generate_needs_response": {
+      "message": "Give a PIN code, or call the action with a response to have one generated."
+    },
+    "end_before_start": {
+      "message": "The end must be after the start."
+    },
+    "empty_window": {
+      "message": "start_time and end_time cannot be the same."
     }
   },
   "issues": {
@@ -241,7 +313,7 @@
         },
         "pin_code": {
           "name": "PIN code",
-          "description": "Digits only, the length the lock accepts (usually 4-8)."
+          "description": "Digits only, the length the lock accepts. Leave out to have a code generated and returned in the response."
         },
         "name": {
           "name": "Name",
@@ -258,6 +330,22 @@
         "device_id": {
           "name": "Device",
           "description": "The lock's device (this integration's or ZHA's). Not needed when only one lock is set up."
+        },
+        "valid_from": {
+          "name": "Valid from",
+          "description": "Write the code at this time instead of now (it is kept in Home Assistant until then)."
+        },
+        "weekdays": {
+          "name": "Weekdays",
+          "description": "Days the code works; with start time and end time, a weekly schedule."
+        },
+        "start_time": {
+          "name": "Start time",
+          "description": "When the code starts working on those days."
+        },
+        "end_time": {
+          "name": "End time",
+          "description": "When the code stops working on those days."
         }
       }
     },
@@ -304,6 +392,50 @@
           "description": "Name only this credential kind on the slot (pin, rfid or fingerprint). Leave out to name the slot for all kinds."
         }
       }
+    },
+    "enroll_credential": {
+      "name": "Enroll key tag or fingerprint",
+      "description": "Experimental. Tells the lock to scan a key tag or fingerprint for a slot; present it at the lock right after.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lock",
+          "description": "The Nimly lock. Not needed when only one lock is set up."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "The lock's device (this integration's or ZHA's). Not needed when only one lock is set up."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "The slot to enroll or remove."
+        },
+        "credential": {
+          "name": "Kind",
+          "description": "rfid for a key tag, fingerprint for a finger."
+        }
+      }
+    },
+    "remove_credential": {
+      "name": "Remove key tag or fingerprint",
+      "description": "Removes the key tag or fingerprint in a slot from the lock (fingerprints: experimental).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lock",
+          "description": "The Nimly lock. Not needed when only one lock is set up."
+        },
+        "device_id": {
+          "name": "Device",
+          "description": "The lock's device (this integration's or ZHA's). Not needed when only one lock is set up."
+        },
+        "slot": {
+          "name": "Slot",
+          "description": "The slot to enroll or remove."
+        },
+        "credential": {
+          "name": "Kind",
+          "description": "rfid for a key tag, fingerprint for a finger."
+        }
+      }
     }
   },
   "selector": {
@@ -314,6 +446,34 @@
         "rfid": "Key tag",
         "fingerprint": "Fingerprint"
       }
+    },
+    "weekday": {
+      "options": {
+        "mon": "Monday",
+        "tue": "Tuesday",
+        "wed": "Wednesday",
+        "thu": "Thursday",
+        "fri": "Friday",
+        "sat": "Saturday",
+        "sun": "Sunday"
+      }
+    },
+    "physical_credential": {
+      "options": {
+        "rfid": "Key tag",
+        "fingerprint": "Fingerprint"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "locked": "Locked by a person",
+      "unlocked": "Unlocked by a person",
+      "unlocked_keypad": "Unlocked with a code",
+      "unlocked_rfid": "Unlocked with a key tag",
+      "unlocked_fingerprint": "Unlocked with a fingerprint",
+      "unlocked_remotely": "Unlocked from Home Assistant",
+      "auto_relocked": "Locked automatically"
     }
   }
 }

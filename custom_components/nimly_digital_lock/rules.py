@@ -7,11 +7,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, time, timedelta
 import re
+import secrets
 
 from .const import (
     CREDENTIAL_SOURCES,
     DEFAULT_RESERVED_SLOTS,
+    MAX_NAME_LENGTH,
     MAX_SLOT,
     PIN_LENGTH_FALLBACK,
     PIN_LENGTH_SANE,
@@ -156,6 +159,69 @@ def is_valid_pin(code: str, capabilities: Mapping[str, int]) -> bool:
     """Whether code is ASCII digits within the lock's length range."""
     low, high = pin_length_range(capabilities)
     return code.isascii() and code.isdigit() and low <= len(code) <= high
+
+
+@dataclass(frozen=True, slots=True)
+class ParentLink:
+    """The router the lock talks through (attribute 0x0103)."""
+
+    nwk: int
+    rssi_dbm: int
+
+
+def decode_diagnostics(value: int) -> ParentLink | None:
+    """Decode 0x0103: bits 0-15 parent NWK, 16-23 RSSI, 24-31 RSSI in dBm (signed)."""
+    if not 0 < value <= 0xFFFFFFFF:
+        return None
+    dbm = (value >> 24) & 0xFF
+    return ParentLink(nwk=value & 0xFFFF, rssi_dbm=dbm - 256 if dbm > 127 else dbm)
+
+
+def next_window(
+    now: datetime, days: frozenset[int], start: time, end: time
+) -> tuple[datetime, datetime] | None:
+    """The weekly window that contains now, else the next one.
+
+    now is aware and in the local time zone; days are weekdays (Monday 0).
+    A window whose end is not after its start runs past midnight, and
+    belongs to the day it starts on.
+    """
+    if not days:
+        return None
+    zone = now.tzinfo
+    for offset in range(-1, 8):
+        day = now.date() + timedelta(days=offset)
+        if day.weekday() not in days:
+            continue
+        begins = datetime.combine(day, start, tzinfo=zone)
+        end_day = day if end > start else day + timedelta(days=1)
+        ends = datetime.combine(end_day, end, tzinfo=zone)
+        if ends > now:
+            return begins, ends
+    return None
+
+
+def generate_pin(capabilities: Mapping[str, int], length: int | None = None) -> str:
+    """A random PIN the lock accepts, avoiding the codes people guess first."""
+    low, high = pin_length_range(capabilities)
+    size = max(low, min(high, length or max(low, 6)))
+    while True:
+        code = "".join(secrets.choice("0123456789") for _ in range(size))
+        if not _guessable(code):
+            return code
+
+
+def _guessable(code: str) -> bool:
+    """All one digit, or a straight run up or down (1234, 9876)."""
+    if len(set(code)) == 1:
+        return True
+    steps = {(int(b) - int(a)) % 10 for a, b in zip(code, code[1:], strict=False)}
+    return steps in ({1}, {9})
+
+
+def clean_name(name: object) -> str:
+    """A slot name as stored: text, trimmed, at most MAX_NAME_LENGTH characters."""
+    return str(name).strip()[:MAX_NAME_LENGTH]
 
 
 def redact_digits(text: object) -> str:

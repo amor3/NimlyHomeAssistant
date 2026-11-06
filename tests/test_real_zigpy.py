@@ -68,6 +68,16 @@ class RealLock:
     write_status: bytes = b"\x00"
     fail_delivery: int = 0
 
+    def commands(self) -> list[bytes]:
+        """Frames sent that were not attribute reads (background traffic)."""
+        result = []
+        for data in self.sent:
+            header, _ = foundation.ZCLHeader.deserialize(data)
+            if header.frame_control.is_general and header.command_id == 0x00:
+                continue
+            result.append(data)
+        return result
+
     def frame(self, payload: bytes, cluster_id: int = 0x0101) -> None:
         """Deliver a ZCL frame from the lock."""
         self.device.packet_received(
@@ -136,7 +146,10 @@ def real_lock(request: pytest.FixtureRequest) -> RealLock:
                     int.from_bytes(payload[i : i + 2], "little") for i in range(0, len(payload), 2)
                 ]
                 known = lock.reads.get(cluster_id, {})
-                if records := b"".join(known[a] for a in asked if a in known):
+                # An attribute the lock does not have: UNSUPPORTED_ATTRIBUTE.
+                if records := b"".join(
+                    known.get(a, a.to_bytes(2, "little") + b"\x86") for a in asked
+                ):
                     loop.call_soon(
                         lock.frame, bytes([0x18, header.tsn, 0x01]) + records, cluster_id
                     )
@@ -200,7 +213,7 @@ async def test_set_pin_bytes_match_the_specification(
     await hass.services.async_call(
         DOMAIN, NimlyService.SET_PIN, {"slot": 6, "pin_code": "123456"}, blocking=True
     )
-    [frame] = real_lock.sent
+    [frame] = real_lock.commands()
     header, payload = foundation.ZCLHeader.deserialize(frame)
     assert header.command_id == 0x05
     assert not header.frame_control.is_manufacturer_specific
@@ -213,7 +226,7 @@ async def test_clear_pin_bytes(
 ) -> None:
     real_lock.sent.clear()
     await hass.services.async_call(DOMAIN, NimlyService.CLEAR_PIN, {"slot": 300}, blocking=True)
-    [frame] = real_lock.sent
+    [frame] = real_lock.commands()
     header, payload = foundation.ZCLHeader.deserialize(frame)
     assert header.command_id == 0x07
     assert payload == bytes.fromhex("2c01")  # 300, little endian
@@ -333,7 +346,7 @@ async def test_fallback_settings_on_the_wire(
         blocking=True,
     )
     payloads = []
-    for frame in real_lock.sent:
+    for frame in real_lock.commands():
         header, payload = foundation.ZCLHeader.deserialize(frame)
         assert header.command_id == foundation.GeneralCommand.Write_Attributes
         payloads.append(payload)
@@ -379,3 +392,53 @@ async def test_battery_never_shows_the_quirk_doubled_value(
     real_lock.report(0x0021, 0x20, bytes([42]), cluster_id=0x0001)
     await hass.async_block_till_done()
     assert hass.states.get("sensor.nimlypro_activity_battery").state in ("42", "87")
+
+
+@pytest.mark.parametrize(
+    ("service", "data", "command", "payload"),
+    [
+        # Spec examples: "zcl cmd <ieee> 11 0x0101 -p 0x0104 0x70 -l 0600" etc.
+        (NimlyService.ENROLL_CREDENTIAL, {"slot": 6, "credential": "rfid"}, 0x70, "0600"),
+        (NimlyService.ENROLL_CREDENTIAL, {"slot": 6, "credential": "fingerprint"}, 0x71, "0600"),
+        (NimlyService.REMOVE_CREDENTIAL, {"slot": 6, "credential": "fingerprint"}, 0x72, "0600"),
+        (NimlyService.REMOVE_CREDENTIAL, {"slot": 6, "credential": "rfid"}, 0x18, "0600"),
+    ],
+)
+async def test_credential_commands_on_the_wire(
+    hass: HomeAssistant,
+    real_integration: MockConfigEntry,
+    real_lock: RealLock,
+    service: str,
+    data: dict[str, Any],
+    command: int,
+    payload: str,
+) -> None:
+    for module_command in (0x70, 0x71, 0x72):
+        real_lock.answers[module_command] = None  # sent without waiting for an answer
+    real_lock.sent.clear()
+    await hass.services.async_call(DOMAIN, service, data, blocking=True)
+    [frame] = real_lock.commands()
+    header, body = foundation.ZCLHeader.deserialize(frame)
+    assert header.frame_control.is_cluster
+    assert not header.frame_control.is_manufacturer_specific
+    assert header.command_id == command
+    assert body == bytes.fromhex(payload)
+
+
+@pytest.mark.parametrize(("turn", "command"), [("turn_off", 0x73), ("turn_on", 0x74)])
+async def test_keypad_programming_on_the_wire(
+    hass: HomeAssistant,
+    real_integration: MockConfigEntry,
+    real_lock: RealLock,
+    turn: str,
+    command: int,
+) -> None:
+    real_lock.answers[command] = None
+    real_lock.sent.clear()
+    await hass.services.async_call(
+        "switch", turn, {"entity_id": "switch.nimlypro_activity_keypad_programming"}, blocking=True
+    )
+    [frame] = real_lock.commands()
+    header, body = foundation.ZCLHeader.deserialize(frame)
+    assert header.command_id == command
+    assert body == b""

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time as dt_time, timedelta
 import logging
 import time
 from typing import Any, TypedDict
@@ -25,12 +26,21 @@ from homeassistant.util import dt as dt_util
 from . import rules
 from .const import (
     ATTR_ID_AUTO_RELOCK,
+    ATTR_ID_BATTERY_LOW,
     ATTR_ID_BATTERY_PERCENT,
+    ATTR_ID_DIAGNOSTICS,
     ATTR_ID_EVENT_STATUS,
     ATTR_ID_LOCK_STATE,
     ATTR_ID_PIN_USED,
+    ATTR_ID_RFID_USED,
     ATTR_ID_SOUND_VOLUME,
+    CMD_CLEAR_FINGERPRINT,
     CMD_CLEAR_PIN,
+    CMD_CLEAR_RFID,
+    CMD_KEYPAD_PROGRAMMING_OFF,
+    CMD_KEYPAD_PROGRAMMING_ON,
+    CMD_SCAN_FINGERPRINT,
+    CMD_SCAN_RFID,
     CMD_SET_PIN,
     CONF_IEEE,
     CONF_RESERVED_SLOTS,
@@ -45,6 +55,7 @@ from .const import (
     ISSUE_EVENTS_MISSING,
     ISSUE_EXPIRED_PIN,
     ISSUE_ZHA_INTERNALS,
+    MAX_FINGERPRINT_SLOT,
     MAX_SLOT,
     POWER_CLUSTER_ID,
     STORAGE_VERSION,
@@ -67,6 +78,7 @@ _LOGGER = logging.getLogger(__name__)
 CLUSTER_CHECK_INTERVAL = timedelta(seconds=60)
 # How long to wait before trying again to clear an expired PIN code.
 EXPIRY_RETRY_S = 600
+MAX_RETRY_S = 6 * 3600
 # A Zigbee report this soon after a lock/unlock from Home Assistant answers it.
 REMOTE_WINDOW_S = 20.0
 # NimlyPRO has been seen answering commands with 0x0A (auto), Code Pro with
@@ -75,6 +87,8 @@ REMOTE_SOURCES = frozenset({LockSource.ZIGBEE, LockSource.UNATTRIBUTED, LockSour
 # An operation report should follow a lock state change within this time.
 REPORT_GAP_S = 15
 MISSED_REPORTS_FOR_ISSUE = 3
+# How many raw reports diagnostics keep.
+RECENT_REPORTS = 20
 
 
 class SlotData(TypedDict):
@@ -117,6 +131,7 @@ class LockActivity:
     # The Home Assistant user whose lock/unlock this report answers.
     ha_user: str | None = None
     context: Context | None = None
+    remote: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -125,6 +140,9 @@ class LockActivity:
             "slot": self.event.slot,
             "user": self.user,
             "ha_user": self.ha_user,
+            # True when the report answers a lock/unlock asked for in Home
+            # Assistant (whatever source byte the model reports for it).
+            "remote": self.remote,
             "system": self.system,
         }
 
@@ -137,6 +155,84 @@ def to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         value = value.replace(tzinfo=dt_util.get_default_time_zone())
     return dt_util.as_utc(value)
+
+
+def retry_delay(attempt: int) -> float:
+    """Seconds before a retry: 10 minutes, doubling, at most 6 hours."""
+    return float(min(EXPIRY_RETRY_S * 2 ** (attempt - 1), MAX_RETRY_S))
+
+
+@dataclass(frozen=True, slots=True)
+class PinSchedule:
+    """A code to write later (start) or in weekly windows (days and times).
+
+    Times are aware UTC; weekly windows are in Home Assistant's local time.
+    """
+
+    code: str
+    name: str | None = None
+    start: datetime | None = None
+    until: datetime | None = None
+    days: frozenset[int] = frozenset()
+    time_from: dt_time | None = None
+    time_to: dt_time | None = None
+
+    @property
+    def recurring(self) -> bool:
+        return bool(self.days)
+
+    def window(self, now: datetime) -> tuple[datetime, datetime | None] | None:
+        """The window containing now or the next one, in UTC."""
+        if not self.recurring:
+            begins = self.start or now
+            return begins, self.until
+        assert self.time_from is not None and self.time_to is not None
+        local_now = dt_util.as_local(max(now, self.start) if self.start else now)
+        if (found := rules.next_window(local_now, self.days, self.time_from, self.time_to)) is None:
+            return None
+        begins, ends = (dt_util.as_utc(found[0]), dt_util.as_utc(found[1]))
+        if self.until is not None:
+            if begins >= self.until:
+                return None
+            ends = min(ends, self.until)
+        return begins, ends
+
+    def summary(self) -> dict[str, Any]:
+        """For attributes and diagnostics: never the code."""
+        return {
+            "start": self.start.isoformat() if self.start else None,
+            "until": self.until.isoformat() if self.until else None,
+            "days": sorted(self.days),
+            "from": self.time_from.isoformat(timespec="minutes") if self.time_from else None,
+            "to": self.time_to.isoformat(timespec="minutes") if self.time_to else None,
+        }
+
+    def to_store(self) -> dict[str, Any]:
+        return {"code": self.code, "name": self.name, **self.summary()}
+
+    @classmethod
+    def from_store(cls, data: dict[str, Any]) -> PinSchedule:
+        def _when(value: Any) -> datetime | None:
+            return dt_util.parse_datetime(value) if value else None
+
+        def _clock(value: Any) -> dt_time | None:
+            return dt_time.fromisoformat(value) if value else None
+
+        code = str(data["code"])
+        if not (code.isascii() and code.isdigit()):
+            raise ValueError("bad code")
+        days = data.get("days") or ()
+        if days and not (data.get("from") and data.get("to")):
+            raise ValueError("weekly schedule without times")
+        return cls(
+            code=code,
+            name=data.get("name"),
+            start=_when(data.get("start")),
+            until=_when(data.get("until")),
+            days=frozenset(int(day) for day in data.get("days") or ()),
+            time_from=_clock(data.get("from")),
+            time_to=_clock(data.get("to")),
+        )
 
 
 def lock_store(hass: HomeAssistant, entry: ConfigEntry) -> Store[dict[str, Any]]:
@@ -163,6 +259,13 @@ class NimlyLockManager:
         # Door Lock attribute id -> value, for the fallback entities.
         self.settings: dict[int, int] = {}
         self.battery: int | None = None
+        self.battery_low: bool | None = None
+        self.parent: rules.ParentLink | None = None
+        self.recent_reports: deque[dict[str, str]] = deque(maxlen=RECENT_REPORTS)
+        # Last keypad programming command sent; the lock cannot be asked.
+        self.keypad_programming: bool | None = None
+        # (cluster, attribute) the lock answered "unsupported" for.
+        self._unsupported: set[tuple[int, int]] = set()
         self._settings_task: asyncio.Task[None] | None = None
         self._power_unsubscribe: Callable[[], None] | None = None
         self.listening = False
@@ -175,6 +278,8 @@ class NimlyLockManager:
         self._report_gap_timer: CALLBACK_TYPE | None = None
         self.missed_reports = 0
         self._expiry_timers: dict[int, CALLBACK_TYPE] = {}
+        self._schedules: dict[int, PinSchedule] = {}
+        self._schedule_timers: dict[int, CALLBACK_TYPE] = {}
         self._listeners: list[Callable[[], None]] = []
         self._event_listeners: list[Callable[[LockActivity], None]] = []
         self._slot_label = "Slot {slot}"
@@ -190,22 +295,41 @@ class NimlyLockManager:
             f"component.{DOMAIN}.exceptions.slot_fallback.message", "Slot {slot}"
         )
         data = await self._store.async_load() or {}
-        self._slots = {
-            str(key): SlotData(
-                name=str(value.get("name", "")),
-                has_pin=bool(value.get("has_pin")),
-                expires=value.get("expires") if value.get("has_pin") else None,
-                names={
-                    str(kind): str(name)
-                    for kind, name in (value.get("names") or {}).items()
-                    if kind in CREDENTIAL_KINDS and name
-                },
-            )
-            for key, value in data.get("slots", {}).items()
-        }
+        if not isinstance(data, dict):
+            _LOGGER.warning("Stored data for %s is not readable; starting empty", self.ieee)
+            data = {}
+        self._slots = {}
+        for key, value in (data.get("slots") or {}).items():
+            # A hand-edited or damaged record is skipped, not fatal.
+            try:
+                slot = int(key)
+                self._slots[str(slot)] = self._parse_slot(value)
+            except (TypeError, ValueError, AttributeError):
+                _LOGGER.warning("Skipping unreadable stored slot %r for %s", key, self.ieee)
         if isinstance(caps := data.get("capabilities"), dict):
-            self.capabilities = {k: int(v) for k, v in caps.items()}
-            self.capabilities_read = True
+            try:
+                self.capabilities = {str(k): int(v) for k, v in caps.items()}
+                self.capabilities_read = True
+            except (TypeError, ValueError):
+                self.capabilities = {}
+        self._load_schedules(data.get("schedules"))
+        if isinstance(keypad := data.get("keypad_programming"), bool):
+            self.keypad_programming = keypad
+
+    @staticmethod
+    def _parse_slot(value: Any) -> SlotData:
+        has_pin = bool(value.get("has_pin"))
+        expires = value.get("expires") if has_pin else None
+        return SlotData(
+            name=rules.clean_name(value.get("name", "")),
+            has_pin=has_pin,
+            expires=str(expires) if expires else None,
+            names={
+                str(kind): rules.clean_name(name)
+                for kind, name in (value.get("names") or {}).items()
+                if kind in CREDENTIAL_KINDS and name
+            },
+        )
 
     @callback
     def _schedule_save(self) -> None:
@@ -217,6 +341,10 @@ class NimlyLockManager:
                 key: {**slot, "names": dict(slot["names"])} for key, slot in self._slots.items()
             },
             "capabilities": self.capabilities if self.capabilities_read else None,
+            # Holds the codes of scheduled slots until they are written; a
+            # one-off schedule is dropped (code and all) once it is.
+            "schedules": {str(slot): sch.to_store() for slot, sch in self._schedules.items()},
+            "keypad_programming": self.keypad_programming,
         }
 
     async def async_flush(self) -> None:
@@ -226,9 +354,10 @@ class NimlyLockManager:
     @callback
     def async_shutdown(self) -> None:
         """Cancel timers when the entry unloads."""
-        for cancel in self._expiry_timers.values():
+        for cancel in (*self._expiry_timers.values(), *self._schedule_timers.values()):
             cancel()
         self._expiry_timers.clear()
+        self._schedule_timers.clear()
         if self._report_gap_timer is not None:
             self._report_gap_timer()
             self._report_gap_timer = None
@@ -289,7 +418,7 @@ class NimlyLockManager:
         """Name a slot, or one credential kind on it; an empty name removes it."""
         key = str(slot)
         current = self._slots.get(key, _empty_slot())
-        name = name.strip()
+        name = rules.clean_name(name)
         if credential is None:
             current["name"] = name
         elif name:
@@ -321,6 +450,8 @@ class NimlyLockManager:
         for the slot is dropped.
         """
         self._check_writable(slot, self.max_user_slot)
+        # A code set by hand replaces any schedule for the slot.
+        self._drop_schedule(slot)
         # Shielded: a closed dialog cancels the caller, but a code that
         # reached the lock must still be recorded.
         return await asyncio.shield(self._async_set(slot, code, name, expires))
@@ -337,7 +468,7 @@ class NimlyLockManager:
                 current = self._slots.get(str(slot), _empty_slot())
                 current["has_pin"] = True
                 if name is not None:
-                    current["name"] = name.strip()
+                    current["name"] = rules.clean_name(name)
                 current["expires"] = dt_util.as_utc(expires).isoformat() if expires else None
                 self._slots[str(slot)] = current
                 self._schedule_expiry(slot)
@@ -352,6 +483,7 @@ class NimlyLockManager:
         code may have been written before the capacity was known.
         """
         self._check_writable(slot, MAX_SLOT)
+        self._drop_schedule(slot)
         return await asyncio.shield(self._async_clear(slot))
 
     async def _async_clear(self, slot: int) -> SendOutcome:
@@ -424,13 +556,14 @@ class NimlyLockManager:
             _LOGGER.info("Expired PIN code in slot %s on %s was cleared", slot, self.ieee)
             ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
             return
+        delay = retry_delay(attempt)
         _LOGGER.log(
             logging.WARNING if attempt <= 2 else logging.DEBUG,
             "Could not clear the expired PIN code in slot %s on %s (%s); retrying in %s min",
             slot,
             self.ieee,
             outcome.error_key,
-            EXPIRY_RETRY_S // 60,
+            round(delay / 60),
         )
         if attempt == 2:
             ir.async_create_issue(
@@ -456,7 +589,186 @@ class NimlyLockManager:
                 f"{DOMAIN} PIN expiry {self.ieee} {slot}",
             )
 
-        self._expiry_timers[slot] = async_call_later(self.hass, EXPIRY_RETRY_S, _retry)
+        self._expiry_timers[slot] = async_call_later(self.hass, delay, _retry)
+
+    # Key tags, fingerprints and the keypad (the module's own commands)
+
+    def credential_slot_range(self, kind: str) -> tuple[int, int]:
+        """Slots a tag or fingerprint can be enrolled in or removed from."""
+        highest = MAX_FINGERPRINT_SLOT if kind == "fingerprint" else MAX_SLOT
+        return self.first_user_slot, highest
+
+    async def async_enroll(self, slot: int, kind: str) -> SendOutcome:
+        """Start enrolment at the lock: present the tag or finger there next."""
+        low, high = self.credential_slot_range(kind)
+        if not low <= slot <= high:
+            raise ValueError(f"slot {slot} is outside {low}-{high}")
+        command = CMD_SCAN_RFID if kind == "rfid" else CMD_SCAN_FINGERPRINT
+        async with self._pin_lock:
+            outcome = await self.transport.send_custom(command, {"user_id": slot})
+        if outcome.lock_answered:
+            self.schedule_capability_refresh()
+        return outcome
+
+    async def async_remove_credential(self, slot: int, kind: str) -> SendOutcome:
+        """Remove a key tag (standard command) or fingerprint (the module's own)."""
+        low, high = self.credential_slot_range(kind)
+        if not low <= slot <= high:
+            raise ValueError(f"slot {slot} is outside {low}-{high}")
+        async with self._pin_lock:
+            if kind == "rfid":
+                outcome = await self._send(CMD_CLEAR_RFID, {"user_id": slot})
+            else:
+                outcome = await self.transport.send_custom(CMD_CLEAR_FINGERPRINT, {"user_id": slot})
+        return outcome
+
+    async def async_set_keypad_programming(self, enabled: bool) -> SendOutcome:
+        """Allow or forbid adding codes, tags and fingers at the keypad."""
+        command = CMD_KEYPAD_PROGRAMMING_ON if enabled else CMD_KEYPAD_PROGRAMMING_OFF
+        async with self._pin_lock:
+            outcome = await self.transport.send_custom(command, {})
+        if outcome.delivered:
+            # The lock cannot be asked, so the last command sent is the state.
+            self.keypad_programming = enabled
+            self._schedule_save()
+            self.async_update_listeners()
+        return outcome
+
+    # Scheduled PIN codes
+
+    @property
+    def schedules(self) -> dict[int, PinSchedule]:
+        return dict(self._schedules)
+
+    def _load_schedules(self, raw: Any) -> None:
+        self._schedules = {}
+        for key, value in (raw or {}).items() if isinstance(raw, dict) else ():
+            try:
+                self._schedules[int(key)] = PinSchedule.from_store(value)
+            except (TypeError, ValueError, KeyError, AttributeError):
+                _LOGGER.warning("Skipping unreadable PIN schedule %r for %s", key, self.ieee)
+
+    async def async_schedule_pin(self, slot: int, schedule: PinSchedule) -> SendOutcome | None:
+        """Write a PIN code later, or in weekly windows.
+
+        Returns the outcome when the code was written right away (the start
+        has passed, or a window is open now), or None when it waits.
+        """
+        self._check_writable(slot, self.max_user_slot)
+        self._drop_schedule(slot)
+        self._schedules[slot] = schedule
+        current = self._slots.get(str(slot), _empty_slot())
+        if schedule.name is not None:
+            current["name"] = rules.clean_name(schedule.name)
+            self._slots[str(slot)] = current
+        self._schedule_save()
+        self.async_update_listeners()
+        return await asyncio.shield(self._async_activate(slot))
+
+    @callback
+    def async_arm_schedules(self) -> None:
+        """Arm every stored schedule after a restart."""
+        for slot in list(self._schedules):
+            self.entry.async_create_background_task(
+                self.hass, self._async_activate(slot), f"{DOMAIN} PIN schedule {self.ieee} {slot}"
+            )
+
+    @callback
+    def _drop_schedule(self, slot: int) -> None:
+        if (cancel := self._schedule_timers.pop(slot, None)) is not None:
+            cancel()
+        if self._schedules.pop(slot, None) is not None:
+            self._schedule_save()
+            self.async_update_listeners()
+
+    @callback
+    def _arm_schedule(self, slot: int, when: datetime, attempt: int = 1) -> None:
+        if (cancel := self._schedule_timers.pop(slot, None)) is not None:
+            cancel()
+
+        @callback
+        def _due(_now: datetime) -> None:
+            self._schedule_timers.pop(slot, None)
+            self.entry.async_create_background_task(
+                self.hass,
+                self._async_activate(slot, attempt),
+                f"{DOMAIN} PIN schedule {self.ieee} {slot}",
+            )
+
+        self._schedule_timers[slot] = async_track_point_in_utc_time(
+            self.hass, _due, max(when, dt_util.utcnow())
+        )
+
+    async def _async_activate(self, slot: int, attempt: int = 1) -> SendOutcome | None:
+        """Write the scheduled code if its time has come; arm the next step."""
+        if (schedule := self._schedules.get(slot)) is None:
+            return None
+        now = dt_util.utcnow()
+        if schedule.until is not None and now >= schedule.until:
+            _LOGGER.info("PIN schedule for slot %s on %s has ended", slot, self.ieee)
+            self._drop_schedule(slot)
+            return None
+        window = schedule.window(now)
+        if window is None:
+            self._drop_schedule(slot)
+            return None
+        begins, ends = window
+        if begins > now:
+            self._arm_schedule(slot, begins)
+            return None
+        if not self.first_user_slot <= slot <= self.max_user_slot:
+            # The slot became reserved (or the lock reported fewer users)
+            # after the schedule was made: never write a master slot.
+            _LOGGER.warning(
+                "Dropping the PIN schedule for slot %s on %s: the slot is no longer writable",
+                slot,
+                self.ieee,
+            )
+            self._drop_schedule(slot)
+            return None
+        outcome = await self._async_set(slot, schedule.code, schedule.name, ends)
+        if not outcome.delivered:
+            delay = retry_delay(attempt)
+            _LOGGER.warning(
+                "Could not write the scheduled PIN code to slot %s on %s (%s); retrying in %s min",
+                slot,
+                self.ieee,
+                outcome.error_key,
+                round(delay / 60),
+            )
+            retry_at = now + timedelta(seconds=delay)
+            if ends is None or retry_at < ends:
+                self._arm_schedule(slot, retry_at, attempt + 1)
+            elif schedule.recurring:
+                self._arm_after_window(slot, schedule, ends)
+            else:
+                # Too late to write before its end: drop it, code and all.
+                _LOGGER.warning(
+                    "The scheduled PIN code for slot %s on %s could not be written before "
+                    "its end and was dropped",
+                    slot,
+                    self.ieee,
+                )
+                self._drop_schedule(slot)
+            return outcome
+        if schedule.recurring and ends is not None:
+            self._arm_after_window(slot, schedule, ends)
+        else:
+            # Written: a one-off schedule (and the code it held) is gone.
+            self._schedules.pop(slot, None)
+            self._schedule_save()
+            self.async_update_listeners()
+        return outcome
+
+    @callback
+    def _arm_after_window(self, slot: int, schedule: PinSchedule, ends: datetime) -> None:
+        if (following := schedule.window(ends + timedelta(seconds=1))) is not None:
+            self._arm_schedule(slot, following[0])
+            return
+        # No window left: forget the schedule and the code it held. The code
+        # on the lock still expires with this last window.
+        _LOGGER.info("Last window of the PIN schedule for slot %s on %s", slot, self.ieee)
+        self._drop_schedule(slot)
 
     # Capabilities
 
@@ -517,10 +829,8 @@ class NimlyLockManager:
     def _subscribe(self, cluster: Any) -> None:
         self._unsubscribe = subscribe_attribute_reports(cluster, self._handle_report)
         self._cluster = cluster
-        if (
-            FEATURE_BATTERY in self.fallbacks
-            and (power := find_cluster(self.hass, self.ieee, POWER_CLUSTER_ID)) is not None
-        ):
+        # Always: battery low (0x9000) is the lock's own, not in ZHA's quirk.
+        if (power := find_cluster(self.hass, self.ieee, POWER_CLUSTER_ID)) is not None:
             # ZHA's quirk doubles the lock's percent; older zigpy hands the
             # listener that doubled value (newer zigpy hands the raw one).
             halve = "Doubling" in type(power).__name__ and not callable(
@@ -528,7 +838,11 @@ class NimlyLockManager:
             )
 
             def _power_report(attribute_id: int, raw: Any) -> None:
-                if halve and isinstance(raw, int | float):
+                if (
+                    halve
+                    and attribute_id == ATTR_ID_BATTERY_PERCENT
+                    and isinstance(raw, int | float)
+                ):
                     raw = int(raw) // 2
                 self._handle_power_report(attribute_id, raw)
 
@@ -626,15 +940,19 @@ class NimlyLockManager:
 
     @callback
     def _handle_report(self, attribute_id: int, raw: Any) -> None:
-        if attribute_id == ATTR_ID_PIN_USED:
-            # Carries the PIN in clear text; never stored or logged.
+        if attribute_id in (ATTR_ID_PIN_USED, ATTR_ID_RFID_USED):
+            # The code or tag in clear text; never stored or logged.
             return
+        self._remember_report(DOOR_LOCK_CLUSTER_ID, attribute_id, raw)
         self.schedule_capability_refresh()
         if attribute_id == ATTR_ID_LOCK_STATE:
             self._watch_report_gap(raw)
             return
         if attribute_id in (ATTR_ID_AUTO_RELOCK, ATTR_ID_SOUND_VOLUME):
             self._store_setting(attribute_id, raw)
+            return
+        if attribute_id == ATTR_ID_DIAGNOSTICS:
+            self._store_diagnostics(raw)
             return
         if attribute_id != ATTR_ID_EVENT_STATUS:
             return
@@ -651,7 +969,35 @@ class NimlyLockManager:
         self._report_arrived()
         self.handle_event(event)
 
+    @callback
+    def _remember_report(self, cluster_id: int, attribute_id: int, raw: Any) -> None:
+        """Keep the last reports for diagnostics, to check field behaviour."""
+        try:
+            value: int | str = int(raw)
+        except (TypeError, ValueError):
+            value = type(raw).__name__
+        self.recent_reports.append(
+            {
+                "time": dt_util.utcnow().isoformat(timespec="seconds"),
+                "cluster": f"0x{cluster_id:04x}",
+                "attribute": f"0x{attribute_id:04x}",
+                "value": f"0x{value:08x}" if isinstance(value, int) else value,
+            }
+        )
+
     # Settings and battery for what ZHA lacks
+
+    @callback
+    def _store_diagnostics(self, raw: Any) -> None:
+        """Attribute 0x0103: parent router address and the signal to it."""
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return
+        parent = rules.decode_diagnostics(value)
+        if parent != self.parent:
+            self.parent = parent
+            self.async_update_listeners()
 
     @callback
     def _store_setting(self, attribute_id: int, raw: Any) -> None:
@@ -665,6 +1011,16 @@ class NimlyLockManager:
 
     @callback
     def _handle_power_report(self, attribute_id: int, raw: Any) -> None:
+        self._remember_report(POWER_CLUSTER_ID, attribute_id, raw)
+        if attribute_id == ATTR_ID_BATTERY_LOW:
+            try:
+                low = bool(int(raw))
+            except (TypeError, ValueError):
+                return
+            if low != self.battery_low:
+                self.battery_low = low
+                self.async_update_listeners()
+            return
         if attribute_id != ATTR_ID_BATTERY_PERCENT:
             return
         try:
@@ -680,6 +1036,14 @@ class NimlyLockManager:
             self.async_update_listeners()
 
     def _settings_to_read(self) -> dict[int, list[int]]:
+        wanted = self._wanted_reads()
+        return {
+            cluster_id: kept
+            for cluster_id, ids in wanted.items()
+            if (kept := [a for a in ids if (cluster_id, a) not in self._unsupported])
+        }
+
+    def _wanted_reads(self) -> dict[int, list[int]]:
         wanted: dict[int, list[int]] = {}
         for feature, attribute_id in (
             (FEATURE_AUTO_RELOCK, ATTR_ID_AUTO_RELOCK),
@@ -687,17 +1051,27 @@ class NimlyLockManager:
         ):
             if feature in self.fallbacks and attribute_id not in self.settings:
                 wanted.setdefault(DOOR_LOCK_CLUSTER_ID, []).append(attribute_id)
+        if self.parent is None:
+            wanted.setdefault(DOOR_LOCK_CLUSTER_ID, []).append(ATTR_ID_DIAGNOSTICS)
         if FEATURE_BATTERY in self.fallbacks and self.battery is None:
-            wanted[POWER_CLUSTER_ID] = [ATTR_ID_BATTERY_PERCENT]
+            wanted.setdefault(POWER_CLUSTER_ID, []).append(ATTR_ID_BATTERY_PERCENT)
+        if self.battery_low is None:
+            wanted.setdefault(POWER_CLUSTER_ID, []).append(ATTR_ID_BATTERY_LOW)
         return wanted
 
     async def async_read_settings(self) -> None:
         """Read the values the fallback entities show, while the lock is awake."""
         for cluster_id, attribute_ids in self._settings_to_read().items():
-            values = await self.transport.read_attributes(cluster_id, attribute_ids)
+            values, answered = await self.transport.read_attributes(cluster_id, attribute_ids)
+            # Answered without a value: the lock lacks it; stop asking.
+            self._unsupported.update(
+                (cluster_id, attribute_id) for attribute_id in answered - set(values)
+            )
             for attribute_id, value in values.items():
                 if cluster_id == POWER_CLUSTER_ID:
                     self._handle_power_report(attribute_id, value)
+                elif attribute_id == ATTR_ID_DIAGNOSTICS:
+                    self._store_diagnostics(value)
                 else:
                     self._store_setting(attribute_id, value)
 
@@ -803,6 +1177,7 @@ class NimlyLockManager:
             and rules.is_system_event(event, self.transport.wake_echo_pending()),
             ha_user=remote.user if remote else None,
             context=remote.context if remote else None,
+            remote=remote is not None,
         )
         for handle in list(self._event_listeners):
             handle(activity)

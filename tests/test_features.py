@@ -391,7 +391,7 @@ async def test_refused_expiry_raises_repair_issue(
     await hass.async_block_till_done(wait_background_tasks=True)
     assert issues.async_get_issue(DOMAIN, issue_id) is None  # one refusal may be a blip
 
-    freezer.tick(timedelta(minutes=11))
+    freezer.tick(timedelta(minutes=11))  # first retry after 10 minutes
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
     issue = issues.async_get_issue(DOMAIN, issue_id)
@@ -399,7 +399,7 @@ async def test_refused_expiry_raises_repair_issue(
     assert issue.translation_placeholders["name"] == "Guest"
 
     fake_zha.cluster.command = AsyncMock(return_value=None)
-    freezer.tick(timedelta(minutes=11))
+    freezer.tick(timedelta(minutes=21))  # then after 20: the delay doubles
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert issues.async_get_issue(DOMAIN, issue_id) is None

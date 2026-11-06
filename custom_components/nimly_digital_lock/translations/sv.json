@@ -34,8 +34,11 @@
         "title": "Hantera låset",
         "menu_options": {
           "set_pin": "Ange PIN-kod",
+          "schedule_pin": "PIN-kod per veckodag",
           "clear_pin": "Ta bort PIN-kod",
           "name_slot": "Namnge en plats",
+          "enroll_credential": "Registrera bricka eller fingeravtryck",
+          "remove_credential": "Ta bort bricka eller fingeravtryck",
           "settings": "Inställningar"
         }
       },
@@ -46,10 +49,13 @@
           "slot": "Plats",
           "name": "Namn",
           "pin_code": "PIN-kod",
-          "valid_until": "Giltig till"
+          "valid_until": "Giltig till",
+          "valid_from": "Giltig från"
         },
         "data_description": {
-          "valid_until": "Valfritt. Koden tas bort från låset vid den här tidpunkten. Lämna tomt för en permanent kod."
+          "valid_until": "Valfritt. Koden tas bort från låset vid den här tidpunkten. Lämna tomt för en permanent kod.",
+          "valid_from": "Valfritt. Koden skrivs till låset vid den här tidpunkten. Fram till dess sparas den i Home Assistants lagring.",
+          "pin_code": "Lämna tomt för att få en kod genererad; den visas en gång."
         }
       },
       "clear_pin": {
@@ -80,6 +86,49 @@
           "reserved_slots": "Hur många platser från 0 som har masterkoder. Home Assistant skriver aldrig en PIN-kod till dem.",
           "wake_with_lock": "När ett kommando får timeout skickas ett låskommando via ZHA för att väcka radion innan nytt försök. Det rör regeln: en öppen dörr låses."
         }
+      },
+      "schedule_pin": {
+        "title": "PIN-kod per veckodag",
+        "description": "Koden fungerar de valda dagarna mellan de två tiderna, till exempel för en städare. Home Assistant skriver den till låset när varje fönster öppnar och tar bort den när det stänger, och sparar därför koden i sin lagring så länge schemat gäller.",
+        "data": {
+          "slot": "Plats",
+          "name": "Namn",
+          "pin_code": "PIN-kod",
+          "weekdays": "Dagar",
+          "start_time": "Från",
+          "end_time": "Till",
+          "valid_from": "Första dag",
+          "valid_until": "Sista dag"
+        },
+        "data_description": {
+          "pin_code": "Lämna tomt för att få en kod genererad; den visas en gång.",
+          "valid_from": "Valfritt. Schemat börjar det här datumet.",
+          "valid_until": "Valfritt. Schemat och koden upphör vid den här tidpunkten."
+        }
+      },
+      "pin_generated": {
+        "title": "Ny PIN-kod",
+        "description": "Koden för plats {slot} är **{pin}**. Anteckna den nu: den visas inte igen."
+      },
+      "enroll_credential": {
+        "title": "Registrera bricka eller fingeravtryck",
+        "description": "Experimentellt: använder Zigbee-modulens egna kommandon, ännu inte bekräftade på alla lås. Låset ombeds skanna; därefter visar du brickan eller fingret vid låset.",
+        "data": {
+          "credential": "Typ",
+          "slot": "Plats"
+        }
+      },
+      "enroll_started": {
+        "title": "Visa den vid låset",
+        "description": "Låset skannar för plats {slot} ({kind}). Håll brickan mot läsaren eller lägg fingret på sensorn nu, som låsets manual beskriver. Namnge platsen efteråt så att händelser visar vem det är."
+      },
+      "remove_credential": {
+        "title": "Ta bort bricka eller fingeravtryck",
+        "description": "Tar bort brickan eller fingeravtrycket på en plats från låset. Fingeravtryck använder experimentella kommandon.",
+        "data": {
+          "credential": "Typ",
+          "slot": "Plats"
+        }
       }
     },
     "error": {
@@ -89,7 +138,10 @@
       "lock_rejected": "Låset avvisade kommandot.",
       "lock_rejected_duplicate": "Låset avvisade koden: den används redan.",
       "lock_rejected_memory_full": "Låset avvisade koden: minnet är fullt.",
-      "expiry_in_past": "Sluttiden måste ligga i framtiden."
+      "expiry_in_past": "Sluttiden måste ligga i framtiden.",
+      "name_too_long": "Namnet är för långt (högst 64 tecken).",
+      "end_before_start": "Slutet måste ligga efter starten.",
+      "empty_window": "Från och Till kan inte vara samma tid."
     },
     "abort": {
       "no_pin_codes": "Ingen plats har en PIN-kod satt från Home Assistant."
@@ -146,6 +198,9 @@
       },
       "battery": {
         "name": "Batteri"
+      },
+      "parent_router": {
+        "name": "Förälderrouter"
       }
     },
     "select": {
@@ -161,6 +216,14 @@
     "switch": {
       "auto_relock": {
         "name": "Automatisk omlåsning"
+      },
+      "keypad_programming": {
+        "name": "Programmering på knappsatsen"
+      }
+    },
+    "binary_sensor": {
+      "battery_low": {
+        "name": "Lågt batteri"
       }
     }
   },
@@ -206,6 +269,15 @@
     },
     "slot_fallback": {
       "message": "Plats {slot}"
+    },
+    "generate_needs_response": {
+      "message": "Ange en PIN-kod, eller anropa åtgärden med svar för att få en genererad."
+    },
+    "end_before_start": {
+      "message": "Slutet måste ligga efter starten."
+    },
+    "empty_window": {
+      "message": "start_time och end_time kan inte vara samma."
     }
   },
   "issues": {
@@ -241,7 +313,7 @@
         },
         "pin_code": {
           "name": "PIN-kod",
-          "description": "Endast siffror, den längd låset accepterar (oftast 4-8)."
+          "description": "Endast siffror, den längd låset accepterar. Utelämna för att få en kod genererad och returnerad i svaret."
         },
         "name": {
           "name": "Namn",
@@ -258,6 +330,22 @@
         "device_id": {
           "name": "Enhet",
           "description": "Låsets enhet (den här integrationens eller ZHA:s). Behövs inte när bara ett lås är konfigurerat."
+        },
+        "valid_from": {
+          "name": "Giltig från",
+          "description": "Skriv koden vid den här tidpunkten i stället för nu (den sparas i Home Assistant fram till dess)."
+        },
+        "weekdays": {
+          "name": "Veckodagar",
+          "description": "Dagar då koden fungerar; med starttid och sluttid blir det ett veckoschema."
+        },
+        "start_time": {
+          "name": "Starttid",
+          "description": "När koden börjar fungera de dagarna."
+        },
+        "end_time": {
+          "name": "Sluttid",
+          "description": "När koden slutar fungera de dagarna."
         }
       }
     },
@@ -304,6 +392,50 @@
           "description": "Namnge bara den här typen på platsen (pin, rfid eller fingerprint). Utelämna för att namnge platsen för alla typer."
         }
       }
+    },
+    "enroll_credential": {
+      "name": "Registrera bricka eller fingeravtryck",
+      "description": "Experimentellt. Ber låset skanna en bricka eller ett fingeravtryck för en plats; visa den vid låset direkt efteråt.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låset. Behövs inte när bara ett lås är konfigurerat."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsets enhet (den här integrationens eller ZHA:s). Behövs inte när bara ett lås är konfigurerat."
+        },
+        "slot": {
+          "name": "Plats",
+          "description": "Platsen som ska registreras eller tas bort."
+        },
+        "credential": {
+          "name": "Typ",
+          "description": "rfid för en bricka, fingerprint för ett finger."
+        }
+      }
+    },
+    "remove_credential": {
+      "name": "Ta bort bricka eller fingeravtryck",
+      "description": "Tar bort brickan eller fingeravtrycket på en plats från låset (fingeravtryck: experimentellt).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Lås",
+          "description": "Nimly-låset. Behövs inte när bara ett lås är konfigurerat."
+        },
+        "device_id": {
+          "name": "Enhet",
+          "description": "Låsets enhet (den här integrationens eller ZHA:s). Behövs inte när bara ett lås är konfigurerat."
+        },
+        "slot": {
+          "name": "Plats",
+          "description": "Platsen som ska registreras eller tas bort."
+        },
+        "credential": {
+          "name": "Typ",
+          "description": "rfid för en bricka, fingerprint för ett finger."
+        }
+      }
     }
   },
   "selector": {
@@ -314,6 +446,34 @@
         "rfid": "Nyckelbricka",
         "fingerprint": "Fingeravtryck"
       }
+    },
+    "weekday": {
+      "options": {
+        "mon": "Måndag",
+        "tue": "Tisdag",
+        "wed": "Onsdag",
+        "thu": "Torsdag",
+        "fri": "Fredag",
+        "sat": "Lördag",
+        "sun": "Söndag"
+      }
+    },
+    "physical_credential": {
+      "options": {
+        "rfid": "Nyckelbricka",
+        "fingerprint": "Fingeravtryck"
+      }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "locked": "Låst av en person",
+      "unlocked": "Upplåst av en person",
+      "unlocked_keypad": "Upplåst med kod",
+      "unlocked_rfid": "Upplåst med nyckelbricka",
+      "unlocked_fingerprint": "Upplåst med fingeravtryck",
+      "unlocked_remotely": "Upplåst från Home Assistant",
+      "auto_relocked": "Automatiskt låst"
     }
   }
 }

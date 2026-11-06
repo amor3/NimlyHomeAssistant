@@ -43,6 +43,8 @@ class FakeDoorLockCluster:
     read_attributes: AsyncMock = field(default_factory=AsyncMock)
     listeners: list[Callable[[Any], None]] = field(default_factory=list)
 
+    # The module's own commands go out through request().
+    request: AsyncMock = field(default_factory=lambda: AsyncMock(return_value=None))
     write_attributes: AsyncMock = field(
         default_factory=lambda: AsyncMock(return_value=[[SimpleNamespace(status=0)]])
     )

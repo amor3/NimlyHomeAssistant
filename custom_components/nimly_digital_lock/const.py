@@ -47,9 +47,16 @@ ATTR_ID_EVENT_STATUS: Final = 0x0100
 # 0x0101 "PIN Used" carries the last typed PIN code in clear text. It is
 # never read and its reports are dropped.
 ATTR_ID_PIN_USED: Final = 0x0101
+# 0x0102 "RFID Used" carries the last tag's id; dropped the same way.
+ATTR_ID_RFID_USED: Final = 0x0102
+# 0x0103 "Diagnostics Data": parent router NWK, RSSI, RSSI in dBm.
+ATTR_ID_DIAGNOSTICS: Final = 0x0103
 
 # Power Configuration: the lock reports percent (0-100), not ZCL half-percent.
 ATTR_ID_BATTERY_PERCENT: Final = 0x0021
+# Manufacturer battery low flag (0 or 1), reported.
+ATTR_ID_BATTERY_LOW: Final = 0x9000
+MAX_NAME_LENGTH: Final = 64
 
 # What ZHA normally provides through its Nimly quirk; the integration adds
 # its own entity only for what ZHA lacks.
@@ -62,6 +69,15 @@ SOUND_VOLUME_OPTIONS: Final = ("off", "low", "normal")
 # Door Lock cluster server commands.
 CMD_SET_PIN: Final = 0x05
 CMD_CLEAR_PIN: Final = 0x07
+CMD_CLEAR_RFID: Final = 0x18
+# The module's own commands (Safe4 specification); unconfirmed on hardware.
+CMD_SCAN_RFID: Final = 0x70
+CMD_SCAN_FINGERPRINT: Final = 0x71
+CMD_CLEAR_FINGERPRINT: Final = 0x72
+CMD_KEYPAD_PROGRAMMING_OFF: Final = 0x73
+CMD_KEYPAD_PROGRAMMING_ON: Final = 0x74
+# Fingerprints are numbered 000-199 on the models with a reader.
+MAX_FINGERPRINT_SLOT: Final = 199
 
 # Slot layout: slot 0 is the master code on every model, and the Safe4
 # specification reserves the first slots for master codes. User slots start
@@ -123,6 +139,8 @@ class NimlyService(StrEnum):
     SET_PIN = "set_pin"
     CLEAR_PIN = "clear_pin"
     SET_SLOT_NAME = "set_slot_name"
+    ENROLL_CREDENTIAL = "enroll_credential"
+    REMOVE_CREDENTIAL = "remove_credential"
 
 
 class NimlyServiceArgument(StrEnum):
@@ -135,3 +153,7 @@ class NimlyServiceArgument(StrEnum):
     VALID_UNTIL = "valid_until"
     VALID_FOR = "valid_for"
     CREDENTIAL = "credential"
+    VALID_FROM = "valid_from"
+    WEEKDAYS = "weekdays"
+    START_TIME = "start_time"
+    END_TIME = "end_time"

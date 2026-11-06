@@ -37,6 +37,16 @@ async def async_get_config_entry_diagnostics(
         "fallbacks": sorted(manager.fallbacks),
         "settings": {f"0x{key:04x}": value for key, value in manager.settings.items()},
         "battery": manager.battery,
+        "battery_low": manager.battery_low,
+        "parent": (
+            {"nwk": f"0x{manager.parent.nwk:04x}", "rssi_dbm": manager.parent.rssi_dbm}
+            if manager.parent
+            else None
+        ),
+        "keypad_programming": manager.keypad_programming,
+        "schedules": {str(slot): sch.summary() for slot, sch in manager.schedules.items()},
+        # The last raw reports (no codes or tags), to check field behaviour.
+        "recent_reports": list(manager.recent_reports),
         "missed_reports": manager.missed_reports,
         "capabilities": manager.capabilities,
         "capabilities_read": manager.capabilities_read,
