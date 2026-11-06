@@ -142,6 +142,8 @@ Home Assistant. The same is available as actions for automations:
 `nimly_digital_lock.set_pin`, `nimly_digital_lock.clear_pin` and
 `nimly_digital_lock.set_slot_name`. Pick the lock with `device_id` (this integration's
 device or ZHA's) or `config_entry_id`; with a single lock set up, neither is needed.
+`set_slot_name` takes an optional `credential` (`pin`, `rfid` or `fingerprint`) to name
+only that kind on the slot.
 Home Assistant's recorder stores the data of every action call, so a code passed to
 `set_pin` ends up in the database; use the Configure dialog to keep it out.
 
@@ -232,12 +234,12 @@ says so. Update Home Assistant, then remove the lock from ZHA and pair it again 
 
 ### Repair issues
 
-| Issue | Meaning |
+| Issue (as shown under Settings → Repairs; *lock* is the lock's name) | Meaning |
 | --- | --- |
-| Lock events cannot be received | ZHA offers no way to listen to the lock (a Home Assistant update changed ZHA). Lock control in ZHA still works. |
-| Reports lock state but not who or how | Operation reports stopped, usually after a battery change. Reconfigure the device in ZHA with the lock awake. |
-| ZHA runs the lock without its Nimly quirk | Auto relock and volume are missing in ZHA. See above. |
-| Expired PIN code is still active | A temporary code could not be removed yet; it may still open the door. Wake the lock or delete the code at the keypad. |
+| Nimly lock events cannot be received | ZHA offers no way to listen to the lock (a Home Assistant update changed ZHA). Lock control in ZHA still works. |
+| *Lock* reports lock state but not who or how | Operation reports stopped, usually after a battery change. Reconfigure the device in ZHA with the lock awake. |
+| ZHA runs *lock* without its Nimly quirk | Auto relock and volume are missing in ZHA. See above. |
+| Expired PIN code on *lock* is still active | A temporary code could not be removed yet; it may still open the door. Wake the lock or delete the code at the keypad. |
 
 If the lock is not in ZHA yet, or ZHA has not finished reading it, setup waits and
 retries by itself.
