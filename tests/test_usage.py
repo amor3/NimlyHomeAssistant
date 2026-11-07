@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 
+from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -123,7 +125,13 @@ async def test_used_up_code_cleared_after_restart(
                 "6": {"name": "Bo", "has_pin": True},
             },
             "uses_left": {"5": 0, "6": 3, "7": 1, "x": 1, "8": "many"},
-            "usage": {"pin:5": {"count": 1, "last": None}, "pin:9": "broken"},
+            "usage": {
+                "pin:5": {"count": 1, "last": None},
+                "pin:9": "broken",
+                "pin:x": {"count": 1},
+                "rfid": {"count": 1},
+                "door:3": {"count": 1},
+            },
             "unlocks_total": 4,
         },
     }
@@ -220,7 +228,11 @@ async def test_unlock_from_home_assistant_counts_the_user(
     )
     await hass.async_block_till_done(wait_background_tasks=True)
     await _report(hass, fake_zha, 0x00020000)
-    assert entry.runtime_data.usage[f"ha:{hass_admin_user.name}"]["count"] == 1
+    key = f"ha:{hass_admin_user.id}"
+    assert entry.runtime_data.usage[key]["count"] == 1
+    # Counted by user id; shown by the name at the last unlock.
+    state = hass.states.get("sensor.front_door_activity_unlocks")
+    assert state.attributes["by_user"] == {hass_admin_user.name: 1}
 
 
 async def test_counts_survive_reload(
@@ -234,3 +246,92 @@ async def test_counts_survive_reload(
     assert manager.uses_left(5) == 2
     assert manager.usage["pin:5"]["count"] == 1
     assert hass.states.get(UNLOCKS).state == "1"
+
+
+@pytest.mark.repeated_reports
+async def test_repeated_report_counts_once(
+    hass: HomeAssistant,
+    fake_zha: FakeZha,
+    init_integration: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    await _set(hass, slot=5, pin_code="2580", max_uses=2)
+    manager = init_integration.runtime_data
+    # A retransmission, or a read of 0x0100, repeats the report.
+    await _report(hass, fake_zha, _keypad_unlock(5))
+    await _report(hass, fake_zha, _keypad_unlock(5))
+    assert manager.uses_left(5) == 1
+    assert manager.unlocks_total == 1
+    # The same operation later is a new one.
+    freezer.tick(timedelta(seconds=31))
+    await _report(hass, fake_zha, _keypad_unlock(5))
+    assert manager.unlocks_total == 2
+    assert _calls(fake_zha)[-1] == (0x07, 5)
+
+
+async def test_clear_keeps_a_code_written_meanwhile(
+    hass: HomeAssistant, fake_zha: FakeZha, init_integration: MockConfigEntry
+) -> None:
+    await _set(hass, slot=5, pin_code="2580", max_uses=1)
+    manager = init_integration.runtime_data
+    # A new code lands before the used-up clear gets the radio.
+    await _set(hass, slot=5, pin_code="2581")
+    calls = fake_zha.cluster.command.await_count
+    await manager._async_expire(5)  # noqa: SLF001
+    assert fake_zha.cluster.command.await_count == calls
+    assert manager.slots[5]["has_pin"] is True
+
+
+@pytest.mark.parametrize("replace", [True, False])
+async def test_repair_goes_when_code_is_replaced_or_cleared(
+    hass: HomeAssistant, fake_zha: FakeZha, init_integration: MockConfigEntry, replace: bool
+) -> None:
+    await _set(hass, slot=5, pin_code="2580", max_uses=1)
+    manager = init_integration.runtime_data
+    working = fake_zha.cluster.command
+    fake_zha.cluster.command = AsyncMock(side_effect=TimeoutError)
+    await _report(hass, fake_zha, _keypad_unlock(5))
+    await manager._async_expire(5, attempt=2)  # noqa: SLF001
+    issue_id = f"expired_pin_not_cleared_{init_integration.entry_id}_5"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    fake_zha.cluster.command = working
+    if replace:
+        await _set(hass, slot=5, pin_code="2581")
+    else:
+        await hass.services.async_call(DOMAIN, NimlyService.CLEAR_PIN, {"slot": 5}, blocking=True)
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_new_person_on_a_credential_counts_from_zero(
+    hass: HomeAssistant, fake_zha: FakeZha, init_integration: MockConfigEntry
+) -> None:
+    manager = init_integration.runtime_data
+    await _report(hass, fake_zha, 0x03020005)  # fingerprint 5, no name yet
+    # Naming it keeps the count: it is the same finger.
+    manager.set_slot_name(5, "Bo", "fingerprint")
+    assert manager.usage["fingerprint:5"]["count"] == 1
+    await _report(hass, fake_zha, 0x04020005)  # key tag 5
+    # Renamed to someone else: that finger counts again; the tag keeps its count.
+    manager.set_slot_name(5, "Cecilia", "fingerprint")
+    assert "fingerprint:5" not in manager.usage
+    assert manager.usage["rfid:5"]["count"] == 1
+    # A tag enrolled or removed in the slot counts again too.
+    await hass.services.async_call(
+        DOMAIN, NimlyService.ENROLL_CREDENTIAL, {"slot": 5, "credential": "rfid"}, blocking=True
+    )
+    assert manager.usage == {}
+    assert hass.states.get(UNLOCKS).attributes["by_user"] == {}
+    assert hass.states.get(UNLOCKS).state == "2"
+
+
+async def test_unlock_updates_only_usage_entities(
+    hass: HomeAssistant, fake_zha: FakeZha, init_integration: MockConfigEntry
+) -> None:
+    await _set(hass, slot=5, pin_code="2580", max_uses=3)
+    keypad = "switch.nimlypro_activity_keypad_programming"
+    # Copied: Home Assistant updates last_reported on the state object itself.
+    reported = hass.states.get(keypad).last_reported
+    await _report(hass, fake_zha, _keypad_unlock(5))
+    assert hass.states.get(PIN_CODES).attributes["slots"]["5"]["uses_left"] == 2
+    assert hass.states.get(UNLOCKS).state == "1"
+    assert hass.states.get(keypad).last_reported == reported

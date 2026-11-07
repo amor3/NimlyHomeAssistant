@@ -90,6 +90,9 @@ REPORT_GAP_S = 15
 MISSED_REPORTS_FOR_ISSUE = 3
 # How many raw reports diagnostics keep.
 RECENT_REPORTS = 20
+# The same event report again within this many seconds is a repeat
+# (a Zigbee retransmission, or a read of 0x0100), not a second operation.
+DUPLICATE_REPORT_S = 30
 # Most uses a limited code can be given.
 MAX_USES = 999
 
@@ -100,6 +103,8 @@ class UsageData(TypedDict):
     count: int
     # ISO 8601 UTC time of the last unlock.
     last: str | None
+    # For ha:<user id>: the user's name at the last unlock.
+    name: str | None
 
 
 class SlotData(TypedDict):
@@ -122,6 +127,16 @@ def _is_empty(slot: SlotData) -> bool:
     return not slot["name"] and not slot["names"] and not slot["has_pin"]
 
 
+def _valid_usage_key(key: object) -> bool:
+    """A stored usage key: <credential>:<slot> or ha:<user id>."""
+    if not isinstance(key, str):
+        return False
+    kind, _, rest = key.partition(":")
+    if kind == "ha":
+        return bool(rest)
+    return kind in CREDENTIAL_KINDS and rest.isdigit()
+
+
 @dataclass(frozen=True, slots=True)
 class RemoteCommand:
     """A lock or unlock asked for in Home Assistant, waiting for its report."""
@@ -130,6 +145,7 @@ class RemoteCommand:
     at: float
     context: Context
     user: str | None
+    user_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +159,7 @@ class LockActivity:
     ha_user: str | None = None
     context: Context | None = None
     remote: bool = False
+    ha_user_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -273,6 +290,7 @@ class NimlyLockManager:
         # Slot -> unlocks left before a limited code is cleared.
         self._uses_left: dict[int, int] = {}
         self._usage: dict[str, UsageData] = {}
+        self._usage_listeners: list[Callable[[], None]] = []
         # Unlocks by people since setup; never goes down, for long-term statistics.
         self.unlocks_total = 0
         self.capabilities: dict[str, int] = {}
@@ -298,6 +316,8 @@ class NimlyLockManager:
         self._failed_cluster: Any = None
         self._remote: RemoteCommand | None = None
         self._last_lock_state: int | None = None
+        # Raw value and time.monotonic() of the last event report.
+        self._last_event_report: tuple[int, float] | None = None
         self._report_gap_timer: CALLBACK_TYPE | None = None
         self.missed_reports = 0
         self._expiry_timers: dict[int, CALLBACK_TYPE] = {}
@@ -355,10 +375,16 @@ class NimlyLockManager:
         self._usage = {}
         if isinstance(raw := data.get("usage"), dict):
             for key, record in raw.items():
-                if isinstance(record, dict) and isinstance(count := record.get("count"), int):
-                    last = record.get("last")
-                    self._usage[str(key)] = UsageData(
-                        count=max(0, count), last=str(last) if last else None
+                if (
+                    _valid_usage_key(key)
+                    and isinstance(record, dict)
+                    and isinstance(count := record.get("count"), int)
+                ):
+                    last, name = record.get("last"), record.get("name")
+                    self._usage[key] = UsageData(
+                        count=max(0, count),
+                        last=str(last) if last else None,
+                        name=str(name) if name else None,
                     )
         total = data.get("unlocks_total")
         self.unlocks_total = total if isinstance(total, int) and total >= 0 else 0
@@ -467,6 +493,7 @@ class NimlyLockManager:
     def set_slot_name(self, slot: int, name: str, credential: str | None = None) -> None:
         """Name a slot, or one credential kind on it; an empty name removes it."""
         key = str(slot)
+        before = {kind: self.slot_name(slot, kind) for kind in CREDENTIAL_KINDS}
         current = self._slots.get(key, _empty_slot())
         name = rules.clean_name(name)
         if credential is None:
@@ -479,6 +506,15 @@ class NimlyLockManager:
             self._slots.pop(key, None)
         else:
             self._slots[key] = current
+        # A credential renamed from one person to another counts from zero;
+        # naming one that had no name keeps its count.
+        self._reset_usage(
+            *(
+                f"{kind}:{slot}"
+                for kind, old in before.items()
+                if old and old != self.slot_name(slot, kind)
+            )
+        )
         self._schedule_save()
         self.async_update_listeners()
 
@@ -538,6 +574,9 @@ class NimlyLockManager:
                 if fresh:
                     # A new code may belong to someone else: count it from zero.
                     self._usage.pop(f"pin:{slot}", None)
+                # A new code replaces one an earlier clear could not remove.
+                ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
+                self._notify_usage()
                 self._schedule_expiry(slot)
                 self._schedule_save()
                 self.async_update_listeners()
@@ -560,19 +599,24 @@ class NimlyLockManager:
         still be removed after the reserved-slot setting was raised.
         """
         async with self._pin_lock:
-            outcome = await self._send(CMD_CLEAR_PIN, {"user_id": slot})
-            if outcome.delivered:
-                if (cancel := self._expiry_timers.pop(slot, None)) is not None:
-                    cancel()
-                self._uses_left.pop(slot, None)
-                if (current := self._slots.get(str(slot))) is not None:
-                    current["has_pin"] = False
-                    current["expires"] = None
-                    if _is_empty(current):
-                        self._slots.pop(str(slot))
-                    self._schedule_save()
-                    self.async_update_listeners()
-            return outcome
+            return await self._async_clear_locked(slot)
+
+    async def _async_clear_locked(self, slot: int) -> SendOutcome:
+        outcome = await self._send(CMD_CLEAR_PIN, {"user_id": slot})
+        if outcome.delivered:
+            if (cancel := self._expiry_timers.pop(slot, None)) is not None:
+                cancel()
+            self._uses_left.pop(slot, None)
+            ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
+            if (current := self._slots.get(str(slot))) is not None:
+                current["has_pin"] = False
+                current["expires"] = None
+                if _is_empty(current):
+                    self._slots.pop(str(slot))
+                self._schedule_save()
+                self.async_update_listeners()
+            self._notify_usage()
+        return outcome
 
     async def _send(self, command: int, params: dict[str, Any]) -> SendOutcome:
         outcome = await self.transport.send(command, params)
@@ -617,6 +661,16 @@ class NimlyLockManager:
 
         self._expiry_timers[slot] = async_track_point_in_utc_time(self.hass, _expired, when)
 
+    def _clear_due(self, slot: int) -> bool:
+        """Whether the code in a slot has expired or its uses ran out."""
+        data = self._slots.get(str(slot))
+        if data is None or not data["has_pin"]:
+            return False
+        if self._uses_left.get(slot) == 0:
+            return True
+        expires = dt_util.parse_datetime(data["expires"]) if data["expires"] else None
+        return expires is not None and expires <= dt_util.utcnow()
+
     def _expiry_issue_id(self, slot: int) -> str:
         return f"{ISSUE_EXPIRED_PIN}_{self.entry.entry_id}_{slot}"
 
@@ -626,12 +680,16 @@ class NimlyLockManager:
         From the second failed attempt a repair issue says the code may
         still open the door, and it goes away once the code is cleared.
         """
-        outcome = await self._async_clear(slot)
+        async with self._pin_lock:
+            # Checked under the lock: a new code written meanwhile is kept.
+            if not self._clear_due(slot):
+                ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
+                return
+            outcome = await self._async_clear_locked(slot)
         if outcome.delivered:
             _LOGGER.info(
                 "Expired or used-up PIN code in slot %s on %s was cleared", slot, self.ieee
             )
-            ir.async_delete_issue(self.hass, DOMAIN, self._expiry_issue_id(slot))
             return
         delay = retry_delay(attempt)
         _LOGGER.log(
@@ -667,6 +725,8 @@ class NimlyLockManager:
                 f"{DOMAIN} PIN expiry {self.ieee} {slot}",
             )
 
+        if (cancel := self._expiry_timers.pop(slot, None)) is not None:
+            cancel()
         self._expiry_timers[slot] = async_call_later(self.hass, delay, _retry)
 
     # Key tags, fingerprints and the keypad (the module's own commands)
@@ -686,6 +746,9 @@ class NimlyLockManager:
             outcome = await self.transport.send_custom(command, {"user_id": slot})
         if outcome.lock_answered:
             self.schedule_capability_refresh()
+        if outcome.delivered:
+            # A new tag or finger in the slot: count it from zero.
+            self._reset_usage(f"{kind}:{slot}")
         return outcome
 
     async def async_remove_credential(self, slot: int, kind: str) -> SendOutcome:
@@ -698,6 +761,8 @@ class NimlyLockManager:
                 outcome = await self._send(CMD_CLEAR_RFID, {"user_id": slot})
             else:
                 outcome = await self.transport.send_custom(CMD_CLEAR_FINGERPRINT, {"user_id": slot})
+        if outcome.delivered:
+            self._reset_usage(f"{kind}:{slot}")
         return outcome
 
     async def async_set_keypad_programming(self, enabled: bool) -> SendOutcome:
@@ -743,6 +808,7 @@ class NimlyLockManager:
         self._usage.pop(f"pin:{slot}", None)
         self._schedule_save()
         self.async_update_listeners()
+        self._notify_usage()
         return await asyncio.shield(self._async_activate(slot))
 
     @callback
@@ -907,8 +973,27 @@ class NimlyLockManager:
         """Who a usage key stands for: the slot's name, or the Home Assistant user."""
         kind, _, rest = key.partition(":")
         if kind == "ha":
-            return rest
+            record = self._usage.get(key)
+            return (record["name"] if record else None) or rest
         return self.slot_label(int(rest), kind)
+
+    @callback
+    def _reset_usage(self, *keys: str) -> None:
+        """Start counts again: the credential may now belong to someone else."""
+        if [key for key in keys if self._usage.pop(key, None) is not None]:
+            self._schedule_save()
+            self._notify_usage()
+
+    @callback
+    def add_usage_listener(self, update: Callable[[], None]) -> Callable[[], None]:
+        """Call update when unlock counts or uses left change."""
+        self._usage_listeners.append(update)
+        return lambda: self._usage_listeners.remove(update)
+
+    @callback
+    def _notify_usage(self) -> None:
+        for update in list(self._usage_listeners):
+            update()
 
     @callback
     def _record_unlock(self, activity: LockActivity) -> None:
@@ -916,20 +1001,22 @@ class NimlyLockManager:
         event = activity.event
         if event.action is not LockAction.UNLOCK:
             return
-        if activity.ha_user is not None:
-            key = f"ha:{activity.ha_user}"
+        if activity.ha_user_id is not None:
+            key = f"ha:{activity.ha_user_id}"
         elif event.credits_user and event.slot is not None and event.credential:
             key = f"{event.credential}:{event.slot}"
         else:
             return
-        record = self._usage.setdefault(key, UsageData(count=0, last=None))
+        record = self._usage.setdefault(key, UsageData(count=0, last=None, name=None))
         record["count"] += 1
         record["last"] = dt_util.utcnow().isoformat(timespec="seconds")
+        if activity.ha_user_id is not None:
+            record["name"] = activity.ha_user
         self.unlocks_total += 1
         if key.startswith("pin:") and event.slot is not None:
             self._use_code(event.slot)
         self._schedule_save()
-        self.async_update_listeners()
+        self._notify_usage()
 
     @callback
     def _use_code(self, slot: int) -> None:
@@ -1052,7 +1139,7 @@ class NimlyLockManager:
         wake = self.transport.wake_context
         if wake is not None and context.id == wake.id:
             return  # our own wake-up; its report is handled as an echo
-        self._remote = RemoteCommand(action, time.monotonic(), context, None)
+        self._remote = RemoteCommand(action, time.monotonic(), context, None, context.user_id)
         if context.user_id is None:
             return
 
@@ -1060,7 +1147,9 @@ class NimlyLockManager:
             user = await self.hass.auth.async_get_user(context.user_id)  # type: ignore[arg-type]
             remote = self._remote
             if user is not None and remote is not None and remote.context is context:
-                self._remote = RemoteCommand(remote.action, remote.at, context, user.name)
+                self._remote = RemoteCommand(
+                    remote.action, remote.at, context, user.name, remote.user_id
+                )
 
         # Started eagerly: the lookup never suspends, so the name is set
         # before this returns, long before the lock's report can arrive.
@@ -1111,6 +1200,11 @@ class NimlyLockManager:
         if (event := rules.decode_event_status(value)) is None:
             return
         self._report_arrived()
+        now = time.monotonic()
+        previous, self._last_event_report = self._last_event_report, (value, now)
+        if previous is not None and previous[0] == value and now - previous[1] < DUPLICATE_REPORT_S:
+            _LOGGER.debug("Lock %s: repeated event report 0x%08x ignored", self.ieee, value)
+            return
         self.handle_event(event)
 
     @callback
@@ -1320,6 +1414,7 @@ class NimlyLockManager:
             system=remote is None
             and rules.is_system_event(event, self.transport.wake_echo_pending()),
             ha_user=remote.user if remote else None,
+            ha_user_id=remote.user_id if remote else None,
             context=remote.context if remote else None,
             remote=remote is not None,
         )

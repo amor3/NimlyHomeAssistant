@@ -106,6 +106,7 @@ async def test_remote_command_matches_action_and_window(
         entry.runtime_data._remote.at - 60,  # noqa: SLF001
         context,
         hass_admin_user.name,
+        hass_admin_user.id,
     )
     fake_zha.cluster.report(0x0100, 0x00020000)
     await hass.async_block_till_done()

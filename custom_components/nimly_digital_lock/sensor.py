@@ -227,6 +227,11 @@ class PinCodesSensor(NimlyEntity, SensorEntity):
     def __init__(self, manager: NimlyLockManager) -> None:
         super().__init__(manager, "pin_codes")
 
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Uses left change on unlocks, which update only usage listeners.
+        self.async_on_remove(self.manager.add_usage_listener(self._handle_manager_update))
+
     @property
     def native_value(self) -> int:
         return sum(1 for slot in self.manager.slots.values() if slot["has_pin"])
@@ -266,6 +271,10 @@ class UnlocksSensor(NimlyEntity, SensorEntity):
 
     def __init__(self, manager: NimlyLockManager) -> None:
         super().__init__(manager, "unlocks")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self.manager.add_usage_listener(self._handle_manager_update))
 
     @property
     def native_value(self) -> int:

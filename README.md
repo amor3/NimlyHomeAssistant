@@ -215,7 +215,8 @@ one-time code. Only unlocks with that code count, not a key tag or fingerprint i
 slot. It combines with `valid_from` and an end time (whichever comes first removes the
 code), but not with a weekly schedule. If the lock is asleep when the code runs out, the
 clear is retried like an expired code. Setting a new code in a slot starts its unlock
-count from zero.
+count from zero. So does enrolling or removing a tag or fingerprint, and renaming one from
+one person to another (naming one that had no name keeps its count).
 
 **Generated codes.** Leave out `pin_code` and call the action with a response: a random
 code the lock accepts (no 1234 or 0000) is written and returned, and stays out of the

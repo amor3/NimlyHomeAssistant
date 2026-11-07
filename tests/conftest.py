@@ -30,6 +30,17 @@ def no_retry_delay() -> Generator[None]:
         yield
 
 
+@pytest.fixture(autouse=True)
+def repeated_reports(request: pytest.FixtureRequest) -> Generator[None]:
+    """Tests send the same report in quick succession; a test marked
+    repeated_reports keeps the filter that drops repeats."""
+    if request.node.get_closest_marker("repeated_reports"):
+        yield
+        return
+    with patch("custom_components.nimly_digital_lock.manager.DUPLICATE_REPORT_S", 0):
+        yield
+
+
 @dataclass
 class FakeDoorLockCluster:
     """The parts of a zigpy Door Lock cluster the integration uses."""
@@ -182,6 +193,7 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers", "zha_features(*features): what ZHA shows for the lock (default: all)"
     )
     config.addinivalue_line("markers", "real_zha_features: detect from the entity registry")
+    config.addinivalue_line("markers", "repeated_reports: keep dropping repeated event reports")
 
 
 @pytest.fixture(autouse=True)
