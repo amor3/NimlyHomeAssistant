@@ -269,10 +269,8 @@ locks an open door, so it is off by default.
 
 ## Privacy and security
 
-- The lock reports the last typed PIN in clear text on a manufacturer attribute
-  (0x0101), and the last key tag on another (0x0102). This integration never reads them,
-  stores them or logs them. ZHA's own optional "Last PIN code" sensor does show the PIN;
-  keep that sensor disabled.
+- PIN codes and key tag ids used at the lock are never stored or logged, and are not
+  left in ZHA's database either.
 - Codes written later or weekly are kept in Home Assistant's storage until written (see
   [Managing PIN codes](#managing-pin-codes)); all other codes never are.
 - Digit runs in error messages are masked before logging.

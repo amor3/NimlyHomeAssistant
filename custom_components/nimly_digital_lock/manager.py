@@ -68,6 +68,7 @@ from .zha import (
     LockTransport,
     SendOutcome,
     ZhaInternalsMissing,
+    blank_reported_value,
     find_cluster,
     subscribe_attribute_reports,
 )
@@ -1060,6 +1061,9 @@ class NimlyLockManager:
     def _subscribe(self, cluster: Any) -> None:
         self._unsubscribe = subscribe_attribute_reports(cluster, self._handle_report)
         self._cluster = cluster
+        # Values zigpy took in before this subscription (or an older version).
+        for attribute_id in (ATTR_ID_PIN_USED, ATTR_ID_RFID_USED):
+            self.hass.loop.call_soon(self._blank_value, attribute_id)
         # Always: battery low (0x9000) is the lock's own, not in ZHA's quirk.
         if (power := find_cluster(self.hass, self.ieee, POWER_CLUSTER_ID)) is not None:
             # ZHA's quirk doubles the lock's percent; older zigpy hands the
@@ -1174,7 +1178,9 @@ class NimlyLockManager:
     @callback
     def _handle_report(self, attribute_id: int, raw: Any) -> None:
         if attribute_id in (ATTR_ID_PIN_USED, ATTR_ID_RFID_USED):
-            # The code or tag in clear text; never stored or logged.
+            # Never stored or logged here, and not left in zigpy either.
+            if raw:
+                self.hass.loop.call_soon(self._blank_value, attribute_id)
             return
         self._remember_report(DOOR_LOCK_CLUSTER_ID, attribute_id, raw)
         self.schedule_capability_refresh()
@@ -1208,6 +1214,16 @@ class NimlyLockManager:
         self.handle_event(event)
 
     @callback
+    @callback
+    def _blank_value(self, attribute_id: int) -> None:
+        """Leave an empty value in zigpy's cache and database for this attribute."""
+        if (cluster := self._cluster) is None:
+            return
+        try:
+            blank_reported_value(cluster, attribute_id)
+        except Exception:  # noqa: BLE001 - zigpy internals; never log the frame
+            _LOGGER.debug("Lock %s: could not replace attribute 0x%04x", self.ieee, attribute_id)
+
     def _remember_report(self, cluster_id: int, attribute_id: int, raw: Any) -> None:
         """Keep the last reports for diagnostics, to check field behaviour."""
         try:

@@ -28,6 +28,7 @@ from zigpy.zcl import foundation
 from zigpy.zdo.types import NodeDescriptor
 
 from custom_components.nimly_digital_lock.const import DOMAIN, NimlyService
+from custom_components.nimly_digital_lock.zha import subscribe_attribute_reports
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -285,14 +286,67 @@ async def test_operation_report_without_manufacturer_code(
     assert hass.states.get(LAST_USER).state == "Anna"
 
 
-async def test_pin_used_report_is_dropped(
-    hass: HomeAssistant, real_integration: MockConfigEntry, real_lock: RealLock, caplog
+@pytest.fixture
+def cluster_values(real_lock: RealLock) -> list[tuple[int, Any]]:
+    """Every value zigpy takes in for the lock: what its cache and database keep."""
+    seen: list[tuple[int, Any]] = []
+    subscribe_attribute_reports(
+        real_lock.cluster, lambda attribute_id, raw: seen.append((attribute_id, raw))
+    )
+    return seen
+
+
+@pytest.fixture
+async def earlier_code(real_lock: RealLock) -> None:
+    """A code and a tag zigpy took in before the integration was set up."""
+    real_lock.report(0x0101, 0x41, bytes([0x03, 0x65, 0x43, 0x21]))
+    real_lock.report(0x0102, 0x41, bytes([0x02, 0xBE, 0xEF]))
+
+
+def _last(values: list[tuple[int, Any]], attribute_id: int) -> Any:
+    return [raw for seen_id, raw in values if seen_id == attribute_id][-1]
+
+
+async def test_used_code_and_tag_are_not_kept(
+    hass: HomeAssistant,
+    cluster_values: list[tuple[int, Any]],
+    real_integration: MockConfigEntry,
+    real_lock: RealLock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    real_lock.report(0x0101, 0x41, bytes([0x03, 0x12, 0x34, 0x56]))  # BCD 123456
+    real_lock.report(0x0101, 0x41, bytes([0x03, 0x12, 0x34, 0x56]))
+    real_lock.report(0x0102, 0x41, bytes([0x04, 0xDE, 0xAD, 0xBE, 0xEF]))
     real_lock.report(0x0100, 0x1B, (0x02020005).to_bytes(4, "little"))
     await hass.async_block_till_done()
     assert "123456" not in caplog.text
     assert hass.states.get(LAST_SOURCE).state == "keypad"
+    # zigpy saw the values, then an empty one in their place.
+    assert (0x0101, b"\x12\x34\x56") in cluster_values
+    assert _last(cluster_values, 0x0101) == b""
+    assert _last(cluster_values, 0x0102) == b""
+
+
+async def test_earlier_code_and_tag_are_not_kept(
+    hass: HomeAssistant,
+    earlier_code: None,
+    cluster_values: list[tuple[int, Any]],
+    real_integration: MockConfigEntry,
+) -> None:
+    await hass.async_block_till_done()
+    assert _last(cluster_values, 0x0101) == b""
+    assert _last(cluster_values, 0x0102) == b""
+
+
+async def test_empty_value_is_not_replaced_again(
+    hass: HomeAssistant,
+    cluster_values: list[tuple[int, Any]],
+    real_integration: MockConfigEntry,
+    real_lock: RealLock,
+) -> None:
+    cluster_values.clear()
+    real_lock.report(0x0101, 0x41, b"\x00")
+    await hass.async_block_till_done()
+    assert cluster_values == [(0x0101, b"")]
 
 
 async def test_lock_state_report_feeds_the_gap_watch(

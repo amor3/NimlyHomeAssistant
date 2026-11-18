@@ -44,10 +44,8 @@ ATTR_ID_MIN_PIN_LENGTH: Final = 0x0018
 ATTR_ID_AUTO_RELOCK: Final = 0x0023
 ATTR_ID_SOUND_VOLUME: Final = 0x0024
 ATTR_ID_EVENT_STATUS: Final = 0x0100
-# 0x0101 "PIN Used" carries the last typed PIN code in clear text. It is
-# never read and its reports are dropped.
+# 0x0101 "PIN Used" and 0x0102 "RFID Used": never read or kept.
 ATTR_ID_PIN_USED: Final = 0x0101
-# 0x0102 "RFID Used" carries the last tag's id; dropped the same way.
 ATTR_ID_RFID_USED: Final = 0x0102
 # 0x0103 "Diagnostics Data": parent router NWK, RSSI, RSSI in dBm.
 ATTR_ID_DIAGNOSTICS: Final = 0x0103

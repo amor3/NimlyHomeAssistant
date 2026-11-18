@@ -286,6 +286,21 @@ def subscribe_attribute_reports(
     return lambda: remove(listener)
 
 
+def blank_reported_value(cluster: Any, attribute_id: int) -> None:
+    """Replace an octet string attribute zigpy keeps with an empty one.
+
+    Fed through zigpy's own report path, so the empty value lands where the
+    lock's report did, in zigpy's cache and database, whatever its version.
+    """
+    frame = (
+        bytes([0x18, 0x00, foundation.GeneralCommand.Report_Attributes])
+        + attribute_id.to_bytes(2, "little")
+        + bytes([0x41, 0x00])  # octet string, length 0
+    )
+    header, args = cluster.deserialize(frame)
+    cluster.handle_message(header, args)
+
+
 def _raw_values(response: Any) -> tuple[dict[int, Any], set[int]]:
     """Values and answered attributes from a raw Read Attributes answer."""
     records = getattr(response, "status_records", None)
