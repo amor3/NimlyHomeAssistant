@@ -289,6 +289,22 @@ relock and volume from ZHA, or from this integration when ZHA does not show them
 to point to the current ones. The `nimly_digital_lock.update` and
 `nimly_digital_lock.export` actions are gone as well.
 
+## Upgrading from 1.0.0 (Zigbee Digital Lock)
+
+Release 1.0.0 was named Zigbee Digital Lock and used the domain `zigbee_digital_lock`.
+HACS keeps that domain for the repository, so upgrading, or uninstalling and installing
+again, fails with a message that the manifest is for `nimly_digital_lock`, not
+`zigbee_digital_lock`. To install the current version:
+
+1. In HACS, open the ⋮ menu, choose **Custom repositories** and remove
+   `amor3/NimlyHomeAssistant`.
+2. Remove the old **Zigbee Digital Lock** entry under **Settings → Devices & services**
+   if there is one, and the folder `/config/custom_components/zigbee_digital_lock`.
+3. Restart Home Assistant.
+4. Add `https://github.com/amor3/NimlyHomeAssistant` as a custom repository again (type
+   Integration), download the latest version and restart.
+5. Add **Nimly Digital Lock** under **Settings → Devices & services → Add integration**.
+
 ## Removing the integration
 
 Clear the PIN codes that should stop working first: they live on the lock, and removing
